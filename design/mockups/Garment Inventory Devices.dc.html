@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/broadsheet-562d5066-e856-4db8-a2c7-051a985e6d26/styles.css">
+<script src="_ds/broadsheet-562d5066-e856-4db8-a2c7-051a985e6d26/_ds_bundle.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<style>body{margin:0;background:var(--color-neutral-200);color:var(--color-text);font-family:var(--font-body)}a{color:var(--color-accent)}a:hover{color:var(--color-accent-600)}</style>
+</helmet>
+<div style="padding:48px;display:flex;flex-wrap:wrap;gap:56px;align-items:flex-start">
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="font-size:14px;color:var(--color-neutral-700)"><b style="color:var(--color-text)">Phone</b> · tabs across the top, under the app name</div>
+<div style="width:390px;height:844px;border-radius:32px;background:var(--color-bg);box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column">
+<div style="display:flex;justify-content:space-between;height:30px;box-sizing:border-box;padding:12px 26px 0;font-size:12px;font-weight:600;flex:none"><span>9:41</span><span>5G · 82%</span></div>
+<dc-import name="Garment Inventory App" embedded="{{ true }}" start-tab="Receive" style="width:100%;height:814px" hint-size="100%,814px"></dc-import>
+</div>
+</div>
+
+<div style="display:flex;flex-direction:column;gap:12px">
+<div style="font-size:14px;color:var(--color-neutral-700)"><b style="color:var(--color-text)">Laptop</b> · 1440 × 900 browser, tabs move to a left sidebar</div>
+<div style="width:1440px;height:900px;border-radius:10px;background:var(--color-bg);box-shadow:var(--shadow-lg);overflow:hidden;display:flex;flex-direction:column">
+<div style="flex:none;height:44px;display:flex;align-items:center;gap:16px;padding:0 16px;background:var(--color-neutral-300)">
+<div style="display:flex;gap:8px"><span style="width:12px;height:12px;border-radius:50%;background:var(--color-neutral-500)"></span><span style="width:12px;height:12px;border-radius:50%;background:var(--color-neutral-500)"></span><span style="width:12px;height:12px;border-radius:50%;background:var(--color-neutral-500)"></span></div>
+<div style="flex:1;max-width:560px;margin:0 auto;height:28px;border-radius:var(--radius-lg);background:var(--color-bg);display:flex;align-items:center;gap:8px;padding:0 12px;font-size:13px;color:var(--color-neutral-700)"><i class="ph ph-lock-simple"></i>garments.fab.local/stock</div>
+<div style="width:52px"></div>
+</div>
+<dc-import name="Garment Inventory App" embedded="{{ true }}" start-tab="Stock" style="width:100%;height:856px" hint-size="100%,856px"></dc-import>
+</div>
+</div>
+
+</div>
+</x-dc>
+</body>
+</html>

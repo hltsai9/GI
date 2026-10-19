@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="_ds/broadsheet-562d5066-e856-4db8-a2c7-051a985e6d26/styles.css">
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/regular/style.css">
+<script src="_ds/broadsheet-562d5066-e856-4db8-a2c7-051a985e6d26/_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)}a{color:var(--color-accent)}a:hover{color:var(--color-accent-600)}</style>
+</helmet>
+<div ref="{{ rootRef }}" data-gi="{{ uid }}" style="height:{{ rootH }};display:flex;background:var(--color-bg);color:var(--color-text);overflow:hidden">
+<sc-if value="{{ wide }}" hint-placeholder-val="{{ false }}">
+<aside style="width:236px;flex:none;display:flex;flex-direction:column;gap:var(--space-8);padding:32px 16px 24px;background:var(--color-surface)">
+<div style="padding:0 12px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Cleanroom stores</div><div style="font-size:24px;font-weight:600;line-height:1.2">Garments</div></div>
+<nav style="display:flex;flex-direction:column;gap:4px"><sc-for list="{{ tabs }}" as="t" hint-placeholder-count="5"><button onClick="{{ t.go }}" style="display:flex;align-items:center;gap:12px;min-height:46px;padding:0 12px;border:none;border-radius:var(--radius-lg);font:inherit;font-size:16px;text-align:left;cursor:pointer;background:{{ t.bg }};font-weight:{{ t.w }};color:{{ t.c }}" style-hover="background:var(--color-accent-100)"><i class="ph {{ t.icon }}" style="font-size:22px"></i>{{ t.label }}</button></sc-for></nav>
+<div style="margin-top:auto;padding:0 12px;font-size:13px;color:var(--color-neutral-700);line-height:1.5">Fab1 + Fab2<br>Mon 5 Oct · 09:41</div>
+</aside>
+</sc-if>
+<div style="flex:1;min-width:0;display:flex;flex-direction:column;overflow:hidden">
+<sc-if value="{{ narrow }}" hint-placeholder-val="{{ true }}">
+<div style="display:flex;align-items:baseline;justify-content:space-between;padding:14px 20px 0"><span style="font-size:18px;font-weight:600">Garments</span><span style="font-size:12px;color:var(--color-neutral-700)">Fab1 + Fab2 · 09:41</span></div>
+<nav style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));padding:8px 8px 0"><sc-for list="{{ tabs }}" as="t" hint-placeholder-count="4"><button onClick="{{ t.go }}" style="min-height:56px;border:none;border-bottom:2px solid {{ t.line }};background:transparent;font:inherit;font-size:11.5px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-weight:{{ t.w }};color:{{ t.c }}"><i class="ph {{ t.icon }}" style="font-size:22px"></i>{{ t.label }}</button></sc-for></nav>
+</sc-if>
+<div style="padding:{{ headPad }}"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">{{ kicker }}</div><h3 style="margin:2px 0 0;font-size:{{ titleSize }}">{{ title }}</h3></div>
+
+<sc-if value="{{ isReceive }}" hint-placeholder-val="{{ true }}">
+<div style="padding:{{ segPad }}"><div class="seg" style="display:flex"><sc-for list="{{ rViews }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="r-view" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div></div>
+<sc-if value="{{ rNew }}" hint-placeholder-val="{{ true }}">
+<div style="flex:1;overflow:auto;padding:{{ bodyPad }};display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;gap:var(--space-4)">
+<sc-if value="{{ b.posted }}"><div style="display:flex;gap:10px;align-items:baseline"><span class="tag tag-accent">Posted</span><span style="font-size:14px">{{ b.posted }}</span></div></sc-if>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">
+<div style="position:relative">
+<button onClick="{{ dd.bt.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.bt.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Garment</span>{{ dd.bt.label }}<i class="ph {{ dd.bt.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.bt.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.bt.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+<div style="position:relative">
+<button onClick="{{ dd.bc.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.bc.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Color</span>{{ dd.bc.label }}<i class="ph {{ dd.bc.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.bc.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.bc.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+<div style="position:relative">
+<button onClick="{{ dd.bs.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.bs.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Size</span>{{ dd.bs.label }}<i class="ph {{ dd.bs.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.bs.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.bs.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+<div style="position:relative">
+<button onClick="{{ dd.bl.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.bl.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Location</span>{{ dd.bl.label }}<i class="ph {{ dd.bl.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.bl.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.bl.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+<label style="position:relative;display:block;background:var(--color-surface);border-radius:var(--radius-lg)"><span style="position:absolute;top:7px;left:12px;font-size:11px;letter-spacing:.04em;color:var(--color-neutral-700);pointer-events:none">Quantity</span><input inputmode="numeric" value="{{ b.form.q }}" onChange="{{ b.setQ }}" style="width:100%;height:54px;padding:21px 12px 5px 12px;border:1px solid transparent;border-radius:var(--radius-lg);background:transparent;font:inherit;font-size:15px;font-weight:600;color:var(--color-text);outline:none;font-variant-numeric:tabular-nums;caret-color:var(--color-accent)" style-hover="border-color:var(--color-neutral-400)" style-focus="border-color:var(--color-accent)"></label>
+<div style="display:flex;align-items:flex-end"><button class="btn btn-secondary" onClick="{{ b.add }}" style="width:100%;min-height:54px;border-radius:var(--radius-lg)"><i class="ph ph-plus" style="font-size:18px"></i>Add line</button></div>
+</div>
+<div style="display:flex;flex-direction:column">
+<sc-for list="{{ b.lines }}" as="ln" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:10px;padding:8px 0">
+<span style="display:inline-block;flex:none;width:28px;height:28px;background:currentColor;color:var(--color-accent-700);-webkit-mask:url({{ ln.icon }}) center/contain no-repeat;mask:url({{ ln.icon }}) center/contain no-repeat"></span>
+<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:15px">{{ ln.name }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ ln.meta }}</div></div>
+<button class="btn btn-secondary btn-icon" onClick="{{ ln.dec }}" style="width:44px;height:44px;font-size:18px">−</button>
+<span style="width:40px;text-align:center;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">{{ ln.q }}</span>
+<button class="btn btn-secondary btn-icon" onClick="{{ ln.inc }}" style="width:44px;height:44px;font-size:18px">+</button>
+</div>
+</sc-for>
+<sc-if value="{{ b.empty }}"><div style="font-size:14px;color:var(--color-neutral-700);padding:8px 0">No lines yet. Add each garment, color, size and location from the delivery.</div></sc-if>
+</div>
+</div>
+<div style="padding:{{ footPad }};display:flex;align-items:center;gap:12px"><div style="flex:1;font-size:13px;color:var(--color-neutral-700)">{{ b.count }} lines<br><span style="font-size:17px;font-weight:600;color:var(--color-text)">{{ b.total }} items</span></div><button class="btn btn-primary" onClick="{{ b.post }}" disabled="{{ b.empty }}" style="min-height:48px;font-size:15px;padding:0 22px">Post delivery</button></div>
+</sc-if>
+<sc-if value="{{ rHist }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;overflow:auto;padding:{{ bodyPad }};display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;gap:var(--space-2)">
+<sc-if value="{{ hist.saved }}"><div style="display:flex;gap:10px;align-items:baseline;padding-bottom:6px"><span class="tag tag-accent">Saved</span><span style="font-size:14px">{{ hist.saved }}</span></div></sc-if>
+<sc-for list="{{ hist.items }}" as="dl" hint-placeholder-count="4">
+<div style="display:flex;flex-direction:column">
+<button onClick="{{ dl.toggle }}" style="display:flex;gap:10px;align-items:center;min-height:60px;padding:8px 0;border:none;background:transparent;font:inherit;text-align:left;cursor:pointer;color:var(--color-text)">
+<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:15px">{{ dl.when }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ dl.meta }}</div></div>
+<sc-if value="{{ dl.edited }}"><span class="tag tag-neutral">Edited</span></sc-if>
+<i class="ph {{ dl.caret }}" style="font-size:18px;color:var(--color-accent-700)"></i>
+</button>
+<sc-if value="{{ dl.open }}">
+<div style="display:flex;flex-direction:column;gap:2px;padding:0 0 14px">
+<sc-if value="{{ dl.note }}"><div style="font-size:13px;font-style:italic;color:var(--color-neutral-700);padding-bottom:4px">{{ dl.note }}</div></sc-if>
+<sc-for list="{{ dl.lines }}" as="ln">
+<div style="display:flex;align-items:center;gap:10px;padding:6px 0">
+<span style="display:inline-block;flex:none;width:24px;height:24px;background:currentColor;color:var(--color-accent-700);-webkit-mask:url({{ ln.icon }}) center/contain no-repeat;mask:url({{ ln.icon }}) center/contain no-repeat"></span>
+<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:14px">{{ ln.name }}</div><div style="font-size:12px;color:{{ ln.metaColor }}">{{ ln.meta }}</div></div>
+<button class="btn btn-secondary btn-icon" onClick="{{ ln.dec }}" style="width:44px;height:44px;font-size:18px">−</button>
+<span style="width:36px;text-align:center;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums">{{ ln.q }}</span>
+<button class="btn btn-secondary btn-icon" onClick="{{ ln.inc }}" style="width:44px;height:44px;font-size:18px">+</button>
+</div>
+</sc-for>
+<div style="font-size:14px;padding:6px 0;color:{{ dl.diffColor }}">{{ dl.diffText }}</div>
+<div style="display:flex;gap:8px;align-items:center">
+<button class="btn btn-primary" onClick="{{ dl.save }}" disabled="{{ dl.noChange }}" style="min-height:44px">Save correction</button>
+<button class="btn btn-ghost" onClick="{{ dl.cancel }}" style="min-height:44px">Cancel</button>
+<button class="btn btn-ghost" onClick="{{ dl.voidAll }}" style="min-height:44px;margin-left:auto;color:var(--color-accent-2-700)">Void delivery</button>
+</div>
+</div>
+</sc-if>
+</div>
+</sc-for>
+<div style="font-size:13px;color:var(--color-neutral-700);text-wrap:pretty;padding-top:6px">Open a delivery to fix a wrong count. Saving changes stock by the difference and keeps a note of the change.</div>
+</div>
+</sc-if>
+</sc-if>
+
+<sc-if value="{{ isStock }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;overflow:auto;padding:{{ bodyPad }};display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;gap:var(--space-4)">
+<div class="seg" style="display:flex"><sc-for list="{{ stockViews }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="stock-view" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+
+<sc-if value="{{ isSummary }}">
+<div style="display:flex;flex-direction:column;gap:18px">
+<sc-for list="{{ h.totals }}" as="tt" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:14px">
+<span style="display:inline-block;flex:none;width:34px;height:34px;background:currentColor;color:var(--color-accent-700);-webkit-mask:url({{ tt.icon }}) center/contain no-repeat;mask:url({{ tt.icon }}) center/contain no-repeat"></span>
+<div style="font-size:52px;line-height:1;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;min-width:118px">{{ tt.n }}</div>
+<div><div style="font-size:20px;font-weight:600">{{ tt.label }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ tt.cover }}</div></div>
+</div>
+</sc-for>
+</div>
+<div>
+<h4 style="margin:0 0 6px">Reorder</h4>
+<sc-for list="{{ h.lows }}" as="lw" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0;font-size:14px"><span style="display:flex;align-items:center;gap:8px"><span style="display:inline-block;flex:none;width:18px;height:18px;background:currentColor;color:var(--color-neutral-700);-webkit-mask:url({{ lw.icon }}) center/contain no-repeat;mask:url({{ lw.icon }}) center/contain no-repeat"></span>{{ lw.name }}</span><span style="font-variant-numeric:tabular-nums"><b style="color:var(--color-accent-2-700)">{{ lw.q }}</b> <span style="color:var(--color-neutral-700)">/ {{ lw.m }}</span></span></div></sc-for>
+</div>
+<table class="table" style="font-variant-numeric:tabular-nums">
+<thead><tr><th>By location</th><th style="text-align:right">Fab1</th><th style="text-align:right">Fab2</th></tr></thead>
+<tbody><sc-for list="{{ h.byLoc }}" as="bl" hint-placeholder-count="3"><tr><td>{{ bl.label }}</td><td style="text-align:right">{{ bl.a }}</td><td style="text-align:right">{{ bl.b }}</td></tr></sc-for></tbody>
+</table>
+</sc-if>
+
+<sc-if value="{{ isGrid }}">
+<div style="display:flex;gap:8px">
+<div class="seg" style="display:flex;flex:1"><sc-for list="{{ g.typeOpts }}" as="o" hint-placeholder-count="3"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px;padding:7px 2px;gap:4px;font-size:12.5px"><input type="radio" name="g-type" checked="{{ o.on }}" onChange="{{ o.pick }}"><span style="display:inline-block;flex:none;width:16px;height:16px;background:currentColor;-webkit-mask:url({{ o.icon }}) center/contain no-repeat;mask:url({{ o.icon }}) center/contain no-repeat"></span>{{ o.label }}</label></sc-for></div>
+<div class="seg" style="display:flex"><sc-for list="{{ g.locOpts }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="justify-content:center;min-height:40px;padding:7px 8px"><input type="radio" name="g-loc" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:4px">
+<div style="display:grid;grid-template-columns:{{ g.cols }};gap:4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700)"><span></span><sc-for list="{{ colors }}" as="o"><span style="text-align:center;overflow:hidden;text-overflow:ellipsis">{{ o }}</span></sc-for></div>
+<sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="8">
+<div style="display:grid;grid-template-columns:{{ g.cols }};gap:4px;align-items:stretch"><span style="font-size:12px;font-weight:600;align-self:center">{{ r.size }}</span><sc-for list="{{ r.cells }}" as="c"><button onClick="{{ c.pick }}" style="min-height:40px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer;background:{{ c.bg }};color:{{ c.fg }};outline:{{ c.ring }};outline-offset:1px">{{ c.label }}</button></sc-for></div>
+</sc-for>
+<div style="display:flex;gap:14px;font-size:12px;color:var(--color-neutral-700);margin-top:4px"><span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:var(--color-accent-2-200)"></span>Below min</span><span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:var(--color-neutral-200)"></span>Close to min</span><span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:var(--color-accent-100)"></span>Plenty</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><h4 style="margin:0">{{ g.det.title }}</h4><span style="font-size:13px;color:{{ g.det.statusColor }};font-weight:600">{{ g.det.status }}</span></div>
+<div style="display:flex;align-items:center;gap:12px">
+<div style="flex:1"><div style="font-size:34px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums">{{ g.det.q }}</div><div style="font-size:12px;color:var(--color-neutral-700)">on hand</div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div style="display:flex;align-items:center;gap:6px"><button class="btn btn-secondary btn-icon" onClick="{{ g.det.dec }}" style="width:44px;height:44px;font-size:18px">−</button><span style="width:36px;text-align:center;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums">{{ g.det.m }}</span><button class="btn btn-secondary btn-icon" onClick="{{ g.det.inc }}" style="width:44px;height:44px;font-size:18px">+</button></div><div style="font-size:12px;color:var(--color-neutral-700)">Alert below</div></div>
+</div>
+<div style="font-size:13px;color:var(--color-neutral-700)">{{ g.det.meta }}</div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isTrends }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;overflow:auto;padding:{{ bodyPad }};display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;gap:var(--space-4)">
+<div class="seg" style="display:flex"><sc-for list="{{ trendViews }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="trend-view" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+
+<sc-if value="{{ isOverTime }}">
+<div class="seg" style="display:flex"><sc-for list="{{ i.rangeOpts }}" as="o" hint-placeholder-count="3"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="i-range" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+<div>
+<h4 style="margin:0 0 6px">Stock on hand</h4>
+<div style="display:flex;gap:16px;font-size:13px;margin-bottom:8px"><sc-for list="{{ i.legend }}" as="lg" hint-placeholder-count="3"><span style="display:flex;align-items:center;gap:6px"><span style="width:14px;height:3px;background:{{ lg.color }}"></span>{{ lg.label }} <b style="font-variant-numeric:tabular-nums">{{ lg.now }}</b></span></sc-for></div>
+<svg viewBox="0 0 320 140" style="width:100%;height:auto;display:block;overflow:visible">
+<line x1="0" y1="130" x2="320" y2="130" stroke="var(--color-neutral-300)" stroke-width="1"></line>
+<path d="{{ i.paths.Gown }}" fill="none" stroke="var(--color-accent)" stroke-width="2"></path>
+<path d="{{ i.paths.Hood }}" fill="none" stroke="var(--color-accent-2)" stroke-width="2"></path>
+<path d="{{ i.paths.Boot }}" fill="none" stroke="var(--color-text)" stroke-width="2"></path>
+</svg>
+<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--color-neutral-700);margin-top:4px"><span>{{ i.start }}</span><span>Today</span></div>
+</div>
+<div>
+<h4 style="margin:0 0 2px">Deliveries vs issues</h4>
+<div style="font-size:13px;color:var(--color-neutral-700);margin-bottom:10px">Delivered <b style="color:var(--color-accent-700)">{{ i.delivered }}</b> · Issued <b style="color:var(--color-accent-2-700)">{{ i.issued }}</b> · Net <b style="color:var(--color-text)">{{ i.net }}</b></div>
+<div style="display:flex;gap:2px;height:120px;align-items:stretch">
+<sc-for list="{{ i.bars }}" as="br" hint-placeholder-count="14">
+<div style="flex:1;display:flex;flex-direction:column"><div style="flex:1;display:flex;align-items:flex-end"><div style="width:100%;height:{{ br.up }};background:var(--color-accent)"></div></div><div style="height:1px;background:var(--color-text)"></div><div style="flex:1"><div style="width:100%;height:{{ br.down }};background:var(--color-accent-2-400)"></div></div></div>
+</sc-for>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--color-neutral-700);margin-top:4px"><span>{{ i.start }}</span><span>Today</span></div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isBreakdown }}">
+<div>
+<h4 style="margin:0 0 6px">Issued per day</h4>
+<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px"><span style="font-size:34px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1">{{ j.avg }}</span><span style="font-size:13px;color:var(--color-neutral-700)">a weekday, on average</span></div>
+<div style="display:flex;gap:4px;height:110px;align-items:flex-end">
+<sc-for list="{{ j.days }}" as="dy" hint-placeholder-count="14"><div style="flex:1;height:{{ dy.h }};background:{{ dy.color }}"></div></sc-for>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--color-neutral-700);margin-top:4px"><span>{{ j.start }}</span><span>Today (so far)</span></div>
+</div>
+<div class="seg" style="display:flex"><sc-for list="{{ j.metricOpts }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="j-metric" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+<div>
+<h4 style="margin:0 0 8px">By size</h4>
+<sc-for list="{{ j.bySize }}" as="bs" hint-placeholder-count="7">
+<div style="display:grid;grid-template-columns:44px 1fr 48px;gap:8px;align-items:center;padding:3px 0;font-size:13px"><span style="font-weight:600">{{ bs.label }}</span><span style="height:12px"><span style="display:block;height:100%;width:{{ bs.w }};background:var(--color-accent)"></span></span><span style="text-align:right;font-variant-numeric:tabular-nums">{{ bs.v }}</span></div>
+</sc-for>
+</div>
+<div>
+<h4 style="margin:0 0 8px">By location</h4>
+<div style="display:flex;height:28px;gap:2px"><div style="width:{{ j.loc.aw }};background:var(--color-accent)"></div><div style="flex:1;background:var(--color-accent-300)"></div></div>
+<div style="display:flex;justify-content:space-between;font-size:14px;margin-top:6px;font-variant-numeric:tabular-nums"><span><b>Fab1</b> {{ j.loc.a }}</span><span><b>Fab2</b> {{ j.loc.b }}</span></div>
+</div>
+</sc-if>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSettingsTab }}" hint-placeholder-val="{{ false }}">
+<div style="padding:{{ segPad }}"><div class="seg" style="display:flex"><sc-for list="{{ setViews }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="set-view" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div></div>
+</sc-if>
+<sc-if value="{{ isAdjust }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;overflow:auto;padding:{{ bodyPad }};display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;gap:var(--space-4)">
+<div style="display:flex;gap:10px;align-items:flex-start;font-size:14px;color:var(--color-neutral-800);text-wrap:pretty"><i class="ph ph-warning" style="font-size:20px;color:var(--color-accent-2-700);flex:none;margin-top:1px"></i><span>Only for when the system count is wrong. To fix a delivery, use Receive › History instead. Every correction is logged.</span></div>
+<sc-if value="{{ adj.saved }}"><div style="display:flex;gap:10px;align-items:baseline"><span class="tag tag-accent">Saved</span><span style="font-size:14px">{{ adj.saved }}</span></div></sc-if>
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px">
+<div style="position:relative">
+<button onClick="{{ dd.at.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.at.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Garment</span>{{ dd.at.label }}<i class="ph {{ dd.at.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.at.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.at.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+<div style="position:relative">
+<button onClick="{{ dd.ac.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.ac.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Color</span>{{ dd.ac.label }}<i class="ph {{ dd.ac.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.ac.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.ac.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+<div style="position:relative">
+<button onClick="{{ dd.as.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.as.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Size</span>{{ dd.as.label }}<i class="ph {{ dd.as.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.as.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.as.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+<div style="position:relative">
+<button onClick="{{ dd.al.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.al.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Location</span>{{ dd.al.label }}<i class="ph {{ dd.al.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.al.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.al.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;align-items:end">
+<div><div style="font-size:12px;color:var(--color-neutral-700)">In system</div><div style="font-size:40px;line-height:1.1;font-weight:600;font-variant-numeric:tabular-nums">{{ adj.sys }}</div></div>
+<div class="field"><label>Counted on the shelf</label><input class="input" inputmode="numeric" placeholder="{{ adj.sys }}" value="{{ adj.form.counted }}" onChange="{{ adj.setCounted }}" style="min-height:56px;font-size:28px;font-weight:600;font-variant-numeric:tabular-nums"></div>
+</div>
+<div style="font-size:15px;color:{{ adj.diffColor }}">{{ adj.diffText }}</div>
+<div style="position:relative">
+<button onClick="{{ dd.ar.toggle }}" style="position:relative;display:block;width:100%;height:54px;padding:21px 36px 5px 12px;text-align:left;border:1px solid {{ dd.ar.border }};border-radius:var(--radius-lg);background:var(--color-surface);font:inherit;font-size:15px;font-weight:600;color:var(--color-text);cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis"><span style="position:absolute;top:7px;left:12px;font-size:11px;font-weight:400;letter-spacing:.04em;color:var(--color-neutral-700)">Reason</span>{{ dd.ar.label }}<i class="ph {{ dd.ar.caret }}" style="position:absolute;right:12px;top:50%;transform:translateY(-50%);font-size:16px;color:var(--color-accent-700)"></i></button>
+<sc-if value="{{ dd.ar.open }}" hint-placeholder-val="{{ false }}"><div onClick="{{ closeDD }}" style="position:fixed;inset:0;z-index:20"></div><div style="position:absolute;top:calc(100% + 6px);left:0;min-width:100%;z-index:21;background:var(--color-bg);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);padding:6px;max-height:280px;overflow:auto;display:flex;flex-direction:column;gap:2px"><sc-for list="{{ dd.ar.options }}" as="op"><button onClick="{{ op.pick }}" style="display:flex;align-items:center;gap:10px;min-height:44px;padding:0 10px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;text-align:left;cursor:pointer;white-space:nowrap;background:{{ op.bg }};color:{{ op.fg }};font-weight:{{ op.w }}" style-hover="background:var(--color-accent-100)"><sc-if value="{{ op.icon }}"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;-webkit-mask:url({{ op.icon }}) center/contain no-repeat;mask:url({{ op.icon }}) center/contain no-repeat"></span></sc-if><span style="flex:1">{{ op.label }}</span><sc-if value="{{ op.on }}"><i class="ph ph-check" style="font-size:16px;color:var(--color-accent-700)"></i></sc-if></button></sc-for></div></sc-if>
+</div>
+<button class="btn btn-primary" onClick="{{ adj.save }}" disabled="{{ adj.noChange }}" style="min-height:48px;font-size:15px">Save correction</button>
+<div style="display:flex;flex-direction:column;margin-top:8px">
+<h6 style="margin:0 0 4px;color:var(--color-neutral-700)">Recent corrections</h6>
+<sc-for list="{{ adj.log }}" as="lg" hint-placeholder-count="3">
+<div style="display:grid;grid-template-columns:28px 1fr auto;gap:8px;align-items:center;padding:6px 0;font-size:14px"><span style="display:inline-block;flex:none;width:22px;height:22px;background:currentColor;color:var(--color-accent-700);-webkit-mask:url({{ lg.icon }}) center/contain no-repeat;mask:url({{ lg.icon }}) center/contain no-repeat"></span><div><div style="font-weight:600">{{ lg.name }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ lg.meta }}</div></div><div style="text-align:right;font-variant-numeric:tabular-nums">{{ lg.from }} → <b>{{ lg.to }}</b></div></div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ isSettings }}" hint-placeholder-val="{{ false }}">
+<div style="flex:1;overflow:auto;padding:{{ bodyPad }};display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;gap:var(--space-6)">
+<div style="display:flex;flex-direction:column;gap:10px">
+<h4 style="margin:0">Sizes</h4>
+<div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ set.sizes }}" as="it" hint-placeholder-count="8"><span style="display:inline-flex;align-items:center;gap:2px;padding-left:12px;background:var(--color-surface);border-radius:var(--radius-md);font-size:14px;font-weight:600">{{ it.label }}<button class="btn btn-ghost" onClick="{{ it.remove }}" aria-label="Remove" style="min-width:36px;min-height:40px;padding:0;color:var(--color-neutral-700);font-size:16px">×</button></span></sc-for></div>
+<div style="display:grid;grid-template-columns:1fr auto;gap:8px"><input class="input" placeholder="New size, e.g. 5XLG" value="{{ set.newSize }}" onChange="{{ set.setNewSize }}" style="min-height:44px"><button class="btn btn-secondary" onClick="{{ set.addSize }}" style="min-height:44px">Add size</button></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:10px">
+<h4 style="margin:0">Colors</h4>
+<div style="display:flex;flex-wrap:wrap;gap:6px"><sc-for list="{{ set.colors }}" as="it" hint-placeholder-count="4"><span style="display:inline-flex;align-items:center;gap:2px;padding-left:12px;background:var(--color-surface);border-radius:var(--radius-md);font-size:14px;font-weight:600">{{ it.label }}<button class="btn btn-ghost" onClick="{{ it.remove }}" aria-label="Remove" style="min-width:36px;min-height:40px;padding:0;color:var(--color-neutral-700);font-size:16px">×</button></span></sc-for></div>
+<div style="display:grid;grid-template-columns:1fr auto;gap:8px"><input class="input" placeholder="New color, e.g. Grey" value="{{ set.newColor }}" onChange="{{ set.setNewColor }}" style="min-height:44px"><button class="btn btn-secondary" onClick="{{ set.addColor }}" style="min-height:44px">Add color</button></div>
+</div>
+<div style="font-size:13px;color:var(--color-neutral-700);text-wrap:pretty">New sizes and colors show up straight away in Receive, Stock and stock correction. Removing one only hides it from those screens — its stock records are kept.</div>
+</div>
+</sc-if>
+
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;startTab&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;Receive&quot;,&quot;Stock&quot;,&quot;Trends&quot;,&quot;Settings&quot;],&quot;default&quot;:&quot;Receive&quot;,&quot;tsType&quot;:&quot;'Receive'|'Stock'|'Trends'|'Settings'&quot;},&quot;embedded&quot;:{&quot;editor&quot;:null,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  D = this.build();
+  rootRef = el => {
+    if (el === this._el) return;
+    this._ro && this._ro.disconnect(); this._el = el;
+    if (!el) return;
+    const measure = () => { const w = Math.round(el.getBoundingClientRect().width / (el.getBoundingClientRect().width && el.offsetWidth ? el.getBoundingClientRect().width / el.offsetWidth : 1)) || el.offsetWidth; if (w && w !== this.state.w) this.setState({ w }); };
+    this._ro = new ResizeObserver(measure); this._ro.observe(el); requestAnimationFrame(measure);
+  };
+  uid = 'gi' + Math.random().toString(36).slice(2, 8);
+  componentDidMount() { const tick = () => { const el = this._el || document.querySelector('[data-gi="' + this.uid + '"]'); if (el && !this._el) this.rootRef(el); if (el && el.offsetWidth && el.offsetWidth !== this.state.w) this.setState({ w: el.offsetWidth }); }; tick(); this._poll = setInterval(tick, 400); }
+  componentWillUnmount() { this._ro && this._ro.disconnect(); clearInterval(this._poll); }
+  state = {
+    tab: this.props.startTab === 'Adjust' ? 'Settings' : (this.props.startTab ?? 'Receive'), setView: this.props.startTab === 'Adjust' ? 'Correct stock' : 'Sizes & colors', openDD: null, w: 390, stockView: 'Summary', trendView: 'Over time',
+    stock: this.D.stock, min: this.D.min,
+    bLines: [
+      { t: 'Gown', c: 'White', s: 'LG', l: 'Fab1', q: 60 },
+      { t: 'Gown', c: 'White', s: 'MED', l: 'Fab1', q: 40 },
+      { t: 'Hood', c: 'White', s: 'LG', l: 'Fab1', q: 50 },
+      { t: 'Boot', c: 'White', s: 'XLG', l: 'Fab2', q: 30 },
+      { t: 'Gown', c: 'Blue', s: 'XLG', l: 'Fab2', q: 25 }
+    ],
+    bForm: { t: 'Gown', c: 'White', s: 'XLG', l: 'Fab1', q: '20' }, posted: '',
+    rView: 'New delivery', histOpen: null, histDraft: null, histSaved: '',
+    deliveries: [
+      { id: 3, when: 'Fri 2 Oct, 06:38', note: '', lines: [{ t: 'Gown', c: 'White', s: 'LG', l: 'Fab1', q: 80 }, { t: 'Gown', c: 'White', s: 'XLG', l: 'Fab1', q: 40 }, { t: 'Hood', c: 'White', s: 'LG', l: 'Fab1', q: 60 }, { t: 'Boot', c: 'White', s: 'MED', l: 'Fab1', q: 40 }] },
+      { id: 2, when: 'Wed 30 Sep, 06:45', note: 'Corrected Wed 30 Sep, 11:02 · −10 items', lines: [{ t: 'Gown', c: 'Blue', s: 'LG', l: 'Fab2', q: 30 }, { t: 'Hood', c: 'Blue', s: 'LG', l: 'Fab2', q: 30 }, { t: 'Boot', c: 'White', s: 'LG', l: 'Fab2', q: 20 }] },
+      { id: 1, when: 'Mon 28 Sep, 06:41', note: '', lines: [{ t: 'Gown', c: 'White', s: 'MED', l: 'Fab1', q: 50 }, { t: 'Gown', c: 'White', s: 'LG', l: 'Fab2', q: 40 }, { t: 'Hood', c: 'White', s: 'MED', l: 'Fab1', q: 50 }, { t: 'Boot', c: 'White', s: 'XLG', l: 'Fab2', q: 30 }, { t: 'Boot', c: 'Black', s: 'LG', l: 'Fab1', q: 10 }] }
+    ],
+    gType: 'Gown', gLoc: 'Fab1', gSel: 'Gown|White|XLG|Fab1',
+    iRange: 14, jMetric: 'Issued',
+    sizes: this.D.S.slice(), colors: this.D.C.slice(), newSize: '', newColor: '',
+    adjForm: { t: 'Gown', c: 'White', s: 'XLG', l: 'Fab1', counted: '', reason: 'Cycle count' }, adjSaved: '',
+    adjLog: [
+      { name: 'Hood · Blue · LG · Fab2', meta: 'Damaged · Fri 2 Oct, 15:12', from: 8, to: 4 },
+      { name: 'Boot · White · MED · Fab1', meta: 'Cycle count · Thu 1 Oct, 07:30', from: 18, to: 15 }
+    ]
+  };
+
+  build() {
+    const S = ['SM', 'MED', 'LG', 'XLG', '2XLG', '3XLG', '4XLG', 'Other'], C = ['White', 'Blue', 'Black', 'Other'], T = ['Gown', 'Hood', 'Boot'], L = ['Fab1', 'Fab2'];
+    const r = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+    const sw = { SM: .45, MED: .85, LG: 1, XLG: .8, '2XLG': .45, '3XLG': .22, '4XLG': .1, Other: .04 };
+    const cw = { White: 1, Blue: .5, Black: .18, Other: .06 }, tw = { Gown: 1, Hood: 1.1, Boot: .95 }, lw = { Fab1: 1, Fab2: .65 };
+    const stock = {}, min = {}; let i = 0;
+    T.forEach(t => C.forEach(c => S.forEach(s => L.forEach(l => {
+      i++; const k = [t, c, s, l].join('|'); const b = 60 * tw[t] * cw[c] * sw[s] * lw[l];
+      if (b < 1.5) { stock[k] = 0; min[k] = 0; return; }
+      const m = b > 12 ? Math.round(b * .4 / 5) * 5 : Math.max(2, Math.round(b * .4));
+      min[k] = m; stock[k] = Math.max(m + 1, Math.round(b * (.7 + r(i) * .8)));
+    }))));
+    const lows = { 'Gown|White|XLG|Fab1': .6, 'Hood|Blue|LG|Fab2': .4, 'Boot|White|MED|Fab1': .75, 'Gown|Blue|2XLG|Fab1': .5 };
+    Object.keys(lows).forEach(k => { stock[k] = Math.floor(min[k] * lows[k]); });
+    const tot = {}; T.forEach(t => { tot[t] = 0; Object.keys(stock).forEach(k => { if (k.startsWith(t + '|')) tot[t] += stock[k]; }); });
+    const N = 30, issues = {}, deliv = {}, series = {};
+    T.forEach((t, ti) => {
+      issues[t] = []; deliv[t] = []; series[t] = new Array(N);
+      for (let d = 0; d < N; d++) {
+        const dow = ((1 - (N - 1 - d)) % 7 + 7) % 7, wk = dow > 0 && dow < 6;
+        let is = Math.round(tot[t] * .2 * (wk ? 1 : .45) * (.85 + .3 * r(d * 7 + ti)));
+        if (d === N - 1) is = Math.round(is * .35);
+        issues[t].push(is);
+        deliv[t].push([1, 3, 5].includes(dow) ? Math.round(tot[t] * .2 * 2.3 * (.9 + .2 * r(d * 3 + ti + 50))) : 0);
+      }
+      series[t][N - 1] = tot[t];
+      for (let d = N - 1; d > 0; d--) series[t][d - 1] = series[t][d] + issues[t][d] - deliv[t][d];
+    });
+    const date = d => new Date(2026, 9, 5 - (N - 1 - d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return { S, C, T, L, sw, stock, min, issues, deliv, series, N, date };
+  }
+
+  seg(opts, cur, fn, labels, icons) { return opts.map((o, i) => ({ label: labels ? labels[i] : o, icon: icons ? icons[i] : '', on: o === cur, pick: () => fn(o) })); }
+  fmt(n) { return n.toLocaleString('en-US'); }
+
+  renderVals() {
+    const D = this.D, st = this.state, { T, L } = D, S = st.sizes, C = st.colors;
+    const stock = st.stock, min = st.min;
+    const key = (t, c, s, l) => [t, c, s, l].join('|');
+    const plural = t => t === 'Boot' ? 'Boots' : t + 's';
+    const GI = { Gown: 'icons/gown.svg', Hood: 'icons/hood.svg', Boot: 'icons/boot.svg' };
+    const ddMk = (id, value, opts, pick) => { const open = st.openDD === id; const o = opts.map(x => typeof x === 'string' ? { v: x, label: x } : x); const cur = o.find(x => x.v === value);
+      return { open, label: cur ? cur.label : value, caret: open ? 'ph-caret-up' : 'ph-caret-down', border: open ? 'var(--color-accent)' : 'transparent',
+        toggle: () => this.setState(p => ({ openDD: p.openDD === id ? null : id })),
+        options: o.map(x => { const on = x.v === value; return { label: x.label, icon: x.icon || '', on, bg: on ? 'var(--color-accent-100)' : 'transparent', fg: on ? 'var(--color-accent-800)' : 'var(--color-text)', w: on ? 600 : 400, pick: () => { pick(x.v); this.setState({ openDD: null }); } }; }) }; };
+    const gOpts = T.map(t => ({ v: t, label: t === 'Boot' ? 'Boots' : t, icon: GI[t] }));
+    const setB = f => v => this.setState(p => ({ bForm: { ...p.bForm, [f]: v }, posted: '' }));
+    const setAv = f => v => this.setState(p => ({ adjForm: { ...p.adjForm, [f]: v, ...(f !== 'reason' ? { counted: '' } : {}) }, adjSaved: '' }));
+
+    // Receive
+    const setF = f => e => { const v = e.target.value; this.setState(p => ({ bForm: { ...p.bForm, [f]: v } })); };
+    const updLine = (i, d) => this.setState(p => ({ bLines: p.bLines.map((x, j) => j === i ? { ...x, q: Math.max(0, x.q + d) } : x).filter(x => x.q > 0) }));
+    const bTotal = st.bLines.reduce((s, x) => s + x.q, 0);
+    const b = {
+      form: st.bForm, setT: setF('t'), setC: setF('c'), setS: setF('s'), setL: setF('l'), setQ: setF('q'),
+      add: () => this.setState(p => { const q = +p.bForm.q || 0; if (!q) return null; const f = p.bForm; const idx = p.bLines.findIndex(x => x.t === f.t && x.c === f.c && x.s === f.s && x.l === f.l); const lines = idx >= 0 ? p.bLines.map((x, j) => j === idx ? { ...x, q: x.q + q } : x) : [{ t: f.t, c: f.c, s: f.s, l: f.l, q }, ...p.bLines]; return { bLines: lines, posted: '' }; }),
+      lines: st.bLines.map((x, i) => ({ icon: GI[x.t], name: x.t === 'Boot' ? 'Boots' : x.t, meta: `${x.c} · ${x.s} · ${x.l}`, q: x.q, dec: () => updLine(i, -5), inc: () => updLine(i, 5) })),
+      count: st.bLines.length, total: this.fmt(bTotal), empty: st.bLines.length === 0, posted: st.posted,
+      post: () => this.setState(p => { const ns = { ...p.stock }, nm = { ...p.min }; let n = 0; p.bLines.forEach(x => { const k = key(x.t, x.c, x.s, x.l); ns[k] = (ns[k] || 0) + x.q; if (!nm[k]) nm[k] = 2; n += x.q; }); return { stock: ns, min: nm, bLines: [], posted: `${this.fmt(n)} items added to stock · 09:41`, deliveries: [{ id: Date.now(), when: 'Today, 09:41', note: '', lines: p.bLines.map(x => ({ ...x })) }, ...p.deliveries] }; })
+    };
+
+    // Delivery history
+    const nm2 = t => t === 'Boot' ? 'Boots' : t;
+    const hist = {
+      saved: st.histSaved,
+      items: st.deliveries.map(dv => {
+        const open = st.histOpen === dv.id, draft = open && st.histDraft ? st.histDraft : dv.lines.map(x => x.q);
+        const total = dv.lines.reduce((a, x) => a + x.q, 0), locs = [...new Set(dv.lines.map(x => x.l))].join(', ');
+        const diff = draft.reduce((a, q, k) => a + q - dv.lines[k].q, 0), changed = draft.some((q, k) => q !== dv.lines[k].q);
+        const bump = (k, dd) => this.setState(p => { const dr = [...p.histDraft]; dr[k] = Math.max(0, dr[k] + dd); return { histDraft: dr }; });
+        return {
+          when: dv.when, meta: `${this.fmt(total)} items · ${dv.lines.length} lines · ${locs}`, edited: !!dv.note, note: dv.note, open, caret: open ? 'ph-caret-up' : 'ph-caret-down',
+          toggle: () => this.setState(p => p.histOpen === dv.id ? { histOpen: null, histDraft: null } : { histOpen: dv.id, histDraft: dv.lines.map(x => x.q), histSaved: '' }),
+          lines: dv.lines.map((x, k) => ({ icon: GI[x.t], name: nm2(x.t), q: draft[k], meta: draft[k] !== x.q ? `${x.c} · ${x.s} · ${x.l} · was ${x.q}` : `${x.c} · ${x.s} · ${x.l}`, metaColor: draft[k] !== x.q ? 'var(--color-accent-2-700)' : 'var(--color-neutral-700)', dec: () => bump(k, -1), inc: () => bump(k, 1) })),
+          diffText: !changed ? 'Tap − / + to fix a quantity.' : (diff === 0 ? 'Quantities moved, total unchanged.' : (diff > 0 ? '+' + diff : '−' + Math.abs(diff)) + ' items will be ' + (diff > 0 ? 'added to' : 'taken out of') + ' stock'),
+          diffColor: changed ? 'var(--color-accent-2-700)' : 'var(--color-neutral-700)', noChange: !changed,
+          cancel: () => this.setState({ histOpen: null, histDraft: null }),
+          voidAll: () => this.setState({ histDraft: dv.lines.map(() => 0) }),
+          save: () => this.setState(p => {
+            const dr = p.histDraft, ns = { ...p.stock }; let dsum = 0;
+            dv.lines.forEach((x, k) => { const d2 = dr[k] - x.q; if (!d2) return; const kk = key(x.t, x.c, x.s, x.l); ns[kk] = Math.max(0, (ns[kk] || 0) + d2); dsum += d2; });
+            const allZero = dr.every(q => q === 0);
+            const note = allZero ? 'Voided today, 09:41' : `Corrected today, 09:41 · ${dsum >= 0 ? '+' : '−'}${Math.abs(dsum)} items`;
+            const deliveries = p.deliveries.map(o => o.id !== dv.id ? o : { ...o, note, lines: allZero ? o.lines.map(x => ({ ...x, q: 0 })) : o.lines.map((x, k) => ({ ...x, q: dr[k] })).filter(x => x.q > 0) });
+            return { stock: ns, deliveries, histOpen: null, histDraft: null, histSaved: `${dv.when} · stock ${dsum >= 0 ? '+' : '−'}${Math.abs(dsum)}` };
+          })
+        };
+      })
+    };
+
+    // Stock — summary
+    const avgIss = t => { const a = D.issues[t].slice(D.N - 8, D.N - 1); return a.reduce((s, x) => s + x, 0) / 7; };
+    const lowsAll = []; T.forEach(t => C.forEach(cc => S.forEach(s => L.forEach(l => { const k = key(t, cc, s, l); if (min[k] && stock[k] < min[k]) lowsAll.push({ icon: GI[t], name: `${t} · ${cc} · ${s} · ${l}`, q: stock[k], m: min[k], r: stock[k] / min[k] }); }))));
+    const tByLoc = (t, l) => { let n = 0; C.forEach(cc => S.forEach(s => { n += stock[key(t, cc, s, l)] || 0; })); return n; };
+    const h = {
+      totals: T.map(t => { const n = tByLoc(t, 'Fab1') + tByLoc(t, 'Fab2'); return { icon: GI[t], n: this.fmt(n), label: plural(t), cover: `About ${(n / avgIss(t)).toFixed(1)} days at the usual rate` }; }),
+      lows: lowsAll.sort((x, y) => x.r - y.r).slice(0, 5),
+      byLoc: T.map(t => ({ label: plural(t), a: this.fmt(tByLoc(t, 'Fab1')), b: this.fmt(tByLoc(t, 'Fab2')) }))
+    };
+
+    // Stock — grid
+    const [sT, sC, sS, sL] = st.gSel.split('|');
+    const moveSel = (t, l) => { let k = key(t, sC, sS, l); if (!min[k] && min[key(t, 'White', 'LG', l)]) k = key(t, 'White', 'LG', l); return k; };
+    const gRows = S.map(s => ({ size: s, cells: C.map(cc => { const k = key(st.gType, cc, s, st.gLoc); const m = min[k], q = stock[k];
+      if (!m) return { label: '—', bg: 'transparent', fg: 'var(--color-neutral-500)', ring: k === st.gSel ? '2px solid var(--color-text)' : 'none', pick: () => this.setState({ gSel: k }) };
+      const low = q < m, close = q < m * 1.5;
+      return { label: q, bg: low ? 'var(--color-accent-2-200)' : close ? 'var(--color-neutral-200)' : 'var(--color-accent-100)', fg: low ? 'var(--color-accent-2-800)' : close ? 'var(--color-neutral-800)' : 'var(--color-accent-800)', ring: k === st.gSel ? '2px solid var(--color-text)' : 'none', pick: () => this.setState({ gSel: k }) }; }) }));
+    const sq = stock[st.gSel] || 0, sm = min[st.gSel] || 0;
+    const setMin = dd => this.setState(p => ({ min: { ...p.min, [p.gSel]: Math.max(1, (p.min[p.gSel] || 0) + dd) } }));
+    const g = {
+      typeOpts: this.seg(T, st.gType, v => this.setState(p => ({ gType: v, gSel: moveSel(v, p.gLoc) })), ['Gowns', 'Hoods', 'Boots'], T.map(t => GI[t])),
+      locOpts: this.seg(L, st.gLoc, v => this.setState(p => ({ gLoc: v, gSel: moveSel(p.gType, v) }))),
+      rows: gRows, cols: `44px repeat(${C.length},minmax(0,1fr))`,
+      det: { title: `${sT} · ${sC} · ${sS}`, q: sq, m: sm, status: !sm ? 'Not stocked — set a minimum to start' : sq < sm ? 'Below minimum' : sq < sm * 1.5 ? 'Close to minimum' : 'OK', statusColor: sq < sm ? 'var(--color-accent-2-700)' : 'var(--color-neutral-700)', dec: () => setMin(-1), inc: () => setMin(1), meta: !sm ? `${sL} · No stock records yet` : `${sL} · Issued today ${Math.round(sm * .3) + 1} · Last delivery +${sm * 2} on Fri 2 Oct, 06:40` }
+    };
+
+    // Trends — over time
+    const n = st.iRange, from = D.N - n;
+    let mx = 0; T.forEach(t => D.series[t].slice(from).forEach(v => { mx = Math.max(mx, v); })); mx *= 1.08;
+    const paths = {}; T.forEach(t => { paths[t] = D.series[t].slice(from).map((v, j) => (j ? 'L' : 'M') + (j / (n - 1) * 320).toFixed(1) + ' ' + (130 - v / mx * 125).toFixed(1)).join(' '); });
+    const dv = [], iv = []; for (let j = from; j < D.N; j++) { dv.push(T.reduce((s, t) => s + D.deliv[t][j], 0)); iv.push(T.reduce((s, t) => s + D.issues[t][j], 0)); }
+    const bm = Math.max(...dv, ...iv);
+    const sumD = dv.reduce((s, x) => s + x, 0), sumI = iv.reduce((s, x) => s + x, 0);
+    const i = {
+      rangeOpts: this.seg([7, 14, 30], n, v => this.setState({ iRange: v }), ['7 days', '14 days', '30 days']),
+      legend: [['Gowns', 'var(--color-accent)', 'Gown'], ['Hoods', 'var(--color-accent-2)', 'Hood'], ['Boots', 'var(--color-text)', 'Boot']].map(([label, color, t]) => ({ label, color, now: this.fmt(D.series[t][D.N - 1]) })),
+      paths, start: D.date(from),
+      bars: dv.map((x, j) => ({ up: (x / bm * 100) + '%', down: (iv[j] / bm * 100) + '%' })),
+      delivered: this.fmt(sumD), issued: this.fmt(sumI), net: (sumD - sumI >= 0 ? '+' : '−') + this.fmt(Math.abs(sumD - sumI))
+    };
+
+    // Trends — breakdown
+    const days = []; for (let k = D.N - 14; k < D.N; k++) days.push(T.reduce((s, t) => s + D.issues[t][k], 0));
+    const dmx = Math.max(...days);
+    const wkdays = days.filter((x, k) => { const dow = ((1 - (13 - k)) % 7 + 7) % 7; return dow > 0 && dow < 6 && k < 13; });
+    const issued14 = days.reduce((s, x) => s + x, 0);
+    const isIss = st.jMetric === 'Issued';
+    const sizes = S.filter(s => s !== 'Other');
+    const swSum = sizes.reduce((s, x) => s + (D.sw[x] || 0), 0);
+    const sizeVals = sizes.map(s => isIss ? Math.round(issued14 * (D.sw[s] || 0) / swSum) : T.reduce((a2, t) => a2 + C.reduce((a3, cc) => a3 + L.reduce((a4, l) => a4 + (stock[key(t, cc, s, l)] || 0), 0), 0), 0));
+    const svm = Math.max(1, ...sizeVals);
+    const locA = isIss ? Math.round(issued14 / 1.65) : T.reduce((s, t) => s + tByLoc(t, 'Fab1'), 0);
+    const locB = isIss ? issued14 - locA : T.reduce((s, t) => s + tByLoc(t, 'Fab2'), 0);
+    const j = {
+      avg: this.fmt(Math.round(wkdays.reduce((s, x) => s + x, 0) / wkdays.length)), start: D.date(D.N - 14),
+      days: days.map((x, k) => ({ h: (x / dmx * 100) + '%', color: k === 13 ? 'var(--color-accent-300)' : 'var(--color-accent)' })),
+      metricOpts: this.seg(['Issued', 'Stock'], st.jMetric, v => this.setState({ jMetric: v }), ['Issued, 14 days', 'Stock now']),
+      bySize: sizes.map((s, k) => ({ label: s, v: this.fmt(sizeVals[k]), w: (sizeVals[k] / svm * 100) + '%' })),
+      loc: { a: this.fmt(locA), b: this.fmt(locB), aw: (locA / (locA + locB) * 100) + '%' }
+    };
+
+    // Adjust
+    const af = st.adjForm, ak = key(af.t, af.c, af.s, af.l), sys = stock[ak] || 0;
+    const cnt = af.counted === '' ? null : +af.counted, diff = cnt == null ? 0 : cnt - sys;
+    const setA = f => e => { const v = f === 'counted' ? e.target.value.replace(/\D/g, '') : e.target.value; this.setState(p => ({ adjForm: { ...p.adjForm, [f]: v, ...(f !== 'counted' && f !== 'reason' ? { counted: '' } : {}) }, adjSaved: '' })); };
+    const adj = {
+      form: af, sys, saved: st.adjSaved, noChange: cnt == null || diff === 0,
+      diffText: cnt == null ? 'Enter what you counted. The system number will be replaced.' : diff === 0 ? 'Matches the system — nothing to correct.' : (diff > 0 ? '+' + diff + ' will be added to stock' : '−' + Math.abs(diff) + ' will be taken out of stock'),
+      diffColor: diff < 0 ? 'var(--color-accent-2-700)' : diff > 0 ? 'var(--color-accent-700)' : 'var(--color-neutral-700)',
+      setT: setA('t'), setC: setA('c'), setS: setA('s'), setL: setA('l'), setCounted: setA('counted'), setReason: setA('reason'),
+      save: () => this.setState(p => { const f = p.adjForm, k = key(f.t, f.c, f.s, f.l), from = p.stock[k] || 0, to = +f.counted; if (f.counted === '' || to === from) return null;
+        const nm = { ...p.min }; if (!nm[k]) nm[k] = 2;
+        return { stock: { ...p.stock, [k]: to }, min: nm, adjForm: { ...f, counted: '' }, adjSaved: `${f.t} · ${f.c} · ${f.s} · ${f.l} set to ${to}`,
+          adjLog: [{ name: `${f.t} · ${f.c} · ${f.s} · ${f.l}`, meta: `${f.reason} · Today, 09:41`, from, to }, ...p.adjLog] }; }),
+      log: st.adjLog.map(x => ({ ...x, icon: GI[x.name.split(' · ')[0]] }))
+    };
+
+    // Settings
+    const addTo = (listKey, inKey) => () => this.setState(p => { const v = p[inKey].trim(); if (!v || p[listKey].some(x => x.toLowerCase() === v.toLowerCase())) return null; return { [listKey]: [...p[listKey], v], [inKey]: '' }; });
+    const rm = (listKey, v) => () => this.setState(p => p[listKey].length <= 1 ? null : { [listKey]: p[listKey].filter(x => x !== v) });
+    const set = {
+      sizes: S.map(x => ({ label: x, remove: rm('sizes', x) })), colors: C.map(x => ({ label: x, remove: rm('colors', x) })),
+      newSize: st.newSize, newColor: st.newColor,
+      setNewSize: e => this.setState({ newSize: e.target.value }), setNewColor: e => this.setState({ newColor: e.target.value }),
+      addSize: addTo('sizes', 'newSize'), addColor: addTo('colors', 'newColor')
+    };
+
+    const dd = {
+      bt: ddMk('bt', st.bForm.t, gOpts, setB('t')), bc: ddMk('bc', st.bForm.c, C, setB('c')), bs: ddMk('bs', st.bForm.s, S, setB('s')), bl: ddMk('bl', st.bForm.l, L, setB('l')),
+      at: ddMk('at', st.adjForm.t, gOpts, setAv('t')), ac: ddMk('ac', st.adjForm.c, C, setAv('c')), as: ddMk('as', st.adjForm.s, S, setAv('s')), al: ddMk('al', st.adjForm.l, L, setAv('l')),
+      ar: ddMk('ar', st.adjForm.reason, ['Cycle count', 'Damaged', 'Found', 'Miscount at delivery', 'Other'], setAv('reason'))
+    };
+    const tab = st.tab, wide = st.w >= 900, side = 'max(40px, calc((100% - 880px) / 2))';
+    const heads = {
+      Receive: st.rView === 'History' ? ['Receive · history', 'Past deliveries'] : ['Receive · Mon 5 Oct', 'Morning delivery'],
+      Stock: st.stockView === 'Summary' ? ['Stock · Fab1 + Fab2 · as of 09:41', 'On hand'] : ['Stock · grid', plural(st.gType) + ' · ' + st.gLoc],
+      Settings: st.setView === 'Correct stock' ? ['Settings · stock correction', 'Correct a count'] : ['Settings', 'Sizes and colors'],
+      Trends: st.trendView === 'Over time' ? ['Trends · Fab1 + Fab2', 'Over time'] : ['Trends · last 14 days', 'Breakdown']
+    };
+    return {
+      kicker: heads[tab][0], title: heads[tab][1],
+      isReceive: tab === 'Receive', isStock: tab === 'Stock', isTrends: tab === 'Trends', isAdjust: tab === 'Settings' && st.setView === 'Correct stock', isSettings: tab === 'Settings' && st.setView === 'Sizes & colors', isSettingsTab: tab === 'Settings',
+      setViews: this.seg(['Sizes & colors', 'Correct stock'], st.setView, v => this.setState({ setView: v, openDD: null })), sizes: S, colors: C, adj, set, dd, hist, rootRef: this.rootRef, uid: this.uid, wide, narrow: !wide,
+      rootH: this.props.embedded ? '100%' : '100vh', titleSize: wide ? '34px' : '24px',
+      headPad: wide ? `32px ${side} 12px` : '14px 20px 8px', bodyPad: wide ? `8px ${side} 40px` : '4px 20px 16px',
+      segPad: wide ? `0 ${side} 12px` : '0 20px 8px', footPad: wide ? `14px ${side} 20px` : '10px 20px 14px',
+      rNew: st.rView === 'New delivery', rHist: st.rView === 'History',
+      rViews: this.seg(['New delivery', 'History'], st.rView, v => this.setState({ rView: v, openDD: null })), closeDD: () => this.setState({ openDD: null }),
+      isSummary: st.stockView === 'Summary', isGrid: st.stockView === 'Grid',
+      isOverTime: st.trendView === 'Over time', isBreakdown: st.trendView === 'Breakdown',
+      stockViews: this.seg(['Summary', 'Grid'], st.stockView, v => this.setState({ stockView: v })),
+      trendViews: this.seg(['Over time', 'Breakdown'], st.trendView, v => this.setState({ trendView: v })),
+      tabs: [['Receive', 'ph-truck'], ['Stock', 'ph-stack'], ['Trends', 'ph-chart-line-up'], ['Settings', 'ph-gear-six']].map(([l, icon]) => ({ label: l, icon, bg: l === tab ? 'var(--color-accent-100)' : 'transparent', line: l === tab ? 'var(--color-accent)' : 'transparent', go: () => this.setState({ tab: l, openDD: null }), c: l === tab ? 'var(--color-accent-700)' : 'var(--color-neutral-700)', w: l === tab ? 600 : 400 })),
+      b, h, g, i, j
+    };
+  }
+}
+</script>
+</body>
+</html>

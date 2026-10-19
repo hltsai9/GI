@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="stylesheet" href="_ds/broadsheet-562d5066-e856-4db8-a2c7-051a985e6d26/styles.css">
+<script src="_ds/broadsheet-562d5066-e856-4db8-a2c7-051a985e6d26/_ds_bundle.js"></script>
+<style>body{margin:0;background:var(--color-bg);color:var(--color-text);font-family:var(--font-body)}a{color:var(--color-accent)}a:hover{color:var(--color-accent-600)}.dv-turn{padding:40px 44px 48px;scroll-margin-top:16px}.dv-thd{display:flex;align-items:baseline;gap:10px;margin:0 0 16px}.dv-tid{font-size:11px;font-weight:600;padding:3px 8px;background:var(--color-text);color:var(--color-bg);border-radius:2px;text-decoration:none}.dv-tname{font-size:15px;font-weight:600}.dv-opts{display:flex;flex-wrap:wrap;gap:36px;align-items:flex-start}.dv-opt{flex:none;display:flex;flex-direction:column;gap:10px;scroll-margin-top:16px}.dv-oid{font-size:11px;font-weight:600;padding:2px 7px;background:var(--color-neutral-200);color:var(--color-text);border-radius:2px;text-decoration:none}.dv-olabel{display:flex;align-items:baseline;gap:8px;font-size:13px;color:var(--color-neutral-700);max-width:360px}.dv-card{max-width:100%;overflow:hidden}.dv-opt:target .dv-oid{background:var(--color-accent);color:var(--color-bg)}.dv-next{margin:40px 0 0;font-size:14px;color:var(--color-neutral-700)}</style>
+</helmet>
+<section class="dv-turn" id="t1">
+<div class="dv-thd"><a class="dv-tid" href="#t1">1</a><span class="dv-tname">Cleanroom garment stores — phone-first mockups</span></div>
+<div style="max-width:720px;font-size:15px;line-height:1.6;margin-bottom:8px">
+<p style="margin:0 0 8px">Working assumptions, for you to correct:</p>
+<ul style="margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px;text-wrap:pretty">
+<li>Built for phones and handheld scanners first — one column, touch targets 44px and up. The same layouts widen for tablet and desktop.</li>
+<li>One stock item = garment × color × size × location (Fab1 / Fab2). Every stocked item has its own minimum.</li>
+<li>Deliveries come in as bulk counts. Issuing is one scan per garment, always with the badge scanned first.</li>
+<li>The mockups are live: issuing in <a class="dv-oid" href="#1d">1d</a> takes stock out of <a class="dv-oid" href="#1f">1f</a>–<a class="dv-oid" href="#1h">1h</a>, and minimums you change in <a class="dv-oid" href="#1g">1g</a> show up in <a class="dv-oid" href="#1f">1f</a>.</li>
+</ul>
+</div>
+
+<h4 style="margin:40px 0 4px">Receive — bulk input of the morning delivery</h4>
+<p style="margin:0 0 20px;color:var(--color-neutral-700);font-size:14px">Three ways to enter counts: a size × color grid, line by line, or checking against what was ordered.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1a"><div class="dv-olabel"><a class="dv-oid" href="#1a">1a</a>Size × color grid. Fastest when a delivery covers many sizes of one garment.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Receive · Mon 5 Oct</div><h3 style="margin:2px 0 0">Morning delivery</h3></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-4)">
+<div style="display:flex;flex-direction:column;gap:10px">
+<div class="seg" style="display:flex"><sc-for list="{{ a.typeOpts }}" as="o" hint-placeholder-count="3"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="a-type" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+<div class="seg" style="display:flex"><sc-for list="{{ a.locOpts }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="a-loc" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<div style="display:grid;grid-template-columns:48px repeat(4,minmax(0,1fr));gap:6px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700)"><span>Size</span><span style="text-align:center">White</span><span style="text-align:center">Blue</span><span style="text-align:center">Black</span><span style="text-align:center">Other</span></div>
+<sc-for list="{{ a.rows }}" as="r" hint-placeholder-count="8">
+<div style="display:grid;grid-template-columns:48px repeat(4,minmax(0,1fr));gap:6px;align-items:center"><span style="font-size:13px;font-weight:600">{{ r.size }}</span><sc-for list="{{ r.cells }}" as="c"><input class="input" inputmode="numeric" placeholder="0" value="{{ c.v }}" onChange="{{ c.set }}" style="text-align:center;padding:4px;min-height:40px;font-variant-numeric:tabular-nums"></sc-for></div>
+</sc-for>
+</div>
+<div style="display:flex;flex-direction:column;gap:4px">
+<h6 style="margin:0;color:var(--color-neutral-700)">In this delivery</h6>
+<sc-for list="{{ a.staged }}" as="s" hint-placeholder-count="3"><div style="display:flex;justify-content:space-between;font-size:14px"><span>{{ s.label }}</span><span style="font-variant-numeric:tabular-nums;font-weight:600">{{ s.n }}</span></div></sc-for>
+</div>
+</div>
+<div style="padding:10px 20px 6px;background:var(--color-bg)"><button class="btn btn-primary" style="width:100%;min-height:48px;font-size:15px">Receive {{ a.total }} items</button></div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.receive }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+
+<div class="dv-opt" id="1b"><div class="dv-olabel"><a class="dv-oid" href="#1b">1b</a>Line by line. Fits mixed deliveries; each line can be adjusted after you add it.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Receive · Mon 5 Oct</div><h3 style="margin:2px 0 0">Add delivery lines</h3></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-4)">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+<div class="field"><label>Garment</label><select class="input" value="{{ b.form.t }}" onChange="{{ b.setT }}" style="min-height:44px"><option value="Gown">Gown</option><option value="Hood">Hood</option><option value="Boot">Boot</option></select></div>
+<div class="field"><label>Color</label><select class="input" value="{{ b.form.c }}" onChange="{{ b.setC }}" style="min-height:44px"><option value="White">White</option><option value="Blue">Blue</option><option value="Black">Black</option><option value="Other">Other</option></select></div>
+<div class="field"><label>Size</label><select class="input" value="{{ b.form.s }}" onChange="{{ b.setS }}" style="min-height:44px"><option value="SM">SM</option><option value="MED">MED</option><option value="LG">LG</option><option value="XLG">XLG</option><option value="2XLG">2XLG</option><option value="3XLG">3XLG</option><option value="4XLG">4XLG</option><option value="Other">Other</option></select></div>
+<div class="field"><label>Location</label><select class="input" value="{{ b.form.l }}" onChange="{{ b.setL }}" style="min-height:44px"><option value="Fab1">Fab1</option><option value="Fab2">Fab2</option></select></div>
+<div class="field"><label>Quantity</label><input class="input" inputmode="numeric" value="{{ b.form.q }}" onChange="{{ b.setQ }}" style="min-height:44px;font-variant-numeric:tabular-nums"></div>
+<div style="display:flex;align-items:flex-end"><button class="btn btn-secondary" onClick="{{ b.add }}" style="width:100%;min-height:44px">Add line</button></div>
+</div>
+<div style="display:flex;flex-direction:column">
+<sc-for list="{{ b.lines }}" as="ln" hint-placeholder-count="5">
+<div style="display:flex;align-items:center;gap:8px;padding:8px 0">
+<div style="flex:1;min-width:0"><div style="font-weight:600;font-size:15px">{{ ln.name }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ ln.meta }}</div></div>
+<button class="btn btn-secondary btn-icon" onClick="{{ ln.dec }}" style="width:44px;height:44px;font-size:18px">−</button>
+<span style="width:40px;text-align:center;font-size:17px;font-weight:600;font-variant-numeric:tabular-nums">{{ ln.q }}</span>
+<button class="btn btn-secondary btn-icon" onClick="{{ ln.inc }}" style="width:44px;height:44px;font-size:18px">+</button>
+</div>
+</sc-for>
+</div>
+</div>
+<div style="padding:10px 20px 6px;display:flex;align-items:center;gap:12px"><div style="flex:1;font-size:13px;color:var(--color-neutral-700)">{{ b.count }} lines<br><span style="font-size:17px;font-weight:600;color:var(--color-text)">{{ b.total }} items</span></div><button class="btn btn-primary" style="min-height:48px;font-size:15px;padding:0 22px">Post delivery</button></div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.receive }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+
+<div class="dv-opt" id="1c"><div class="dv-olabel"><a class="dv-oid" href="#1c">1c</a>Check against the order. The standing order fills in what's expected; you only change what's different.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Receive · Fab1 · Standing order</div><h3 style="margin:2px 0 0">Check the delivery</h3></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-4)">
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
+<div><div style="font-size:12px;color:var(--color-neutral-700)">Expected</div><div style="font-size:28px;font-weight:600;font-variant-numeric:tabular-nums">{{ c.exp }}</div></div>
+<div><div style="font-size:12px;color:var(--color-neutral-700)">Counted</div><div style="font-size:28px;font-weight:600;font-variant-numeric:tabular-nums">{{ c.got }}</div></div>
+<div><div style="font-size:12px;color:var(--color-neutral-700)">Difference</div><div style="font-size:28px;font-weight:600;font-variant-numeric:tabular-nums;color:{{ c.varColor }}">{{ c.variance }}</div></div>
+</div>
+<div style="display:flex;flex-direction:column">
+<div style="display:grid;grid-template-columns:1fr 44px 72px;gap:8px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700);padding-bottom:4px"><span>Item</span><span style="text-align:right">Exp.</span><span style="text-align:center">Counted</span></div>
+<sc-for list="{{ c.lines }}" as="ln" hint-placeholder-count="8">
+<div style="display:grid;grid-template-columns:1fr 44px 72px;gap:8px;align-items:center;padding:4px 0">
+<div style="min-width:0"><div style="font-size:14px;font-weight:600">{{ ln.name }}</div><div style="font-size:12px;color:{{ ln.noteColor }}">{{ ln.note }}</div></div>
+<span style="text-align:right;font-variant-numeric:tabular-nums;color:var(--color-neutral-700)">{{ ln.exp }}</span>
+<input class="input" inputmode="numeric" value="{{ ln.v }}" onChange="{{ ln.set }}" style="text-align:center;min-height:44px;font-variant-numeric:tabular-nums;font-weight:600">
+</div>
+</sc-for>
+</div>
+<button class="btn btn-ghost" onClick="{{ c.reset }}" style="justify-self:start;min-height:44px">Set all to expected</button>
+</div>
+<div style="padding:10px 20px 6px"><button class="btn btn-primary" style="width:100%;min-height:48px;font-size:15px">Post {{ c.got }} items</button></div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.receive }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+</div>
+
+<h4 style="margin:56px 0 4px">Issue — badge first, then one scan per garment</h4>
+<p style="margin:0 0 20px;color:var(--color-neutral-700);font-size:14px"><a class="dv-oid" href="#1d">1d</a> works: tap the simulate buttons to go through it. <a class="dv-oid" href="#1e">1e</a> shows a hands-free kiosk mode partway through a scan.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1d"><div class="dv-olabel"><a class="dv-oid" href="#1d">1d</a>Guided steps. A garment checklist shows what's still missing.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Issue · Gowning room Fab1</div>
+<div style="display:flex;gap:16px;margin-top:6px"><sc-for list="{{ d.steps }}" as="st" hint-placeholder-count="3"><span style="font-size:14px;font-weight:{{ st.w }};color:{{ st.c }}">{{ st.label }}</span></sc-for></div></div>
+<div style="flex:1;overflow:auto;padding:8px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-4)">
+
+<sc-if value="{{ d.s0 }}" hint-placeholder-val="{{ true }}">
+<div style="position:relative;height:250px;background:var(--color-surface);border-radius:var(--radius-lg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;text-align:center;padding:0 32px">
+<span style="position:absolute;top:16px;left:16px;width:26px;height:26px;border-top:3px solid var(--color-accent);border-left:3px solid var(--color-accent)"></span>
+<span style="position:absolute;top:16px;right:16px;width:26px;height:26px;border-top:3px solid var(--color-accent);border-right:3px solid var(--color-accent)"></span>
+<span style="position:absolute;bottom:16px;left:16px;width:26px;height:26px;border-bottom:3px solid var(--color-accent);border-left:3px solid var(--color-accent)"></span>
+<span style="position:absolute;bottom:16px;right:16px;width:26px;height:26px;border-bottom:3px solid var(--color-accent);border-right:3px solid var(--color-accent)"></span>
+<h3 style="margin:0">Scan your badge</h3>
+<div style="font-size:14px;color:var(--color-neutral-700)">Pull the scanner trigger, or hold your badge up to the camera</div>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<button class="btn btn-primary" onClick="{{ d.scanBadge }}" style="min-height:48px;font-size:15px">Simulate badge scan</button>
+<button class="btn btn-ghost" style="min-height:44px">Type badge number instead</button>
+</div>
+</sc-if>
+
+<sc-if value="{{ d.s1 }}" hint-placeholder-val="{{ false }}">
+<div><h3 style="margin:0">Dana Whitfield</h3><div style="font-size:14px;color:var(--color-neutral-700)">Badge 40218 · Cleared for Fab1</div></div>
+<div style="display:flex;flex-direction:column;gap:2px">
+<sc-for list="{{ d.check }}" as="ck" hint-placeholder-count="3">
+<div style="display:flex;align-items:center;gap:12px;padding:10px 0;min-height:56px">
+<span style="width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:15px;font-weight:600;background:{{ ck.dotBg }};color:{{ ck.dotFg }}">{{ ck.mark }}</span>
+<div style="flex:1"><div style="font-size:16px;font-weight:600">{{ ck.type }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ ck.detail }}</div></div>
+</div>
+</sc-for>
+</div>
+<div style="position:relative;height:86px;background:var(--color-surface);border-radius:var(--radius-lg);display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--color-neutral-700)">
+<span style="position:absolute;left:24px;right:24px;top:50%;height:2px;background:var(--color-accent);opacity:.5"></span>
+<span style="position:relative;background:var(--color-surface);padding:0 10px">Scan a garment barcode</span>
+</div>
+<div style="display:flex;flex-direction:column;gap:6px">
+<button class="btn btn-primary" onClick="{{ d.confirm }}" disabled="{{ d.noItems }}" style="min-height:48px;font-size:15px">Issue {{ d.count }} to Dana</button>
+<div style="display:grid;grid-template-columns:1fr auto;gap:6px"><button class="btn btn-secondary" onClick="{{ d.scanItem }}" disabled="{{ d.full }}" style="min-height:44px">Simulate garment scan</button><button class="btn btn-ghost" onClick="{{ d.reset }}" style="min-height:44px">Cancel</button></div>
+</div>
+</sc-if>
+
+<sc-if value="{{ d.s2 }}" hint-placeholder-val="{{ false }}">
+<div><h2 style="margin:0">Issued to Dana</h2><div style="font-size:14px;color:var(--color-neutral-700)">{{ d.count }} garments · 09:41 · Fab1</div></div>
+<div style="display:flex;flex-direction:column;gap:2px">
+<sc-for list="{{ d.result }}" as="rs" hint-placeholder-count="3">
+<div style="display:flex;align-items:baseline;gap:8px;padding:8px 0">
+<div style="flex:1"><div style="font-size:15px;font-weight:600">{{ rs.name }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ rs.meta }}</div></div>
+<div style="text-align:right"><div style="font-size:15px;font-variant-numeric:tabular-nums">{{ rs.from }} → <b>{{ rs.to }}</b></div><sc-if value="{{ rs.low }}"><span class="tag tag-accent-2">Below min {{ rs.min }}</span></sc-if></div>
+</div>
+</sc-for>
+</div>
+<button class="btn btn-primary" onClick="{{ d.reset }}" style="min-height:48px;font-size:15px">Next person</button>
+<div style="font-size:13px;color:var(--color-neutral-700);text-align:center">Goes back to the badge scan in 5 s</div>
+</sc-if>
+</div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.issue }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+
+<div class="dv-opt" id="1e"><div class="dv-olabel"><a class="dv-oid" href="#1e">1e</a>Kiosk mode. No taps — the headline says what to scan next, and the issue saves itself.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px;display:flex;justify-content:space-between;align-items:baseline"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Kiosk · Gowning room Fab2</div><span class="tag tag-accent">Auto</span></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-4)">
+<div><div style="font-size:15px;color:var(--color-neutral-700)">Marcus Lee · 40377</div><h1 style="margin:2px 0 0;font-size:46px">Scan boots</h1></div>
+<div class="card" style="gap:0;padding:6px 16px">
+<div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 0"><span style="font-size:16px;font-weight:600">Gown</span><span style="font-size:14px">Blue · XLG <span style="color:var(--color-accent-700);font-weight:600">✓</span></span></div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 0"><span style="font-size:16px;font-weight:600">Hood</span><span style="font-size:14px">Blue · XLG <span style="color:var(--color-accent-700);font-weight:600">✓</span></span></div>
+<div style="display:flex;justify-content:space-between;align-items:baseline;padding:10px 0"><span style="font-size:16px;font-weight:600;color:var(--color-neutral-700)">Boots</span><span style="font-size:14px;color:var(--color-neutral-700)">waiting…</span></div>
+</div>
+<div style="font-size:13px;color:var(--color-neutral-700);text-wrap:pretty">Saves automatically 8 s after the last scan. Scan another badge to start over.</div>
+<div style="display:flex;gap:10px;align-items:baseline"><span class="tag tag-accent-2">Scanned twice</span><span style="font-size:13px">Hood H-0220913 counted once</span></div>
+<div style="display:flex;flex-direction:column;gap:2px;margin-top:4px">
+<h6 style="margin:0 0 4px;color:var(--color-neutral-700)">Recent at this kiosk</h6>
+<sc-for list="{{ e.recent }}" as="rc" hint-placeholder-count="4">
+<div style="display:grid;grid-template-columns:48px 1fr;gap:8px;padding:6px 0;font-size:14px"><span style="font-variant-numeric:tabular-nums;color:var(--color-neutral-700)">{{ rc.time }}</span><div><div style="font-weight:600">{{ rc.name }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ rc.items }}</div></div></div>
+</sc-for>
+</div>
+</div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.issue }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+</div>
+
+<h4 style="margin:56px 0 4px">Inventory overview</h4>
+<p style="margin:0 0 20px;color:var(--color-neutral-700);font-size:14px">Three ways to see stock: a list sorted by urgency, a size × color grid, and a front-page summary. Each item has its own minimum.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1f"><div class="dv-olabel"><a class="dv-oid" href="#1f">1f</a>Sorted by urgency. Items below minimum come first, then the lowest in each garment.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Stock · as of 09:41</div><h3 style="margin:2px 0 0">On hand</h3></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-4)">
+<div class="seg" style="display:flex"><sc-for list="{{ f.locOpts }}" as="o" hint-placeholder-count="3"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="f-loc" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+<div>
+<h4 style="margin:0 0 4px;color:var(--color-accent-2-700)">{{ f.lowCount }} below minimum</h4>
+<sc-for list="{{ f.lows }}" as="lw" hint-placeholder-count="3"><div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:14px"><span>{{ lw.name }}</span><span style="font-variant-numeric:tabular-nums"><b style="color:var(--color-accent-2-700)">{{ lw.q }}</b> <span style="color:var(--color-neutral-700)">/ {{ lw.m }}</span></span></div></sc-for>
+</div>
+<sc-for list="{{ f.groups }}" as="g" hint-placeholder-count="3">
+<div style="display:flex;flex-direction:column;gap:2px">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><h4 style="margin:0">{{ g.label }}</h4><span style="font-size:20px;font-weight:600;font-variant-numeric:tabular-nums">{{ g.total }}</span></div>
+<sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="5">
+<div style="display:grid;grid-template-columns:96px 1fr 36px 52px;gap:8px;align-items:center;padding:4px 0;font-size:14px">
+<span>{{ r.label }}</span>
+<span style="height:6px;background:var(--color-neutral-200);border-radius:1px;overflow:hidden"><span style="display:block;height:100%;width:{{ r.w }};background:{{ r.fill }}"></span></span>
+<span style="text-align:right;font-weight:600;font-variant-numeric:tabular-nums">{{ r.q }}</span>
+<span style="font-size:12px;color:var(--color-neutral-700)">min {{ r.m }}</span>
+</div>
+</sc-for>
+<button class="btn btn-ghost" style="align-self:flex-start;min-height:40px">{{ g.more }}</button>
+</div>
+</sc-for>
+</div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.stock }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+
+<div class="dv-opt" id="1g"><div class="dv-olabel"><a class="dv-oid" href="#1g">1g</a>Size × color grid. Tap a cell to see details and change that item's minimum.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Stock · grid</div><h3 style="margin:2px 0 0">{{ g.heading }}</h3></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-3)">
+<div style="display:flex;gap:8px">
+<div class="seg" style="display:flex;flex:1"><sc-for list="{{ g.typeOpts }}" as="o" hint-placeholder-count="3"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px;padding:7px 4px"><input type="radio" name="g-type" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+<div class="seg" style="display:flex"><sc-for list="{{ g.locOpts }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="justify-content:center;min-height:40px;padding:7px 8px"><input type="radio" name="g-loc" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:4px">
+<div style="display:grid;grid-template-columns:44px repeat(4,minmax(0,1fr));gap:4px;font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--color-neutral-700)"><span></span><span style="text-align:center">White</span><span style="text-align:center">Blue</span><span style="text-align:center">Black</span><span style="text-align:center">Other</span></div>
+<sc-for list="{{ g.rows }}" as="r" hint-placeholder-count="8">
+<div style="display:grid;grid-template-columns:44px repeat(4,minmax(0,1fr));gap:4px;align-items:stretch"><span style="font-size:12px;font-weight:600;align-self:center">{{ r.size }}</span><sc-for list="{{ r.cells }}" as="c"><button onClick="{{ c.pick }}" style="min-height:40px;border:none;border-radius:var(--radius-md);font:inherit;font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;cursor:pointer;background:{{ c.bg }};color:{{ c.fg }};outline:{{ c.ring }};outline-offset:1px">{{ c.label }}</button></sc-for></div>
+</sc-for>
+<div style="display:flex;gap:14px;font-size:12px;color:var(--color-neutral-700);margin-top:4px"><span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:var(--color-accent-2-200)"></span>Below min</span><span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:var(--color-neutral-200)"></span>Close to min</span><span style="display:flex;align-items:center;gap:5px"><span style="width:10px;height:10px;background:var(--color-accent-100)"></span>Plenty</span></div>
+</div>
+<div style="display:flex;flex-direction:column;gap:8px;padding-top:6px">
+<div style="display:flex;justify-content:space-between;align-items:baseline"><h4 style="margin:0">{{ g.det.title }}</h4><span style="font-size:13px;color:{{ g.det.statusColor }};font-weight:600">{{ g.det.status }}</span></div>
+<div style="display:flex;align-items:center;gap:12px">
+<div style="flex:1"><div style="font-size:34px;line-height:1;font-weight:600;font-variant-numeric:tabular-nums">{{ g.det.q }}</div><div style="font-size:12px;color:var(--color-neutral-700)">on hand</div></div>
+<div style="display:flex;flex-direction:column;align-items:center;gap:2px"><div style="display:flex;align-items:center;gap:6px"><button class="btn btn-secondary btn-icon" onClick="{{ g.det.dec }}" style="width:44px;height:44px;font-size:18px">−</button><span style="width:36px;text-align:center;font-size:20px;font-weight:600;font-variant-numeric:tabular-nums">{{ g.det.m }}</span><button class="btn btn-secondary btn-icon" onClick="{{ g.det.inc }}" style="width:44px;height:44px;font-size:18px">+</button></div><div style="font-size:12px;color:var(--color-neutral-700)">Alert below</div></div>
+</div>
+<div style="font-size:13px;color:var(--color-neutral-700)">{{ g.det.meta }}</div>
+</div>
+</div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.stock }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+
+<div class="dv-opt" id="1h"><div class="dv-olabel"><a class="dv-oid" href="#1h">1h</a>Front page. Total per garment in large print with days of stock left, then what to reorder.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Stock · Fab1 + Fab2 · Mon 5 Oct</div></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-6)">
+<div style="display:flex;flex-direction:column;gap:18px">
+<sc-for list="{{ h.totals }}" as="tt" hint-placeholder-count="3">
+<div style="display:flex;align-items:flex-end;gap:16px">
+<div class="cmyk-num" style="font-size:64px;font-weight:600;min-width:150px"><span class="paper">{{ tt.n }}</span><span class="plate plate-c" aria-hidden="true">{{ tt.n }}</span><span class="plate plate-m" aria-hidden="true">{{ tt.n }}</span><span class="plate plate-y" aria-hidden="true">{{ tt.n }}</span></div>
+<div style="padding-bottom:4px"><div style="font-size:20px;font-weight:600">{{ tt.label }}</div><div style="font-size:13px;color:var(--color-neutral-700)">{{ tt.cover }}</div></div>
+</div>
+</sc-for>
+</div>
+<div>
+<h4 style="margin:0 0 6px">Reorder</h4>
+<sc-for list="{{ h.lows }}" as="lw" hint-placeholder-count="4"><div style="display:flex;justify-content:space-between;align-items:baseline;padding:5px 0;font-size:14px"><span>{{ lw.name }}</span><span style="font-variant-numeric:tabular-nums"><b style="color:var(--color-accent-2-700)">{{ lw.q }}</b> <span style="color:var(--color-neutral-700)">/ {{ lw.m }}</span></span></div></sc-for>
+</div>
+<table class="table" style="font-variant-numeric:tabular-nums">
+<thead><tr><th>By location</th><th style="text-align:right">Fab1</th><th style="text-align:right">Fab2</th></tr></thead>
+<tbody><sc-for list="{{ h.byLoc }}" as="bl" hint-placeholder-count="3"><tr><td>{{ bl.label }}</td><td style="text-align:right">{{ bl.a }}</td><td style="text-align:right">{{ bl.b }}</td></tr></sc-for></tbody>
+</table>
+</div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.stock }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+</div>
+
+<h4 style="margin:56px 0 4px">Trends</h4>
+<p style="margin:0 0 20px;color:var(--color-neutral-700);font-size:14px">Stock over time, items issued per day, deliveries against issues, and splits by location and size.</p>
+<div class="dv-opts">
+
+<div class="dv-opt" id="1i"><div class="dv-olabel"><a class="dv-oid" href="#1i">1i</a>Over time. Stock lines by garment, with deliveries and issues mirrored on a shared baseline.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Trends · Fab1 + Fab2</div><h3 style="margin:2px 0 0">Stock over time</h3></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-4)">
+<div class="seg" style="display:flex"><sc-for list="{{ i.rangeOpts }}" as="o" hint-placeholder-count="3"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="i-range" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+<div>
+<div style="display:flex;gap:16px;font-size:13px;margin-bottom:8px"><sc-for list="{{ i.legend }}" as="lg" hint-placeholder-count="3"><span style="display:flex;align-items:center;gap:6px"><span style="width:14px;height:3px;background:{{ lg.color }}"></span>{{ lg.label }} <b style="font-variant-numeric:tabular-nums">{{ lg.now }}</b></span></sc-for></div>
+<svg viewBox="0 0 320 140" style="width:100%;height:auto;display:block;overflow:visible">
+<line x1="0" y1="130" x2="320" y2="130" stroke="var(--color-neutral-300)" stroke-width="1"></line>
+<path d="{{ i.paths.Gown }}" fill="none" stroke="var(--color-accent)" stroke-width="2"></path>
+<path d="{{ i.paths.Hood }}" fill="none" stroke="var(--color-accent-2)" stroke-width="2"></path>
+<path d="{{ i.paths.Boot }}" fill="none" stroke="var(--color-text)" stroke-width="2"></path>
+</svg>
+<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--color-neutral-700);margin-top:4px"><span>{{ i.start }}</span><span>Today</span></div>
+</div>
+<div>
+<h4 style="margin:0 0 2px">Deliveries vs issues</h4>
+<div style="font-size:13px;color:var(--color-neutral-700);margin-bottom:10px">Delivered <b style="color:var(--color-accent-700)">{{ i.delivered }}</b> · Issued <b style="color:var(--color-accent-2-700)">{{ i.issued }}</b> · Net <b style="color:var(--color-text)">{{ i.net }}</b></div>
+<div style="display:flex;gap:2px;height:120px;align-items:stretch">
+<sc-for list="{{ i.bars }}" as="br" hint-placeholder-count="14">
+<div style="flex:1;display:flex;flex-direction:column"><div style="flex:1;display:flex;align-items:flex-end"><div style="width:100%;height:{{ br.up }};background:var(--color-accent)"></div></div><div style="height:1px;background:var(--color-text)"></div><div style="flex:1"><div style="width:100%;height:{{ br.down }};background:var(--color-accent-2-400)"></div></div></div>
+</sc-for>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--color-neutral-700);margin-top:4px"><span>{{ i.start }}</span><span>Today</span></div>
+</div>
+</div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.trends }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+
+<div class="dv-opt" id="1j"><div class="dv-olabel"><a class="dv-oid" href="#1j">1j</a>Breakdown. Issued per day, then by size and by location. Switch between issued and stock.</div>
+<div class="dv-card" style="width:360px;height:760px;border-radius:24px;display:flex;flex-direction:column;background:var(--color-bg);box-shadow:var(--shadow-md)">
+<div style="display:flex;justify-content:space-between;padding:12px 24px 0;font-size:12px;font-weight:600"><span>9:41</span><span>5G · 82%</span></div>
+<div style="padding:14px 20px 8px"><div style="font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--color-accent-700)">Trends · last 14 days</div><h3 style="margin:2px 0 0">Issued per day</h3></div>
+<div style="flex:1;overflow:auto;padding:4px 20px 16px;display:grid;grid-template-columns:minmax(0,1fr);grid-auto-rows:max-content;align-content:start;gap:var(--space-6)">
+<div>
+<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:10px"><span style="font-size:34px;font-weight:600;font-variant-numeric:tabular-nums;line-height:1">{{ j.avg }}</span><span style="font-size:13px;color:var(--color-neutral-700)">a weekday, on average</span></div>
+<div style="display:flex;gap:4px;height:110px;align-items:flex-end">
+<sc-for list="{{ j.days }}" as="dy" hint-placeholder-count="14"><div style="flex:1;height:{{ dy.h }};background:{{ dy.color }}"></div></sc-for>
+</div>
+<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--color-neutral-700);margin-top:4px"><span>{{ j.start }}</span><span>Today (so far)</span></div>
+</div>
+<div class="seg" style="display:flex"><sc-for list="{{ j.metricOpts }}" as="o" hint-placeholder-count="2"><label class="seg-opt" style="flex:1;justify-content:center;min-height:40px"><input type="radio" name="j-metric" checked="{{ o.on }}" onChange="{{ o.pick }}">{{ o.label }}</label></sc-for></div>
+<div>
+<h4 style="margin:0 0 8px">By size</h4>
+<sc-for list="{{ j.bySize }}" as="bs" hint-placeholder-count="7">
+<div style="display:grid;grid-template-columns:44px 1fr 48px;gap:8px;align-items:center;padding:3px 0;font-size:13px"><span style="font-weight:600">{{ bs.label }}</span><span style="height:12px"><span style="display:block;height:100%;width:{{ bs.w }};background:var(--color-accent)"></span></span><span style="text-align:right;font-variant-numeric:tabular-nums">{{ bs.v }}</span></div>
+</sc-for>
+</div>
+<div>
+<h4 style="margin:0 0 8px">By location</h4>
+<div style="display:flex;height:28px;gap:2px"><div style="width:{{ j.loc.aw }};background:var(--color-accent)"></div><div style="flex:1;background:var(--color-accent-300)"></div></div>
+<div style="display:flex;justify-content:space-between;font-size:14px;margin-top:6px;font-variant-numeric:tabular-nums"><span><b>Fab1</b> {{ j.loc.a }}</span><span><b>Fab2</b> {{ j.loc.b }}</span></div>
+</div>
+</div>
+<nav style="display:grid;grid-template-columns:repeat(4,1fr);padding:2px 8px 12px;background:var(--color-surface)"><sc-for list="{{ tabs.trends }}" as="t" hint-placeholder-count="4"><div style="min-height:48px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:{{ t.w }};color:{{ t.c }}">{{ t.label }}</div></sc-for></nav>
+</div></div>
+</div>
+
+<p class="dv-next">Try next: "combine <a class="dv-oid" href="#1a">1a</a> and <a class="dv-oid" href="#1c">1c</a>" · "make <a class="dv-oid" href="#1g">1g</a> the default stock screen and add a desktop layout" · "show the issue flow when an item is out of stock"</p>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  D = this.build();
+  state = {
+    stock: this.D.stock, min: this.D.min,
+    aType: 'Gown', aLoc: 'Fab1', aQty: this.D.aQty,
+    bLines: [
+      { t: 'Gown', c: 'White', s: 'LG', l: 'Fab1', q: 60 },
+      { t: 'Gown', c: 'White', s: 'MED', l: 'Fab1', q: 40 },
+      { t: 'Hood', c: 'White', s: 'LG', l: 'Fab1', q: 50 },
+      { t: 'Boot', c: 'White', s: 'XLG', l: 'Fab2', q: 30 },
+      { t: 'Gown', c: 'Blue', s: 'XLG', l: 'Fab2', q: 25 }
+    ],
+    bForm: { t: 'Gown', c: 'White', s: 'XLG', l: 'Fab1', q: '20' },
+    cCount: this.D.cLines.map((x, i) => String(i === 2 ? x.exp - 4 : i === 5 ? x.exp - 5 : x.exp)),
+    dStep: 0, dItems: [], dResult: [],
+    fLoc: 'Fab1',
+    gType: 'Gown', gLoc: 'Fab1', gSel: 'Gown|White|XLG|Fab1',
+    iRange: 14, jMetric: 'Issued'
+  };
+
+  build() {
+    const S = ['SM', 'MED', 'LG', 'XLG', '2XLG', '3XLG', '4XLG', 'Other'], C = ['White', 'Blue', 'Black', 'Other'], T = ['Gown', 'Hood', 'Boot'], L = ['Fab1', 'Fab2'];
+    const r = n => { const x = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return x - Math.floor(x); };
+    const sw = { SM: .45, MED: .85, LG: 1, XLG: .8, '2XLG': .45, '3XLG': .22, '4XLG': .1, Other: .04 };
+    const cw = { White: 1, Blue: .5, Black: .18, Other: .06 }, tw = { Gown: 1, Hood: 1.1, Boot: .95 }, lw = { Fab1: 1, Fab2: .65 };
+    const stock = {}, min = {}; let i = 0;
+    T.forEach(t => C.forEach(c => S.forEach(s => L.forEach(l => {
+      i++; const k = [t, c, s, l].join('|'); const b = 60 * tw[t] * cw[c] * sw[s] * lw[l];
+      if (b < 1.5) { stock[k] = 0; min[k] = 0; return; }
+      const m = b > 12 ? Math.round(b * .4 / 5) * 5 : Math.max(2, Math.round(b * .4));
+      min[k] = m; stock[k] = Math.max(m + 1, Math.round(b * (.7 + r(i) * .8)));
+    }))));
+    const lows = { 'Gown|White|XLG|Fab1': .6, 'Hood|Blue|LG|Fab2': .4, 'Boot|White|MED|Fab1': .75, 'Gown|Blue|2XLG|Fab1': .5 };
+    Object.keys(lows).forEach(k => { stock[k] = Math.floor(min[k] * lows[k]); });
+    const tot = {}; T.forEach(t => { tot[t] = 0; Object.keys(stock).forEach(k => { if (k.startsWith(t + '|')) tot[t] += stock[k]; }); });
+    const N = 30, issues = {}, deliv = {}, series = {};
+    T.forEach((t, ti) => {
+      issues[t] = []; deliv[t] = []; series[t] = new Array(N);
+      for (let d = 0; d < N; d++) {
+        const dow = ((1 - (N - 1 - d)) % 7 + 7) % 7, wk = dow > 0 && dow < 6;
+        let is = Math.round(tot[t] * .2 * (wk ? 1 : .45) * (.85 + .3 * r(d * 7 + ti)));
+        if (d === N - 1) is = Math.round(is * .35);
+        issues[t].push(is);
+        deliv[t].push([1, 3, 5].includes(dow) ? Math.round(tot[t] * .2 * 2.3 * (.9 + .2 * r(d * 3 + ti + 50))) : 0);
+      }
+      series[t][N - 1] = tot[t];
+      for (let d = N - 1; d > 0; d--) series[t][d - 1] = series[t][d] + issues[t][d] - deliv[t][d];
+    });
+    const aQty = {};
+    const pre = (t, l, c, vals) => S.forEach((s, j) => { if (vals[j]) aQty[[t, l, s, c].join('|')] = String(vals[j]); });
+    pre('Gown', 'Fab1', 'White', [10, 30, 40, 30, 10, 5]); pre('Gown', 'Fab1', 'Blue', [0, 10, 15, 10]);
+    pre('Hood', 'Fab1', 'White', [10, 30, 40, 30, 10]); pre('Boot', 'Fab1', 'White', [10, 25, 30, 20]);
+    const cLines = [['Gown', 'White', 'MED', 40], ['Gown', 'White', 'LG', 60], ['Gown', 'White', 'XLG', 40], ['Gown', 'Blue', 'LG', 20], ['Hood', 'White', 'MED', 40], ['Hood', 'White', 'LG', 50], ['Boot', 'White', 'MED', 30], ['Boot', 'White', 'LG', 20]].map(([t, c, s, exp]) => ({ t, c, s, exp }));
+    const date = d => new Date(2026, 9, 5 - (N - 1 - d)).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return { S, C, T, L, sw, lw, stock, min, aQty, cLines, issues, deliv, series, N, date };
+  }
+
+  seg(opts, cur, fn, labels) { return opts.map((o, i) => ({ label: labels ? labels[i] : o, on: o === cur, pick: () => fn(o) })); }
+  fmt(n) { return n.toLocaleString('en-US'); }
+  tabsFor(a) { return ['Issue', 'Receive', 'Stock', 'Trends'].map(l => ({ label: l, c: l === a ? 'var(--color-accent-700)' : 'var(--color-neutral-700)', w: l === a ? 600 : 400 })); }
+
+  renderVals() {
+    const D = this.D, st = this.state, { S, C, T, L } = D;
+    const stock = st.stock, min = st.min;
+    const key = (t, c, s, l) => [t, c, s, l].join('|');
+
+    // 1a
+    const aRows = S.map(s => ({ size: s, cells: C.map(c => { const k = [st.aType, st.aLoc, s, c].join('|'); return { v: st.aQty[k] || '', set: e => { const v = e.target.value.replace(/\D/g, ''); this.setState(p => ({ aQty: { ...p.aQty, [k]: v } })); } }; }) }));
+    const sums = {}; let aTotal = 0;
+    Object.entries(st.aQty).forEach(([k, v]) => { const n = +v || 0; if (!n) return; const [t, l] = k.split('|'); const g = t + ' · ' + l; sums[g] = (sums[g] || 0) + n; aTotal += n; });
+    const a = { typeOpts: this.seg(T, st.aType, v => this.setState({ aType: v }), ['Gowns', 'Hoods', 'Boots']), locOpts: this.seg(L, st.aLoc, v => this.setState({ aLoc: v })), rows: aRows, staged: Object.entries(sums).map(([label, n]) => ({ label, n })), total: this.fmt(aTotal) };
+
+    // 1b
+    const setF = f => e => { const v = e.target.value; this.setState(p => ({ bForm: { ...p.bForm, [f]: v } })); };
+    const updLine = (i, d) => this.setState(p => ({ bLines: p.bLines.map((x, j) => j === i ? { ...x, q: Math.max(0, x.q + d) } : x).filter(x => x.q > 0) }));
+    const b = {
+      form: st.bForm, setT: setF('t'), setC: setF('c'), setS: setF('s'), setL: setF('l'), setQ: setF('q'),
+      add: () => this.setState(p => { const q = +p.bForm.q || 0; if (!q) return null; const f = p.bForm; const idx = p.bLines.findIndex(x => x.t === f.t && x.c === f.c && x.s === f.s && x.l === f.l); const lines = idx >= 0 ? p.bLines.map((x, j) => j === idx ? { ...x, q: x.q + q } : x) : [{ t: f.t, c: f.c, s: f.s, l: f.l, q }, ...p.bLines]; return { bLines: lines }; }),
+      lines: st.bLines.map((x, i) => ({ name: x.t, meta: `${x.c} · ${x.s} · ${x.l}`, q: x.q, dec: () => updLine(i, -5), inc: () => updLine(i, 5) })),
+      count: st.bLines.length, total: this.fmt(st.bLines.reduce((s, x) => s + x.q, 0))
+    };
+
+    // 1c
+    let cExp = 0, cGot = 0;
+    const cl = D.cLines.map((x, i) => { const v = st.cCount[i]; const n = +v || 0; cExp += x.exp; cGot += n; const diff = n - x.exp;
+      return { name: `${x.t} · ${x.c} · ${x.s}`, exp: x.exp, v, note: diff ? (diff > 0 ? '+' : '−') + Math.abs(diff) + ' vs order' : 'Matches', noteColor: diff ? 'var(--color-accent-2-700)' : 'var(--color-neutral-700)',
+        set: e => { const val = e.target.value.replace(/\D/g, ''); this.setState(p => { const cc = [...p.cCount]; cc[i] = val; return { cCount: cc }; }); } }; });
+    const cv = cGot - cExp;
+    const c = { lines: cl, exp: cExp, got: cGot, variance: cv === 0 ? '0' : (cv > 0 ? '+' : '−') + Math.abs(cv), varColor: cv ? 'var(--color-accent-2-700)' : 'var(--color-text)', reset: () => this.setState({ cCount: D.cLines.map(x => String(x.exp)) }) };
+
+    // 1d
+    const scans = [{ t: 'Gown', c: 'White', s: 'XLG', id: 'G-0418872' }, { t: 'Hood', c: 'White', s: 'XLG', id: 'H-0220913' }, { t: 'Boot', c: 'White', s: 'MED', id: 'B-0107744' }];
+    const stepNames = ['1 Badge', '2 Garments', '3 Done'];
+    const d = {
+      s0: st.dStep === 0, s1: st.dStep === 1, s2: st.dStep === 2,
+      steps: stepNames.map((n, i) => ({ label: n, w: i === st.dStep ? 600 : 400, c: i === st.dStep ? 'var(--color-text)' : i < st.dStep ? 'var(--color-accent-700)' : 'var(--color-neutral-500)' })),
+      check: T.map(t => { const it = st.dItems.find(x => x.t === t); return { type: t === 'Boot' ? 'Boots' : t, detail: it ? `${it.c} · ${it.s} · ${it.id}` : 'Not scanned yet', mark: it ? '✓' : '', dotBg: it ? 'var(--color-accent)' : 'var(--color-neutral-200)', dotFg: 'var(--color-bg)' }; }),
+      count: st.dItems.length, noItems: st.dItems.length === 0, full: st.dItems.length >= 3,
+      scanBadge: () => this.setState({ dStep: 1, dItems: [] }),
+      scanItem: () => this.setState(p => p.dItems.length < 3 ? { dItems: [...p.dItems, scans[p.dItems.length]] } : null),
+      reset: () => { clearTimeout(this._t); this.setState({ dStep: 0, dItems: [], dResult: [] }); },
+      confirm: () => this.setState(p => {
+        const ns = { ...p.stock }; const res = p.dItems.map(x => { const k = key(x.t, x.c, x.s, 'Fab1'); const from = ns[k]; ns[k] = Math.max(0, from - 1); return { name: x.t === 'Boot' ? 'Boots' : x.t, meta: `${x.c} · ${x.s} · Fab1`, from, to: ns[k], low: ns[k] < p.min[k], min: p.min[k] }; });
+        clearTimeout(this._t); this._t = setTimeout(() => this.setState({ dStep: 0, dItems: [], dResult: [] }), 5000);
+        return { stock: ns, dStep: 2, dResult: res };
+      }),
+      result: st.dResult
+    };
+
+    const e = { recent: [{ time: '09:38', name: 'Priya Nair', items: 'Gown, hood, boots · White · MED' }, { time: '09:36', name: 'Tomás Reyes', items: 'Gown, hood · White · LG' }, { time: '09:31', name: 'Aiko Tanaka', items: 'Gown, hood, boots · Blue · SM' }, { time: '09:30', name: 'Ben Okafor', items: 'Boots · White · XLG' }] };
+
+    // shared item rows
+    const entries = loc => { const out = []; T.forEach(t => C.forEach(cc => S.forEach(s => { const ls = loc === 'Both' ? L : [loc]; let q = 0, m = 0; ls.forEach(l => { const k = key(t, cc, s, l); q += stock[k]; m += min[k]; }); if (m > 0) out.push({ t, c: cc, s, q, m }); }))); return out; };
+
+    // 1f
+    const fe = entries(st.fLoc);
+    const lowsF = fe.filter(x => x.q < x.m).sort((x, y) => x.q / x.m - y.q / y.m);
+    const f = {
+      locOpts: this.seg(['Fab1', 'Fab2', 'Both'], st.fLoc, v => this.setState({ fLoc: v })),
+      lowCount: lowsF.length, lows: lowsF.map(x => ({ name: `${x.t} · ${x.c} · ${x.s}`, q: x.q, m: x.m })),
+      groups: T.map(t => { const rows = fe.filter(x => x.t === t); return { label: t + 's', total: this.fmt(rows.reduce((s, x) => s + x.q, 0)), more: `All ${rows.length} ${t.toLowerCase()} items`,
+        rows: rows.filter(x => x.q >= x.m).sort((x, y) => x.q / x.m - y.q / y.m).slice(0, 4).map(x => ({ label: `${x.c} · ${x.s}`, q: x.q, m: x.m, w: Math.min(100, x.q / (x.m * 3) * 100) + '%', fill: x.q < x.m * 1.5 ? 'var(--color-neutral-600)' : 'var(--color-accent)' })) }; })
+    };
+
+    // 1g
+    const [sT, sC, sS, sL] = st.gSel.split('|');
+    const moveSel = (t, l) => { let k = key(t, sC, sS, l); if (!min[k]) k = key(t, 'White', 'LG', l); return k; };
+    const gRows = S.map(s => ({ size: s, cells: C.map(cc => { const k = key(st.gType, cc, s, st.gLoc); const m = min[k], q = stock[k];
+      if (!m) return { label: '—', bg: 'transparent', fg: 'var(--color-neutral-500)', ring: 'none', pick: () => {} };
+      const low = q < m, close = q < m * 1.5;
+      return { label: q, bg: low ? 'var(--color-accent-2-200)' : close ? 'var(--color-neutral-200)' : 'var(--color-accent-100)', fg: low ? 'var(--color-accent-2-800)' : close ? 'var(--color-neutral-800)' : 'var(--color-accent-800)', ring: k === st.gSel ? '2px solid var(--color-text)' : 'none', pick: () => this.setState({ gSel: k }) }; }) }));
+    const sq = stock[st.gSel], sm = min[st.gSel];
+    const setMin = dd => this.setState(p => ({ min: { ...p.min, [p.gSel]: Math.max(1, p.min[p.gSel] + dd) } }));
+    const g = {
+      heading: (st.gType === 'Boot' ? 'Boots' : st.gType + 's') + ' · ' + st.gLoc,
+      typeOpts: this.seg(T, st.gType, v => this.setState(p => ({ gType: v, gSel: moveSel(v, p.gLoc) })), ['Gowns', 'Hoods', 'Boots']),
+      locOpts: this.seg(L, st.gLoc, v => this.setState(p => ({ gLoc: v, gSel: moveSel(p.gType, v) }))),
+      rows: gRows,
+      det: { title: `${sT} · ${sC} · ${sS}`, q: sq, m: sm, status: sq < sm ? 'Below minimum' : sq < sm * 1.5 ? 'Close to minimum' : 'OK', statusColor: sq < sm ? 'var(--color-accent-2-700)' : 'var(--color-neutral-700)', dec: () => setMin(-1), inc: () => setMin(1), meta: `${sL} · Issued today ${Math.round(sm * .3) + 1} · Last delivery +${sm * 2} on Fri 2 Oct, 06:40` }
+    };
+
+    // 1h
+    const avgIss = t => { const a = D.issues[t].slice(D.N - 8, D.N - 1); return a.reduce((s, x) => s + x, 0) / 7; };
+    const lowsAll = []; T.forEach(t => C.forEach(cc => S.forEach(s => L.forEach(l => { const k = key(t, cc, s, l); if (min[k] && stock[k] < min[k]) lowsAll.push({ name: `${t} · ${cc} · ${s} · ${l}`, q: stock[k], m: min[k], r: stock[k] / min[k] }); }))));
+    const tByLoc = (t, l) => { let n = 0; C.forEach(cc => S.forEach(s => { n += stock[key(t, cc, s, l)]; })); return n; };
+    const h = {
+      totals: T.map(t => { const n = tByLoc(t, 'Fab1') + tByLoc(t, 'Fab2'); return { n: this.fmt(n), label: t === 'Boot' ? 'Boots' : t + 's', cover: `About ${(n / avgIss(t)).toFixed(1)} days at the usual rate` }; }),
+      lows: lowsAll.sort((x, y) => x.r - y.r).slice(0, 4),
+      byLoc: T.map(t => ({ label: t === 'Boot' ? 'Boots' : t + 's', a: this.fmt(tByLoc(t, 'Fab1')), b: this.fmt(tByLoc(t, 'Fab2')) }))
+    };
+
+    // 1i
+    const n = st.iRange, from = D.N - n;
+    let mx = 0; T.forEach(t => D.series[t].slice(from).forEach(v => { mx = Math.max(mx, v); })); mx *= 1.08;
+    const paths = {}; T.forEach(t => { paths[t] = D.series[t].slice(from).map((v, j) => (j ? 'L' : 'M') + (j / (n - 1) * 320).toFixed(1) + ' ' + (130 - v / mx * 125).toFixed(1)).join(' '); });
+    const dv = [], iv = []; for (let j = from; j < D.N; j++) { dv.push(T.reduce((s, t) => s + D.deliv[t][j], 0)); iv.push(T.reduce((s, t) => s + D.issues[t][j], 0)); }
+    const bm = Math.max(...dv, ...iv);
+    const sumD = dv.reduce((s, x) => s + x, 0), sumI = iv.reduce((s, x) => s + x, 0);
+    const i = {
+      rangeOpts: this.seg([7, 14, 30], n, v => this.setState({ iRange: v }), ['7 days', '14 days', '30 days']),
+      legend: [['Gowns', 'var(--color-accent)', 'Gown'], ['Hoods', 'var(--color-accent-2)', 'Hood'], ['Boots', 'var(--color-text)', 'Boot']].map(([label, color, t]) => ({ label, color, now: this.fmt(D.series[t][D.N - 1]) })),
+      paths, start: D.date(from),
+      bars: dv.map((x, j) => ({ up: (x / bm * 100) + '%', down: (iv[j] / bm * 100) + '%' })),
+      delivered: this.fmt(sumD), issued: this.fmt(sumI), net: (sumD - sumI >= 0 ? '+' : '−') + this.fmt(Math.abs(sumD - sumI))
+    };
+
+    // 1j
+    const days = []; for (let k = D.N - 14; k < D.N; k++) days.push(T.reduce((s, t) => s + D.issues[t][k], 0));
+    const dmx = Math.max(...days);
+    const wkdays = days.filter((x, k) => { const dow = ((1 - (13 - k)) % 7 + 7) % 7; return dow > 0 && dow < 6 && k < 13; });
+    const issued14 = days.reduce((s, x) => s + x, 0);
+    const isIss = st.jMetric === 'Issued';
+    const sizes = S.filter(s => s !== 'Other');
+    const swSum = sizes.reduce((s, x) => s + D.sw[x], 0);
+    const sizeVals = sizes.map(s => isIss ? Math.round(issued14 * D.sw[s] / swSum) : T.reduce((a2, t) => a2 + C.reduce((a3, cc) => a3 + L.reduce((a4, l) => a4 + stock[key(t, cc, s, l)], 0), 0), 0));
+    const svm = Math.max(...sizeVals);
+    const locA = isIss ? Math.round(issued14 / 1.65) : T.reduce((s, t) => s + tByLoc(t, 'Fab1'), 0);
+    const locB = isIss ? issued14 - locA : T.reduce((s, t) => s + tByLoc(t, 'Fab2'), 0);
+    const j = {
+      avg: this.fmt(Math.round(wkdays.reduce((s, x) => s + x, 0) / wkdays.length)), start: D.date(D.N - 14),
+      days: days.map((x, k) => ({ h: (x / dmx * 100) + '%', color: k === 13 ? 'var(--color-accent-300)' : 'var(--color-accent)' })),
+      metricOpts: this.seg(['Issued', 'Stock'], st.jMetric, v => this.setState({ jMetric: v }), ['Issued, 14 days', 'Stock now']),
+      bySize: sizes.map((s, k) => ({ label: s, v: this.fmt(sizeVals[k]), w: (sizeVals[k] / svm * 100) + '%' })),
+      loc: { a: this.fmt(locA), b: this.fmt(locB), aw: (locA / (locA + locB) * 100) + '%' }
+    };
+
+    return { a, b, c, d, e, f, g, h, i, j, tabs: { receive: this.tabsFor('Receive'), issue: this.tabsFor('Issue'), stock: this.tabsFor('Stock'), trends: this.tabsFor('Trends') } };
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+}
+</script>
+</body>
+</html>
