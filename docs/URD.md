@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Version | 0.3 (draft for review) |
+| Version | 0.4 (draft for review) |
 | Date | 2026-10-21 |
 | Source | UI mockups in [`design/mockups/`](../design/mockups/) (`Garment Inventory.dc.html` explorations 1a–1j, `Garment Inventory App.dc.html` consolidated app, `Garment Inventory Devices.dc.html` phone + laptop frames) |
 | Status | Draft — items marked **[OPEN]** need a decision from the business owner (cleanroom lead) |
@@ -17,7 +17,9 @@ Today, cleanroom floor staff **count garments by hand** on the shelves at Fab1 a
 - gives only a snapshot — there is no record of how much was delivered or used over time;
 - is error-prone, and errors are only found at the next count.
 
-Garment **issuing is already recorded** in another system, which stores every issue in an **Oracle database**. That data is not currently used for stock keeping.
+Garment **issuing is already recorded** in another system (from an outside vendor), which writes one row per garment to an **Oracle database**. Every garment has its own barcode. Issue rows are those with `STATE = 'EMPLOYEE GOWN ISSUE'`; each row carries the garment's barcode, type, color, size and location (`SUIT_LEVEL`). That data is not currently used for stock keeping.
+
+Not all of the Oracle data is accurate: rows with **type GOWN and both color and size = OTHER** are known to be wrong (the real color and size were not recorded). The lead is asking the vendor to fix this; until then, GI must cope with it (§6.4).
 
 ## 2. Goal
 
@@ -50,7 +52,7 @@ stock on hand  =  starting count  +  deliveries (entered in GI)  −  issues (im
 | Area | What | Mockup |
 |---|---|---|
 | **Receive** | Enter a delivery line by line; view, correct or void past deliveries | App › Receive |
-| **Issue import** | Scheduled, read-only import of issue records from the Oracle database; mapping of Oracle items to GI stock items; sync status | — (new) |
+| **Issue import** | Scheduled, read-only import of `EMPLOYEE GOWN ISSUE` rows from the Oracle database; mapping of Oracle values to GI values; handling of incomplete rows; sync status | — (new) |
 | **Stock** | Summary (totals, days of cover, reorder list, by location); size × color grid with per-item minimum | App › Stock |
 | **Trends** | Delivered per period, issued per day, stock over time, breakdowns by size and location | App › Trends |
 | **Settings** | Sizes & colors; stock correction (starting count and occasional spot-check fixes) | App › Settings |
@@ -76,8 +78,8 @@ stock on hand  =  starting count  +  deliveries (entered in GI)  −  issues (im
 
 | Role | Who | Main tasks | Device |
 |---|---|---|---|
-| **Floor staff** | Cleanroom floor staff receiving the morning delivery (~06:40) | Enter deliveries; fix a wrong delivery entry | Phone |
-| **Cleanroom lead** | Owns stock levels and reordering | Read stock, deliveries and issues; set minimums; manage sizes/colors; enter starting counts and stock corrections; review unmapped Oracle items | Laptop, phone |
+| **Floor staff** | Cleanroom floor staff receiving the morning delivery (~06:40) | Enter deliveries; fix a wrong delivery entry; the one-off full count before go-live | Phone |
+| **Cleanroom lead** | Owns stock levels and reordering | Read stock, deliveries and issues; set minimums; manage sizes/colors; stock corrections; map new Oracle values; follow up data quality with the vendor | Laptop, phone |
 | **Viewer** | Fab managers, purchasing | Read stock and trends | Laptop |
 | **Admin** | IT | Users and roles, Oracle connection, item mapping, monitoring | Laptop |
 
@@ -90,8 +92,11 @@ stock on hand  =  starting count  +  deliveries (entered in GI)  −  issues (im
 - **Stock item** — the unique combination *garment × color × size × location*, with its own **on hand** and **minimum**.
 - **Stocked item** — a stock item with a minimum set. Others show "—" / "Not stocked — set a minimum to start".
 - **Delivery** — garments received, entered by floor staff: timestamp, user, lines (stock item + quantity), correction note.
-- **Issue** — one or more garments handed out, **as recorded in the Oracle database**. GI holds a read-only copy keyed by the Oracle record ID.
-- **Item mapping** — how an Oracle item (code + location) translates to a GI stock item.
+- **Issue** — one garment handed out, i.e. one Oracle row with `STATE = 'EMPLOYEE GOWN ISSUE'`. GI holds a read-only copy. Garments are laundered and reused, so the same barcode is issued many times; an issue is identified by barcode + time (§6.3).
+- **Value mapping** — how a value in an Oracle column translates to a GI value (e.g. `SUIT_TYPE` "GOWN" → Gown, a `SUIT_LEVEL` value → Fab1).
+- **Incomplete issue** — an issue row whose color and size are known to be wrong; today: `SUIT_TYPE` = GOWN with `SUIT_COLOR` = OTHER and `SUIT_SIZE` = OTHER.
+- **Unknown bucket** — per garment type and location, a separate stock line that collects incomplete issues that could not be recovered (§6.4).
+- **Starting count** — the full count by floor staff just before go-live, with an *as-of* time per location. Stock starts from it.
 - **Stock correction** — a change to on hand that is neither a delivery nor an issue (starting count, spot check, damaged, found). Always has a reason and is logged.
 - **On hand** — starting count + deliveries − issues ± corrections. Calculated, never counted routinely.
 - **Days of cover** — on hand ÷ average weekday issues over the last 7 days ("About 4.2 days at the usual rate").
@@ -130,18 +135,47 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 
 | ID | Requirement | Pri |
 |---|---|---|
-| ORA-01 | GI reads issue records from the Oracle database over a **read-only** account, on a schedule (default every 5 minutes; **[OPEN]** confirm), using an agreed view or table. | M |
-| ORA-02 | Each Oracle issue record is imported **exactly once**, keyed by its Oracle record ID; re-running an import never double-counts. | M |
-| ORA-03 | Import is incremental (from the last imported timestamp / ID, with a small overlap window to catch late-committed rows). | M |
-| ORA-04 | Each imported issue is mapped to a GI stock item via the item mapping and reduces its on hand. | M |
-| ORA-05 | Issue records whose item cannot be mapped are held in an **Unmapped items** list (Oracle code, description, location, count, first/last seen) and do not affect stock until mapped; mapping them applies the held issues. | M |
-| ORA-06 | If an Oracle record is cancelled or changed after import, GI applies the difference as a correction to that issue (needs the source to expose cancellations / updates — **[OPEN]**). | S |
-| ORA-07 | Sync status is visible on Stock and Trends: "Issues up to HH:MM". If the last successful import is older than 30 minutes, a warning is shown to everyone and admins are notified. | M |
-| ORA-08 | Admin screen: connection test, last runs (time, rows read, rows imported, unmapped, errors), and "Run now". | M |
-| ORA-09 | Historic backfill: on first run, import issues from a chosen start date so Trends have history from day one. | S |
-| ORA-10 | The Oracle database load stays small: one query per run, indexed on the incremental key, row limit per run. | M |
+**Source columns** (Oracle table or view — name **[OPEN]**):
 
-### 6.4 Stock — summary (front page)
+| Oracle column | Use in GI |
+|---|---|
+| `SUIT_BARCODE` | Garment barcode. Part of the issue key; used to recover color/size for incomplete rows (DQ-02). |
+| `SUIT_TYPE` | → garment type (value mapping) |
+| `SUIT_COLOR` | → color (value mapping) |
+| `SUIT_SIZE` | → size (value mapping) |
+| `SUIT_LEVEL` | → location, Fab1 / Fab2 (value mapping) |
+| `STATE` | Filter: only `'EMPLOYEE GOWN ISSUE'` is imported |
+| `INOUT_CATEGORY`, `INOUT_ACTION` | Stored for reference and troubleshooting. **[OPEN]** meaning — may identify returns or reversals (ORA-06) |
+| `INSERT_TIME` | When the row was written. Incremental import key. **[OPEN]** confirm |
+| `RECTIME` | **[OPEN]** Assumed to be the time of the issue; used as "issued at" for trends |
+| `EMPLOYEE_ID`, `INSERT_USER` | **Not imported** — GI only needs counts (data minimization). **[OPEN]** unless per-employee reports are wanted |
+
+| ID | Requirement | Pri |
+|---|---|---|
+| ORA-01 | GI reads rows with `STATE = 'EMPLOYEE GOWN ISSUE'` from the Oracle database over a **read-only** account, on a schedule (default every 5 minutes; **[OPEN]** confirm). | M |
+| ORA-02 | Each row is **one garment issued** (quantity 1). Each row is imported **exactly once**, keyed by `SUIT_BARCODE` + `INSERT_TIME` (barcode alone is not unique, as garments are reused); re-running an import never double-counts. **[OPEN]** confirm this pair is unique. | M |
+| ORA-03 | Import is incremental on `INSERT_TIME`, with an overlap window (e.g. 10 minutes) to catch late-committed rows and rows sharing the same timestamp. | M |
+| ORA-04 | Each row's `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL` are translated through the value mapping (§6.10) to a GI stock item, whose on hand is reduced by 1. Incomplete rows follow §6.4. | M |
+| ORA-05 | A row containing a value not yet in the value mapping (e.g. a new size code) is **held**: it does not affect stock, is listed under Settings › Oracle values with a count, and is applied as soon as the value is mapped. | M |
+| ORA-06 | Reversals: if the source records an issue being undone (scanned by mistake, returned unused — via another `STATE`, `INOUT_ACTION`, or deleting the row), GI gives the garment back to stock. **[OPEN]** how the source records this; until known, reversals are handled by stock correction. | S |
+| ORA-07 | Sync status is visible on Stock and Trends: "Issues up to HH:MM". If the last successful import is older than 30 minutes, a warning is shown and admins are notified. | M |
+| ORA-08 | Admin screen: connection test, last runs (time, rows read, applied, held, incomplete, errors), and "Run now". | M |
+| ORA-09 | Historic backfill from a chosen start date, **for Trends only** — issues before the starting count do not change stock (rule 7.8). | S |
+| ORA-10 | The Oracle load stays small: one query per run with bind variables, filtered on `STATE` and `INSERT_TIME` (index needed — agree with the Oracle DBA), row limit per run. | M |
+
+### 6.4 Data quality — incomplete issue rows
+
+| ID | Requirement | Pri |
+|---|---|---|
+| DQ-01 | A row is **incomplete** when it matches a known-bad pattern. Today the only pattern is `SUIT_TYPE` = GOWN with `SUIT_COLOR` = OTHER and `SUIT_SIZE` = OTHER. Admins can add or remove patterns without a code change. | M |
+| DQ-02 | **Recovery by barcode:** for an incomplete row, GI looks up the same `SUIT_BARCODE` in earlier complete rows. If they agree on one color and size, the row is booked to that item and marked "recovered". **[OPEN]** confirm a barcode's color and size never change. | S |
+| DQ-03 | An incomplete row that cannot be recovered still counts in **issued per day**, **garment-type totals** and **location totals** (these stay correct), but is booked to that type and location's **unknown bucket**, not to the real "Other · Other" item. | M |
+| DQ-04 | The unknown bucket is shown as its own line ("Gowns · color/size unknown") on Stock › Summary and below the Stock › Grid, with the notice "N gown issues in the last 7 days had no color/size — stock per size and color may be overstated by up to N." | M |
+| DQ-05 | **Data quality report** for the lead: incomplete rows per day (recovered / unrecovered), by location, with example barcodes — to show the vendor and to check whether their fix works. | M |
+| DQ-06 | After a spot check of the affected garments, the lead can clear the unknown bucket with a stock correction (reason "Spot check"), which also corrects the per-size items. | M |
+| DQ-07 | When the vendor's fix is in place, no GI change is needed: complete rows import normally and the unknown bucket stops growing. | M |
+
+### 6.5 Stock — summary (front page)
 
 | ID | Requirement | Pri |
 |---|---|---|
@@ -151,7 +185,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | STK-04 | Today at a glance: delivered today and issued today per garment. | M |
 | STK-05 | Freshness stamp ("As of HH:MM · issues up to HH:MM"); refreshes without manual reload. | S |
 
-### 6.5 Stock — grid
+### 6.6 Stock — grid
 
 | ID | Requirement | Pri |
 |---|---|---|
@@ -162,7 +196,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | GRD-05 | Switching garment/location keeps the same color/size selected if it exists, else White · LG. | S |
 | GRD-06 | Selecting a non-stocked cell lets the lead set a minimum to start stocking it. | S |
 
-### 6.6 Trends (the lead's three questions)
+### 6.7 Trends (the lead's three questions)
 
 | ID | Requirement | Pri |
 |---|---|---|
@@ -174,7 +208,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | TRD-06 | Breakdown by size and by location (Fab1 vs Fab2), switchable between Delivered / Issued / Stock. | S |
 | TRD-07 | Export the data behind any chart as CSV. | S |
 
-### 6.7 Settings — sizes and colors
+### 6.8 Settings — sizes and colors
 
 | ID | Requirement | Pri |
 |---|---|---|
@@ -184,7 +218,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | SET-04 | Sizes keep a user-defined display order. | S |
 | SET-05 | Only lead/admin can change master data. | M |
 
-### 6.8 Settings — stock correction
+### 6.9 Settings — stock correction
 
 | ID | Requirement | Pri |
 |---|---|---|
@@ -192,20 +226,21 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | ADJ-02 | Pick garment, color, size, location → show **In system**; enter **Counted on the shelf**; show the difference live. | M |
 | ADJ-03 | Reason required: Starting count, Spot check, Damaged, Found, Miscount at delivery, Other (note required for Other). | M |
 | ADJ-04 | Save sets on hand to the counted value and adds to **Recent corrections**: item, reason, date time, "from → to". | M |
-| ADJ-05 | **Starting count** for go-live: enter counts for many items at once (size × color grid per garment and location) or import a CSV. | M |
+| ADJ-05 | **Starting count** for go-live: floor staff count everything; counts are entered for many items at once (size × color grid per garment and location) or imported from CSV, with an **as-of time** per location (when the count was done). | M |
 | ADJ-06 | Full correction log, filterable by item, reason, user, date. | S |
 | ADJ-07 | Only the lead/admin can make stock corrections. | M |
 
-### 6.9 Settings — Oracle item mapping
+### 6.10 Settings — Oracle values (value mapping)
 
 | ID | Requirement | Pri |
 |---|---|---|
-| MAP-01 | List Oracle items (code, description, location) with their GI stock item; edit the mapping with garment / color / size / location dropdowns. | M |
-| MAP-02 | Unmapped items are shown first with a count of held issues. | M |
-| MAP-03 | Mapping changes are logged; changing an existing mapping affects only issues imported afterwards (**[OPEN]** or re-apply history?). | M |
-| MAP-04 | If the Oracle data already carries garment type, color, size and location as separate fields, mapping is automatic and this screen only handles exceptions. | S |
+| MAP-01 | For each of `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL`, list every value seen in Oracle with the GI value it maps to (e.g. "GOWN" → Gown, a `SUIT_LEVEL` value → Fab1), the row count and first/last seen. Edit with a dropdown. | M |
+| MAP-02 | New values not yet mapped are shown first, with the number of held rows (ORA-05). | M |
+| MAP-03 | Mapping a value applies its held rows. Changing an existing mapping affects only rows imported afterwards (**[OPEN]** or re-apply history?). All changes are logged. | M |
+| MAP-04 | The initial mapping is prepared in Phase 0 from the distinct values found in Oracle. | M |
+| MAP-05 | A value can be mapped to "Ignore" (e.g. a test location); its rows are counted in the import log but never touch stock. | S |
 
-### 6.10 Alerts
+### 6.11 Alerts
 
 | ID | Requirement | Pri |
 |---|---|---|
@@ -213,7 +248,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | ALR-02 | Daily digest to the lead of items below minimum and any negative stock. **[OPEN]** channel (email / Teams). | S |
 | ALR-03 | Alert when the Oracle import has failed or is stale (ORA-07). | M |
 
-### 6.11 Audit
+### 6.12 Audit
 
 | ID | Requirement | Pri |
 |---|---|---|
@@ -230,6 +265,9 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 5. Removing a size or color hides it; it never deletes stock or history.
 6. Days of cover uses the average weekday issue rate over the last 7 days.
 7. GI never writes to the Oracle database.
+8. **Starting count cut-off:** stock starts from the starting count's as-of time per location. Issues with an issue time before it, and deliveries received before it, are history for Trends only and never change stock. The count should be done at a quiet moment (after the morning delivery is put away), and the as-of time recorded when counting finishes.
+9. One Oracle issue row = one garment.
+10. Incomplete issue rows never reduce a real size/color item unless recovered by barcode (DQ-02); otherwise they go to the unknown bucket (DQ-03).
 
 ## 8. Non-functional requirements
 
@@ -238,12 +276,12 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | NFR-01 **Responsive web app** | Runs in the browser; no app install. Phone (390 px) first: single column, touch targets ≥ 44 px, tabs across the top. |
 | NFR-02 **Laptop** | ≥ 900 px wide: tabs move to a left sidebar; layouts widen (mockup: 1440 × 900). |
 | NFR-03 **Cleanroom-friendly** | Usable with gloves: large targets, −/+ steppers, numeric keypad for quantities, high contrast. |
-| NFR-04 **Manual entry only** | No barcode scanning and no scanner hardware. |
+| NFR-04 **Manual entry only** | GI users never scan: no barcode scanning and no scanner hardware in GI. (Garment barcodes exist only in the Oracle issue data.) |
 | NFR-05 **Performance** | Screens load in < 2 s on plant Wi-Fi; posting a delivery < 1 s; charts for 90 days < 2 s. |
 | NFR-06 **Reliability** | Draft deliveries survive connection drops; posting is idempotent; the Oracle import is idempotent and resumes after downtime without gaps. |
 | NFR-07 **Concurrency** | A delivery being posted while issues are imported must not lose either update. |
 | NFR-08 **Database** | MariaDB (InnoDB) is GI's system of record. The Oracle database is read-only source data. |
-| NFR-09 **Security** | Intranet only (`garments.fab.local`), HTTPS, company SSO, role-based access. Oracle credentials stored as secrets, never in code; least-privilege read-only Oracle account. |
+| NFR-09 **Security** | Intranet only (`garments.fab.local`), HTTPS, company SSO, role-based access. Oracle credentials stored as secrets, never in code; least-privilege read-only Oracle account. Personal data (`EMPLOYEE_ID`, `INSERT_USER`) is not copied into GI. |
 | NFR-10 **Data retention** | Ledger and history kept ≥ 2 years. **[OPEN]** confirm. |
 | NFR-11 **Accessibility** | WCAG 2.1 AA contrast; status never by color alone. |
 | NFR-12 **Look & feel** | "Broadsheet" design system tokens used in the mockups (`design/mockups/_ds/`). |
@@ -255,7 +293,9 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 - After posting, Stock and Trends show the new quantities without reload.
 - An issue recorded in Oracle appears in GI (issued today, on hand reduced) within the agreed freshness window.
 - Re-running the import for an already imported period changes nothing.
-- An Oracle item with no mapping appears under Unmapped items and does not change stock until mapped; once mapped, its held issues are applied.
+- A row with a new, unmapped value is held and does not change stock; once the value is mapped, its held rows are applied.
+- A GOWN / OTHER / OTHER row whose barcode has earlier complete rows is booked to that color and size; one without is booked to the unknown bucket and appears in the data quality report.
+- After the starting count (as-of 14:00, say), an issue at 13:55 does not change stock and one at 14:05 does.
 - Correcting a delivery by −10 reduces on hand by exactly 10 and marks it "Edited"; voiding reverses all its lines.
 - The lead can answer, on a phone, "how many delivered this week", "how many issued per day" and "how many in stock" from the Trends and Stock tabs.
 - On hand recomputed from the ledger equals stored on hand for every item.
@@ -263,15 +303,30 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 
 ## 10. Open questions
 
-1. **Oracle issue data**: which system writes it, which table/view, and at what detail — does each record carry garment type, color, size and location, or only an item code? (Decides whether stock can be shown per size/color or only per garment type.)
-2. Is the Oracle record ID stable and unique? Are cancellations / returns recorded, and how?
-3. Who grants the read-only Oracle account and network access from the GI server; any query-window restrictions?
-4. Required freshness of issue data (5 min? hourly? daily?).
-5. How far back to backfill issue history.
-6. Starting count: one full count per location at go-live, or from an existing spreadsheet?
-7. Default minimum for new stock items (mockup: 2) and the "Close to min" threshold.
-8. Delivery chart periods (day / week / month) and trend ranges.
-9. Approval rules for large or late delivery corrections.
-10. Alert channel (email, Teams, other).
-11. Additional garment types (gloves, masks, liners, glasses).
-12. Hosting (on-prem vs internal cloud), SSO provider, existing MariaDB server or a new one.
+### Oracle data (for the vendor / Oracle DBA)
+
+1. Name of the table or view to read, Oracle version, and who grants the read-only account and network access from the GI server.
+2. `INSERT_TIME` vs `RECTIME`: which is the time the garment was issued, and which the time the row was written? Is there an index on `INSERT_TIME` (or `STATE, INSERT_TIME`)?
+3. Is `SUIT_BARCODE` + `INSERT_TIME` unique for every issue row? Can rows be updated or deleted after they are written?
+4. A one-time list of distinct values (with counts) of `STATE`, `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL`, `INOUT_CATEGORY`, `INOUT_ACTION` — to build the value mapping.
+5. Does `STATE = 'EMPLOYEE GOWN ISSUE'` cover hoods and boots as well as gowns, or are they issued under another state?
+6. **Reversals:** when a garment is issued by mistake, or returned unused, what happens in Oracle — another `STATE`, an `INOUT_ACTION`, an update, or nothing?
+7. Does a barcode always belong to one color and size for its whole life? (Needed for recovery, DQ-02.)
+8. Vendor fix for GOWN / OTHER / OTHER rows: expected date; will old rows be corrected too?
+
+### Business
+
+9. Required freshness of issue data (5 min? hourly?) and how far back to backfill history for Trends.
+10. Is any per-employee usage report wanted? (If not, `EMPLOYEE_ID` stays out of GI.)
+11. Default minimum for new stock items (mockup: 2) and the "Close to min" threshold.
+12. Delivery chart periods (day / week / month) and trend ranges.
+13. Approval rules for large or late delivery corrections.
+14. Alert channel (email, Teams, other).
+15. Additional garment types (gloves, masks, liners, glasses).
+16. Hosting (on-prem vs internal cloud), SSO provider, existing MariaDB server or a new one.
+
+### Decided
+
+- Issue data comes from Oracle rows with `STATE = 'EMPLOYEE GOWN ISSUE'`; `SUIT_LEVEL` is the location; one row per garment, identified by barcode.
+- GOWN / OTHER / OTHER rows are known to be incomplete; the lead is taking this up with the vendor.
+- Floor staff do a full starting count of everything before go-live.
