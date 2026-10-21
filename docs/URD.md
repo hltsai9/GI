@@ -2,8 +2,8 @@
 
 | | |
 |---|---|
-| Version | 0.1 (draft for review) |
-| Date | 2026-10-19 |
+| Version | 0.2 (draft for review) |
+| Date | 2026-10-21 |
 | Source | UI mockups in [`design/mockups/`](../design/mockups/) (`Garment Inventory.dc.html` explorations 1a–1j, `Garment Inventory App.dc.html` consolidated app, `Garment Inventory Devices.dc.html` phone + laptop frames) |
 | Status | Draft — items marked **[OPEN]** need a decision from the business owner |
 
@@ -51,9 +51,9 @@ Today this is assumed to be done on paper or spreadsheets; counts drift, and sto
 
 | Role | Who | Main tasks | Device |
 |---|---|---|---|
-| **Stores clerk** | Cleanroom stores staff, early shift (~06:40 deliveries) | Receive deliveries, correct deliveries, cycle counts | Phone / handheld scanner |
+| **Stores clerk** | Cleanroom stores staff, early shift (~06:40 deliveries) | Receive deliveries, correct deliveries, cycle counts | Phone |
 | **Stores lead / supervisor** | Owns stock levels | Set minimums, review stock & trends, approve large corrections, manage sizes/colors | Laptop, phone |
-| **Fab user** (if Issue is in scope) | Anyone gowning up | Scan badge + garments to take items | Kiosk / scanner in gowning room |
+| **Fab user** (if Issue is in scope) | Anyone gowning up | Scan badge + garments to take items | Kiosk (tablet / PC with camera) in gowning room |
 | **Viewer** | Fab managers, EHS, purchasing | Read stock and trends | Laptop |
 | **Admin** | IT | Users, roles, locations, integrations | Laptop |
 
@@ -85,10 +85,10 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | RCV-04 | Footer shows number of lines and total items, and a **Post delivery** button. Empty state: "No lines yet. Add each garment, color, size and location from the delivery." | M |
 | RCV-05 | Posting increases on-hand for every line atomically, records the delivery with timestamp and user, clears the draft, and confirms "N items added to stock · HH:MM". | M |
 | RCV-06 | Posting to a combination that has no minimum creates the stock item with a default minimum (mockup uses 2; **[OPEN]** confirm default). | M |
-| RCV-07 | The draft survives an app reload / dropped connection until posted (handheld use on the floor). | S |
+| RCV-07 | The draft survives an app reload / dropped connection until posted (phone use on the floor). | S |
 | RCV-08 | Alternate entry: size × color grid for one garment + location (mockup 1a). | C |
 | RCV-09 | Alternate entry: check against a standing order with expected vs counted and variance (mockup 1c). | C |
-| RCV-10 | Barcode scan of a carton / label to pre-fill a line. **[OPEN]** do supplier labels carry barcodes? | C |
+| RCV-10 | Scan a carton / label barcode with the phone camera to pre-fill a line. **[OPEN]** do supplier labels carry barcodes? | C |
 
 ### 5.2 Receive — delivery history and correction
 
@@ -158,9 +158,9 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 
 | ID | Requirement | Pri |
 |---|---|---|
-| ISS-01 | Step 1: scan badge (scanner trigger or camera) or type badge number; show name, badge and clearance ("Cleared for Fab1"). | M* |
+| ISS-01 | Step 1: scan badge with the device camera or type badge number; show name, badge and clearance ("Cleared for Fab1"). | M* |
 | ISS-02 | Reject badges not cleared for the room's fab. | M* |
-| ISS-03 | Step 2: scan garment barcodes; checklist Gown / Hood / Boots shows what is still missing; "Issue N to <name>". | M* |
+| ISS-03 | Step 2: scan garment barcodes with the device camera; checklist Gown / Hood / Boots shows what is still missing; "Issue N to <name>". | M* |
 | ISS-04 | Confirm decrements on-hand by 1 per garment at the room's location; result screen shows "from → to" per item and flags "Below min". | M* |
 | ISS-05 | Auto-return to badge scan after 5 s. | M* |
 | ISS-06 | Kiosk mode: no taps; auto-save 8 s after the last scan; new badge restarts; duplicate scans counted once with a warning; "Recent at this kiosk" list. | S* |
@@ -187,13 +187,14 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 
 | ID | Requirement |
 |---|---|
-| NFR-01 **Phone-first** | Designed for 390 px phones and handheld scanners first: single column, touch targets ≥ 44 px, tabs across the top under the app name. |
+| NFR-01 **Phone-first** | Designed for 390 px phones first: single column, touch targets ≥ 44 px, tabs across the top under the app name. |
 | NFR-02 **Desktop** | ≥ 900 px wide: tabs move to a left sidebar; layouts widen (mockup: 1440 × 900 laptop). |
 | NFR-03 **Cleanroom-friendly** | Usable with gloves: large targets, −/+ steppers instead of typing where possible, numeric keypad for quantities, high contrast. |
-| NFR-04 **Scanner input** | Works with keyboard-wedge handheld scanners and the device camera. |
+| NFR-04 **No dedicated scanners** | No handheld scanner hardware is used. Any barcode reading (Issue flow, RCV-10) uses the built-in camera of the phone, tablet or kiosk; every scan step also accepts typed input. |
 | NFR-05 **Performance** | Screens load in < 2 s on the plant Wi-Fi; posting a delivery < 1 s. |
 | NFR-06 **Reliability** | Draft deliveries survive connection drops; posting is idempotent (no double-posting on retry). |
 | NFR-07 **Concurrency** | Two clerks posting / issuing at once must not lose updates (transactional stock updates). |
+| NFR-08a **Database** | MariaDB (InnoDB) is the system of record. |
 | NFR-08 **Security** | Intranet only (`garments.fab.local`), company SSO, role-based access, HTTPS. |
 | NFR-09 **Data retention** | Ledger and history kept ≥ 2 years. **[OPEN]** confirm policy. |
 | NFR-10 **Accessibility** | WCAG 2.1 AA contrast; status never conveyed by color alone (text label + legend). |
@@ -224,7 +225,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 
 1. Is **Issue** (badge + scan) in scope for v1, or are issue counts imported from elsewhere?
 2. Kiosk mode in v1?
-3. Barcode format on garments and on delivery cartons.
+3. Barcode format on garments and on delivery cartons, and whether it reads reliably with phone/tablet cameras.
 4. Badge system / HR source for names and fab clearance.
 5. Default minimum for newly stocked items (mockup: 2).
 6. "Close to min" threshold.
@@ -232,5 +233,5 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 8. Approval rules for large or late corrections.
 9. Alert channel (email, Teams, other).
 10. Additional garment types (gloves, masks, liners, glasses).
-11. Hosting: on-prem server vs internal cloud; SSO provider.
+11. Hosting: on-prem server vs internal cloud; SSO provider; existing MariaDB server/cluster to use, or a new instance?
 12. Migration: initial stock load from a full count, or an existing spreadsheet?

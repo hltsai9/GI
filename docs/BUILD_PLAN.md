@@ -5,7 +5,7 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`) refer to that 
 ## 1. Recommended architecture
 
 ```
- Phone / handheld scanner / laptop / kiosk
+ Phone / laptop / kiosk (tablet or PC)
             │  HTTPS (intranet: garments.fab.local)
             ▼
  ┌──────────────────────────────┐
@@ -22,10 +22,10 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`) refer to that 
  │  - alerts job                │
  └──────────────┬───────────────┘
                 ▼
-         PostgreSQL 16  (Drizzle ORM + migrations)
+         MariaDB 11.4 LTS, InnoDB, utf8mb4  (Drizzle ORM, mysql2 driver + migrations)
 ```
 
-**Why**: one language end to end, a PWA covers phones, scanners (keyboard-wedge input) and laptops from one codebase, and PostgreSQL transactions give the concurrency guarantees in NFR-06/07. Swap any piece if IT has a standard stack (e.g. .NET / SQL Server) — the data model and phases do not change.
+**Why**: one language end to end, a PWA covers phones, laptops and kiosks from one codebase (no handheld scanner hardware; barcode reading, where needed, uses the device camera), and MariaDB InnoDB transactions with row locks give the concurrency guarantees in NFR-06/07. MariaDB is a fixed decision; the web and API layers can still be swapped if IT has a standard stack (e.g. .NET) — the data model and phases do not change.
 
 ### 1.1 Repository layout (monorepo, pnpm workspaces)
 
@@ -67,7 +67,16 @@ user(id, sso_subject, name, role[clerk|lead|viewer|admin])
 daily_snapshot(date, stock_item_id, on_hand, delivered, issued)           -- feeds Trends
 ```
 
-Invariant: `stock_item.on_hand = Σ ledger_entry.delta` for that item. Every write goes through one `StockLedger.apply()` function inside a DB transaction with `SELECT … FOR UPDATE` on the affected stock items.
+Invariant: `stock_item.on_hand = Σ ledger_entry.delta` for that item. Every write goes through one `StockLedger.apply()` function inside an InnoDB transaction with `SELECT … FOR UPDATE` on the affected stock items, locked in ascending `id` order to avoid deadlocks; the service retries the transaction on MariaDB deadlock error 1213.
+
+### 2.1 MariaDB notes
+
+- Engine InnoDB, charset `utf8mb4` / collation `utf8mb4_unicode_ci`, server time zone UTC; the API converts to site time for display.
+- `on_hand >= 0` and `min_qty >= 0` enforced with `CHECK` constraints (MariaDB ≥ 10.2) plus `INT UNSIGNED` where it fits.
+- `kind`, `status` and `role` columns use `ENUM`; ids are `BIGINT UNSIGNED AUTO_INCREMENT`; timestamps `DATETIME(3)`.
+- Append-only `ledger_entry`: the app DB user gets `INSERT, SELECT` only on that table (no `UPDATE`/`DELETE`).
+- Trend queries read `daily_snapshot`, built nightly by the API's scheduler (not MariaDB's event scheduler, so jobs stay in source control and tests).
+- Backups: `mariadb-backup` nightly full + binlog retention for point-in-time recovery.
 
 ## 3. API sketch
 
@@ -95,7 +104,7 @@ Estimates assume 2 developers (1 full-stack lead + 1 frontend), 1 part-time desi
 ### Phase 0 — Foundations (Sprint 1)
 - Confirm open questions in URD §9 (especially Issue scope, hosting, SSO). **Gate.**
 - Monorepo, lint/format/typecheck, CI (GitHub Actions: build + unit + e2e).
-- Docker-compose dev env (Postgres), migrations, seed script reproducing the mockup data.
+- Docker-compose dev env (MariaDB 11.4), migrations, seed script reproducing the mockup data.
 - Broadsheet tokens ported into `packages/ui`; app shell with responsive tabs (top < 900 px, sidebar ≥ 900 px).
 - Auth stub + role model; OIDC integration behind a flag.
 - `packages/domain`: stock key, status (below / close / plenty), days-of-cover — with unit tests.
@@ -125,7 +134,7 @@ Estimates assume 2 developers (1 full-stack lead + 1 frontend), 1 part-time desi
 **Exit**: v1 data maintenance complete; audit log reviewable.
 
 ### Phase 4 — Issue / consumption data (Sprints 7–8) — *scope depends on URD §2.2*
-- **Option A (Issue in app)**: badge lookup integration, guided issue flow (ISS-01..05, 07), garment barcode registry, camera + wedge scanning.
+- **Option A (Issue in app)**: badge lookup integration, guided issue flow (ISS-01..05, 07), garment barcode registry, camera-based scanning with typed fallback.
 - **Option B (import)**: scheduled import of issue counts from the existing vending/kiosk system into `ledger_entry(kind=issue)`.
 - Kiosk mode (ISS-06) as a stretch or Phase 6.
 
@@ -139,12 +148,12 @@ Estimates assume 2 developers (1 full-stack lead + 1 frontend), 1 part-time desi
 
 ### Phase 6 — Hardening + rollout (Sprint 10)
 - Initial stock load: full physical count per location via Correct stock (`initial_load` reason) or spreadsheet import.
-- Load test (concurrent clerks + kiosks), accessibility audit (NFR-10), glove-use usability test on real handhelds in a gowning room.
+- Load test (concurrent clerks + kiosks), accessibility audit (NFR-10), glove-use usability test on the stores' phones and the gowning-room kiosk.
 - Backups, monitoring, runbook; production deploy.
 - Pilot at **Fab1** for 2 weeks in parallel with the current process → fix list → roll out to **Fab2**.
 
 ### Later / backlog
-Kiosk mode (if not in Phase 4), alternate receive modes (grid 1a, against-order 1c), carton barcode scanning, additional garment types, purchasing integration, approval workflow for large corrections (HIS-07).
+Kiosk mode (if not in Phase 4), alternate receive modes (grid 1a, against-order 1c), carton barcode scanning with the phone camera, additional garment types, purchasing integration, approval workflow for large corrections (HIS-07).
 
 ## 5. Timeline overview
 
@@ -157,9 +166,9 @@ Kiosk mode (if not in Phase 4), alternate receive modes (grid 1a, against-order 
 ## 6. Testing strategy
 
 - **Unit** (`packages/domain`, ledger service): status thresholds, days of cover, delivery correction diff math, void, floor at 0, merge of duplicate lines.
-- **Integration** (API + Postgres in CI): every write endpoint asserts the ledger invariant; concurrent post/issue test.
+- **Integration** (API + MariaDB 11.4 service container in CI): every write endpoint asserts the ledger invariant; concurrent post/issue test.
 - **E2E** (Playwright, phone 390×844 and laptop 1440×900 viewports — matching the mockup frames): the acceptance criteria in URD §8 as scripted scenarios.
-- **Usability**: gloved-hand test on target handheld; kiosk dwell/auto-save timing.
+- **Usability**: gloved-hand test on target phones; kiosk dwell/auto-save timing.
 
 ## 7. Risks
 
@@ -167,10 +176,10 @@ Kiosk mode (if not in Phase 4), alternate receive modes (grid 1a, against-order 
 |---|---|---|
 | Issue scope undecided | Days of cover and trends meaningless without consumption data | Decide in Phase 0; Option B import as fallback |
 | Badge / HR integration delay | Blocks Issue flow | Mock badge service; start integration request in Sprint 1 |
-| Garments lack barcodes | Issue-by-scan impossible | Confirm in Phase 0; fall back to tap-to-issue |
+| Garments lack barcodes, or camera reads are slow/unreliable | Issue-by-scan impractical | Confirm in Phase 0 with a camera-scan spike on target devices; fall back to tap-to-issue |
 | Plant Wi-Fi dead spots in stores | Lost postings | Offline draft + idempotent post |
 | Initial count inaccurate | Wrong alerts from day 1 | Full count at go-live; cycle-count reason; 2-week parallel pilot |
-| Concurrent updates | Wrong on-hand | Single ledger write path, row locks, invariant job |
+| Concurrent updates / InnoDB deadlocks | Wrong on-hand or failed posts | Single ledger write path, row locks in fixed order, retry on error 1213, invariant job |
 
 ## 8. Definition of done (per feature)
 
