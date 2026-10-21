@@ -1,47 +1,50 @@
 # Build Plan — Cleanroom Garment Inventory (GI)
 
-Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`) refer to that document.
+Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`, `ORA-02`) refer to that document.
 
-## 1. Recommended architecture
+## 1. Architecture
 
 ```
- Phone / laptop / kiosk (tablet or PC)
-            │  HTTPS (intranet: garments.fab.local)
-            ▼
+ Phone / laptop browser
+        │  HTTPS (intranet: garments.fab.local)
+        ▼
  ┌──────────────────────────────┐
- │ Web app (PWA)                │  React + TypeScript + Vite
- │  - responsive: top tabs <900px, sidebar ≥900px
- │  - offline draft (IndexedDB) for Receive
- │  - Broadsheet design tokens (CSS variables)
+ │ Web app (responsive SPA)     │  React + TypeScript + Vite
+ │  - top tabs <900px, sidebar ≥900px
+ │  - delivery draft kept in browser storage
+ │  - Broadsheet design tokens
  └──────────────┬───────────────┘
                 │ JSON REST (OpenAPI)
- ┌──────────────▼───────────────┐
- │ API service                  │  Node.js + TypeScript (Fastify), Zod validation
- │  - auth (OIDC / SSO), RBAC   │
- │  - stock ledger service      │
- │  - alerts job                │
+ ┌──────────────▼───────────────┐            ┌───────────────────────────┐
+ │ API service                  │            │ Oracle DB (issuing system)│
+ │  Node.js + TS (Fastify), Zod │            │  read-only account        │
+ │  - auth (OIDC / SSO), RBAC   │            │  agreed view: issues      │
+ │  - stock ledger service      │            └────────────▲──────────────┘
+ │  - scheduler:                │                         │ SELECT only,
+ │     · Oracle issue import ───┼─────────────────────────┘ every 5 min
+ │     · daily snapshot, alerts │
  └──────────────┬───────────────┘
                 ▼
-         MariaDB 11.4 LTS, InnoDB, utf8mb4  (Drizzle ORM, mysql2 driver + migrations)
+   MariaDB 11.4 LTS, InnoDB, utf8mb4  (Drizzle ORM, mysql2 driver + migrations)
 ```
 
-**Why**: one language end to end, a PWA covers phones, laptops and kiosks from one codebase (no handheld scanner hardware; barcode reading, where needed, uses the device camera), and MariaDB InnoDB transactions with row locks give the concurrency guarantees in NFR-06/07. MariaDB is a fixed decision; the web and API layers can still be swapped if IT has a standard stack (e.g. .NET) — the data model and phases do not change.
+**Why**: one language end to end; one responsive web app serves phones and laptops with nothing to install; MariaDB InnoDB transactions with row locks keep deliveries and imported issues consistent (NFR-06/07). Oracle is read with `node-oracledb` in **thin mode** (pure JavaScript — no Oracle Instant Client to install on the server). MariaDB is fixed; the web/API layers can be swapped for an IT-standard stack without changing the data model or phases.
 
 ### 1.1 Repository layout (monorepo, pnpm workspaces)
 
 ```
 apps/
-  web/            React PWA
-  api/            Fastify service
+  web/            React SPA
+  api/            Fastify service + scheduler (Oracle import, snapshots, alerts)
 packages/
-  domain/         shared types, stock-key logic, status rules, days-of-cover calc
-  ui/             Broadsheet tokens + shared components (Segmented, Dropdown, Stepper, StatusCell…)
+  domain/         shared types, stock key, status rules, days-of-cover calc
+  ui/             Broadsheet tokens + shared components (Segmented, Dropdown, Stepper, StatusCell, charts…)
 design/mockups/   source mockups (reference only)
 docs/             URD, build plan, ADRs
-infra/            docker-compose (dev), deployment manifests
+infra/            docker-compose (dev: MariaDB + Oracle Free container), deployment manifests
 ```
 
-## 2. Data model
+## 2. Data model (MariaDB)
 
 ```
 garment_type(id, code, name, plural, icon, sort, active)          -- Gown, Hood, Boot
@@ -49,138 +52,154 @@ color(id, name, sort, active)                                      -- soft delet
 size(id, code, sort, active)
 location(id, code, name)                                           -- Fab1, Fab2
 stock_item(id, garment_type_id, color_id, size_id, location_id,
-           on_hand int >= 0, min_qty int null, updated_at,
+           on_hand INT (signed — may go negative, URD rule 7.4), min_qty INT UNSIGNED NULL, updated_at,
            UNIQUE(garment_type_id, color_id, size_id, location_id))
 
-delivery(id, received_at, created_by, status[posted|corrected|voided], note, idempotency_key UNIQUE)
+delivery(id, received_at, created_by, status ENUM(posted,corrected,voided), note, idempotency_key UNIQUE)
 delivery_line(id, delivery_id, stock_item_id, qty_original, qty_current)
 
-ledger_entry(id, stock_item_id, at, user_id, kind[delivery|delivery_correction|issue|adjustment|initial_load],
-             delta int, qty_before, qty_after, ref_type, ref_id, reason, note)   -- append-only (AUD-01/03)
+-- Oracle issue import
+oracle_item_map(id, oracle_item_code, oracle_location, stock_item_id NULL, description,
+                updated_by, updated_at, UNIQUE(oracle_item_code, oracle_location))
+issue_import(id, oracle_record_id UNIQUE, issued_at, oracle_item_code, oracle_location, qty,
+             stock_item_id NULL, status ENUM(applied,held_unmapped,cancelled), ledger_entry_id NULL,
+             imported_at, source_updated_at)
+sync_run(id, started_at, finished_at, from_watermark, to_watermark,
+         rows_read, rows_applied, rows_held, status ENUM(ok,failed), error)
 
-adjustment(id, stock_item_id, counted, system_qty, reason, note, user_id, at)
+ledger_entry(id, stock_item_id, at, actor (user id or 'oracle-import'),
+             kind ENUM(starting_count,delivery,delivery_correction,issue,issue_correction,stock_correction),
+             delta INT, qty_before, qty_after, ref_type, ref_id, reason, note)   -- append-only (AUD-01/03)
+
+stock_correction(id, stock_item_id, counted, system_qty, reason, note, user_id, at)
 min_change(id, stock_item_id, old_min, new_min, user_id, at)
-issue_txn(id, badge_id, person_name, location_id, at, user_or_kiosk)      -- if Issue in scope
-issue_line(id, issue_txn_id, stock_item_id, garment_barcode)
-garment_barcode(barcode, garment_type_id, color_id, size_id)              -- if Issue in scope
-user(id, sso_subject, name, role[clerk|lead|viewer|admin])
-daily_snapshot(date, stock_item_id, on_hand, delivered, issued)           -- feeds Trends
+user(id, sso_subject, name, role ENUM(floor,lead,viewer,admin))
+daily_snapshot(date, stock_item_id, on_hand, delivered, issued)               -- feeds Trends
 ```
 
-Invariant: `stock_item.on_hand = Σ ledger_entry.delta` for that item. Every write goes through one `StockLedger.apply()` function inside an InnoDB transaction with `SELECT … FOR UPDATE` on the affected stock items, locked in ascending `id` order to avoid deadlocks; the service retries the transaction on MariaDB deadlock error 1213.
+Invariant: `stock_item.on_hand = Σ ledger_entry.delta` for that item. Every write — delivery, correction, imported issue — goes through one `StockLedger.apply()` inside an InnoDB transaction with `SELECT … FOR UPDATE` on the affected stock items, locked in ascending `id` order; the transaction is retried on deadlock (error 1213).
 
 ### 2.1 MariaDB notes
 
-- Engine InnoDB, charset `utf8mb4` / collation `utf8mb4_unicode_ci`, server time zone UTC; the API converts to site time for display.
-- `on_hand >= 0` and `min_qty >= 0` enforced with `CHECK` constraints (MariaDB ≥ 10.2) plus `INT UNSIGNED` where it fits.
-- `kind`, `status` and `role` columns use `ENUM`; ids are `BIGINT UNSIGNED AUTO_INCREMENT`; timestamps `DATETIME(3)`.
-- Append-only `ledger_entry`: the app DB user gets `INSERT, SELECT` only on that table (no `UPDATE`/`DELETE`).
-- Trend queries read `daily_snapshot`, built nightly by the API's scheduler (not MariaDB's event scheduler, so jobs stay in source control and tests).
-- Backups: `mariadb-backup` nightly full + binlog retention for point-in-time recovery.
+- InnoDB, `utf8mb4` / `utf8mb4_unicode_ci`, server time zone UTC; API converts to site time.
+- Line and import quantities use `INT UNSIGNED` / `CHECK (qty > 0)`; `on_hand` is signed on purpose.
+- IDs `BIGINT UNSIGNED AUTO_INCREMENT`; timestamps `DATETIME(3)`.
+- App DB user has `INSERT, SELECT` only on `ledger_entry`.
+- Trend queries read `daily_snapshot` (rebuilt nightly, current day on demand) — built by the API scheduler, not MariaDB events, so jobs live in source control.
+- Backups: nightly `mariadb-backup` + binlogs for point-in-time recovery.
 
-## 3. API sketch
+## 3. Oracle issue import design
+
+1. **Contract first.** Agree with the issuing system's owner on a read-only **view** (e.g. `GI_ISSUES_V`) exposing: stable record ID, issued timestamp, item code, location, quantity, last-updated timestamp, cancelled flag (if available). A view decouples GI from changes to their tables. Index on the last-updated column.
+2. **Run** (every 5 min, single-instance lock so runs never overlap):
+   - read rows where `updated_at > watermark − 10 min` (overlap catches late commits), ordered, max N rows;
+   - upsert into `issue_import` by `oracle_record_id` (idempotent, ORA-02);
+   - new rows: map item → `stock_item`; mapped → `StockLedger.apply(issue, −qty)`; unmapped → `held_unmapped`;
+   - changed / cancelled rows: apply the difference as `issue_correction` (ORA-06);
+   - advance the watermark only after the MariaDB transaction commits; write `sync_run`.
+3. **Mapping applied**: when the lead maps an Oracle item, all its `held_unmapped` rows are applied in one transaction.
+4. **Failure**: Oracle down → run fails, watermark unchanged, next run catches up; stale > 30 min → banner + admin alert (ORA-07).
+5. **Backfill** (ORA-09): same code path from a start date, in batches.
+6. **Granularity fallback**: if Oracle only knows garment *type* (no size/color), issue-driven stock can only be kept per type × location; the grid then shows deliveries per size/color but on hand per type. Decide in Phase 0 (URD open question 1).
+
+## 4. API sketch
 
 | Method & path | Purpose | Req |
 |---|---|---|
 | `GET /meta` | garment types, active colors, sizes, locations | SET-02 |
-| `POST /deliveries` (Idempotency-Key header) | post a delivery | RCV-05/06, NFR-06 |
+| `POST /deliveries` (Idempotency-Key) | post a delivery | RCV-05/06 |
 | `GET /deliveries?limit=` | history | HIS-01 |
-| `POST /deliveries/:id/correction` `{lines:[{lineId, qty}]}` | correct / void (all 0) | HIS-04/05 |
-| `GET /stock/summary` | totals, days of cover, reorder top 5, by location | STK-01..03 |
+| `POST /deliveries/:id/correction` | correct / void | HIS-04/05 |
+| `GET /stock/summary` | totals, days of cover, reorder top 5, by location, today | STK-01..05 |
 | `GET /stock/grid?type=&location=` | size × color cells with status | GRD-02 |
-| `GET /stock/items/:id` | detail panel | GRD-03 |
-| `PATCH /stock/items/:id/min` | change minimum | GRD-04 |
-| `POST /adjustments`, `GET /adjustments` | correct stock + log | ADJ-02..05 |
-| `GET /trends/over-time?days=` | stock series + deliveries/issues per day | TRD-01/02 |
-| `GET /trends/breakdown?days=&metric=` | per day, by size, by location | TRD-03..05 |
-| `POST/DELETE /colors`, `/sizes` (soft delete), `PATCH` order | master data | SET-01..05 |
-| `POST /issues` | issue transaction | ISS-* |
-| `GET /badges/:id` | badge lookup + clearance | ISS-01/02 |
+| `GET /stock/items/:id`, `PATCH /stock/items/:id/min` | detail, minimum | GRD-03/04 |
+| `POST /corrections`, `POST /corrections/starting-count`, `GET /corrections` | stock correction, bulk starting count, log | ADJ-* |
+| `GET /trends/delivered?days=&per=day\|week\|month` | delivered per period | TRD-01 |
+| `GET /trends/issued?days=` | issued per day | TRD-02 |
+| `GET /trends/stock?days=` | stock over time + deliveries vs issues | TRD-03/04 |
+| `GET /trends/breakdown?days=&metric=` | by size / location | TRD-06 |
+| `GET /sync/status`, `GET /sync/runs`, `POST /sync/run` | import status, history, run now | ORA-07/08 |
+| `GET /mapping?unmapped=`, `PUT /mapping/:id` | Oracle item mapping | MAP-* |
+| `POST/DELETE /colors`, `/sizes`, `PATCH` order | master data | SET-* |
 
-## 4. Phased delivery
+## 5. Phased delivery
 
-Estimates assume 2 developers (1 full-stack lead + 1 frontend), 1 part-time designer/QA. Sprints are 2 weeks.
+Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time designer/QA, plus a contact on the Oracle issuing system. Sprints are 2 weeks.
 
-### Phase 0 — Foundations (Sprint 1)
-- Confirm open questions in URD §9 (especially Issue scope, hosting, SSO). **Gate.**
-- Monorepo, lint/format/typecheck, CI (GitHub Actions: build + unit + e2e).
-- Docker-compose dev env (MariaDB 11.4), migrations, seed script reproducing the mockup data.
-- Broadsheet tokens ported into `packages/ui`; app shell with responsive tabs (top < 900 px, sidebar ≥ 900 px).
-- Auth stub + role model; OIDC integration behind a flag.
-- `packages/domain`: stock key, status (below / close / plenty), days-of-cover — with unit tests.
+### Phase 0 — Foundations + Oracle discovery (Sprint 1)
+- Resolve URD §10 questions 1–4 with the lead and the Oracle system owner. **Gate:** a sample of real issue rows and an agreed view definition.
+- Request the read-only Oracle account and firewall access from the GI server (long lead time — start day 1).
+- Monorepo, lint/typecheck, CI (GitHub Actions: build, unit, integration against MariaDB 11.4 + Oracle Free service containers, e2e).
+- Docker-compose dev env; migrations; seed reproducing the mockup data.
+- Broadsheet tokens into `packages/ui`; responsive app shell; auth stub + roles.
 
-**Exit**: empty app shell deploys to a dev server; CI green.
+**Exit**: app shell on a dev server; Oracle sample data understood; CI green.
 
-### Phase 1 — Core stock ledger + Receive (Sprints 2–3)
-- Ledger service with transactional `apply()`; invariant check job.
-- Receive › New delivery (RCV-01..06), offline draft (RCV-07), idempotent post.
+### Phase 1 — Ledger + Receive (Sprints 2–3)
+- `StockLedger.apply()`, invariant check job.
+- Receive › New delivery (RCV-01..08) with draft persistence and idempotent post.
 - Receive › History with correction / void (HIS-01..06).
-- Shared components: Dropdown with icons, quantity Stepper, line list, toast.
 
-**Exit**: a clerk can post and correct deliveries on a phone; ledger invariant holds under concurrent posting test.
+**Exit**: floor staff can post and correct deliveries on a phone.
 
-### Phase 2 — Stock views (Sprints 4–5)
-- Stock › Summary (STK-01..04) incl. days of cover (needs issue data — use seeded/imported issues until Phase 4).
-- Stock › Grid with detail panel and editable minimum (GRD-01..06).
-- In-app low-stock indicator (ALR-01).
+### Phase 2 — Oracle issue import (Sprints 4–5)
+- Import job (§3) with watermark, overlap, idempotency, held-unmapped handling, change/cancel handling.
+- Item mapping screen (MAP-01..04) and sync status / admin screen (ORA-07/08).
+- Backfill of issue history (ORA-09).
+- Integration tests against an Oracle Free container loaded with the agreed view and sample rows.
 
-**Exit**: supervisors can see stock and set minimums; reorder list correct against test fixtures.
+**Exit**: real issues from Oracle (test or prod copy) flow into GI; re-runs are no-ops.
 
-### Phase 3 — Settings + adjustments (Sprint 6)
-- Sizes & colors with soft delete and ordering (SET-01..05).
-- Correct stock with reasons and Recent corrections log (ADJ-01..05).
-- Min-change and master-data audit (AUD-02).
+### Phase 3 — Stock views + starting count (Sprint 6)
+- Stock › Summary (STK-01..05) and Grid with minimums (GRD-01..06), negative flag.
+- Stock correction + bulk starting count / CSV import (ADJ-01..07); sizes & colors (SET-01..05).
+- In-app below-minimum indicator (ALR-01).
 
-**Exit**: v1 data maintenance complete; audit log reviewable.
+**Exit**: the lead can load a starting count and see live calculated stock.
 
-### Phase 4 — Issue / consumption data (Sprints 7–8) — *scope depends on URD §2.2*
-- **Option A (Issue in app)**: badge lookup integration, guided issue flow (ISS-01..05, 07), garment barcode registry, camera-based scanning with typed fallback.
-- **Option B (import)**: scheduled import of issue counts from the existing vending/kiosk system into `ledger_entry(kind=issue)`.
-- Kiosk mode (ISS-06) as a stretch or Phase 6.
+### Phase 4 — Trends + alerts (Sprint 7)
+- `daily_snapshot` job; Trends: delivered per period, issued per day, stock over time, deliveries vs issues, breakdowns (TRD-01..07).
+- Daily digest and stale-import alert (ALR-02/03).
 
-**Exit**: real issue data flowing; days of cover and trends use live consumption.
+**Exit**: the lead's three questions are answered on phone and laptop; chart totals match the ledger.
 
-### Phase 5 — Trends + alerts (Sprint 9)
-- Nightly `daily_snapshot` job; Trends › Over time and Breakdown (TRD-01..06) with charts (lightweight SVG or a small chart lib).
-- Daily below-minimum digest (ALR-02); CSV export (TRD-07).
+### Phase 5 — Hardening, pilot, rollout (Sprints 8–9)
+- Accessibility audit, load test (posting during import), backups, monitoring, runbook, production deploy.
+- **Go-live at Fab1**: full starting count entered in GI.
+- **2-week parallel run**: floor staff keep counting manually; compare against GI daily; investigate gaps (missing deliveries, unmapped items, Oracle timing).
+- When the accuracy target is met, **stop manual counting at Fab1**; repeat starting count + a shorter parallel run at **Fab2**.
 
-**Exit**: trends match ledger totals for the selected range.
+### Backlog
+Size × color grid entry for deliveries (1a), receive against a standing order (1c), additional garment types, purchasing integration, approval workflow for corrections (HIS-07).
 
-### Phase 6 — Hardening + rollout (Sprint 10)
-- Initial stock load: full physical count per location via Correct stock (`initial_load` reason) or spreadsheet import.
-- Load test (concurrent clerks + kiosks), accessibility audit (NFR-10), glove-use usability test on the stores' phones and the gowning-room kiosk.
-- Backups, monitoring, runbook; production deploy.
-- Pilot at **Fab1** for 2 weeks in parallel with the current process → fix list → roll out to **Fab2**.
+## 6. Timeline
 
-### Later / backlog
-Kiosk mode (if not in Phase 4), alternate receive modes (grid 1a, against-order 1c), carton barcode scanning with the phone camera, additional garment types, purchasing integration, approval workflow for large corrections (HIS-07).
+| Sprint | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
+|---|---|---|---|---|---|---|---|---|---|
+| Phase | 0 Foundations + Oracle discovery | 1 Receive | 1 Receive | 2 Oracle import | 2 Oracle import | 3 Stock | 4 Trends | 5 Pilot Fab1 | 5 Rollout Fab2 |
 
-## 5. Timeline overview
+≈ 14 weeks to Fab1 go-live, ≈ 18 weeks until manual counting stops at both fabs. The main schedule risk is Oracle access (Phase 0 gate).
 
-| Sprint | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 |
-|---|---|---|---|---|---|---|---|---|---|---|
-| Phase | 0 Foundations | 1 Receive | 1 Receive | 2 Stock | 2 Stock | 3 Settings | 4 Issue | 4 Issue | 5 Trends | 6 Rollout |
+## 7. Testing strategy
 
-≈ 20 weeks to Fab1 pilot; Fab2 follows ~2 weeks after a successful pilot. Phase 4 Option B (import) could save about one sprint.
+- **Unit** (`packages/domain`, ledger): status thresholds incl. negative, days of cover, delivery correction diff, void, line merge.
+- **Import** (MariaDB + Oracle Free containers): idempotent re-run, overlap window, late-committed row, unmapped → mapped, cancellation, Oracle outage then catch-up, watermark advances only on commit.
+- **Integration**: every write endpoint asserts the ledger invariant; delivery posted concurrently with an import run.
+- **E2E** (Playwright, 390×844 phone and 1440×900 laptop): URD §9 acceptance criteria.
+- **Pilot reconciliation**: daily GI vs manual count report during the parallel run.
 
-## 6. Testing strategy
-
-- **Unit** (`packages/domain`, ledger service): status thresholds, days of cover, delivery correction diff math, void, floor at 0, merge of duplicate lines.
-- **Integration** (API + MariaDB 11.4 service container in CI): every write endpoint asserts the ledger invariant; concurrent post/issue test.
-- **E2E** (Playwright, phone 390×844 and laptop 1440×900 viewports — matching the mockup frames): the acceptance criteria in URD §8 as scripted scenarios.
-- **Usability**: gloved-hand test on target phones; kiosk dwell/auto-save timing.
-
-## 7. Risks
+## 8. Risks
 
 | Risk | Impact | Mitigation |
 |---|---|---|
-| Issue scope undecided | Days of cover and trends meaningless without consumption data | Decide in Phase 0; Option B import as fallback |
-| Badge / HR integration delay | Blocks Issue flow | Mock badge service; start integration request in Sprint 1 |
-| Garments lack barcodes, or camera reads are slow/unreliable | Issue-by-scan impractical | Confirm in Phase 0 with a camera-scan spike on target devices; fall back to tap-to-issue |
-| Plant Wi-Fi dead spots in stores | Lost postings | Offline draft + idempotent post |
-| Initial count inaccurate | Wrong alerts from day 1 | Full count at go-live; cycle-count reason; 2-week parallel pilot |
-| Concurrent updates / InnoDB deadlocks | Wrong on-hand or failed posts | Single ledger write path, row locks in fixed order, retry on error 1213, invariant job |
+| Oracle access / account approval slow | Blocks Phase 2 | Request in Sprint 1; build against an Oracle Free container with the agreed view |
+| Oracle data lacks size/color/location detail | Stock only per garment type | Discover in Phase 0; granularity fallback (§3.6) |
+| Unstable record IDs or no cancellation info | Double counts or drift | Agree the view contract; reconcile daily totals Oracle vs GI |
+| Deliveries not entered (or entered late) | Negative / wrong stock | Negative flag, daily digest, back-dating (RCV-08), pilot reconciliation |
+| Inaccurate starting count | Wrong stock from day 1 | Careful full count at go-live; parallel run before stopping manual counts |
+| Import load on Oracle | Issuing system slowed | Incremental indexed query, row limit, 5-min cadence, agreed with the Oracle DBA |
+| Concurrent writes / deadlocks | Lost updates | Single ledger write path, ordered row locks, retry on 1213 |
 
-## 8. Definition of done (per feature)
+## 9. Definition of done (per feature)
 
-Requirement IDs covered and linked in the PR · unit + e2e tests · works at 390 px and 1440 px · touch targets ≥ 44 px · ledger invariant test passes · design tokens only (no hard-coded colors/fonts) · reviewed and merged with CI green.
+Requirement IDs linked in the PR · unit + e2e tests · works at 390 px and 1440 px · touch targets ≥ 44 px · ledger invariant test passes · design tokens only · reviewed and merged with CI green.
