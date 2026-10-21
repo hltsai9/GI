@@ -2,10 +2,10 @@
 
 | | |
 |---|---|
-| Version | 0.4 (draft for review) |
+| Version | 0.5 (draft for review) |
 | Date | 2026-10-21 |
 | Source | UI mockups in [`design/mockups/`](../design/mockups/) (`Garment Inventory.dc.html` explorations 1a–1j, `Garment Inventory App.dc.html` consolidated app, `Garment Inventory Devices.dc.html` phone + laptop frames) |
-| Status | Draft — items marked **[OPEN]** need a decision from the business owner (cleanroom lead) |
+| Status | Draft — items marked **[OPEN]** still need an answer; they are tracked in [`TODO.md`](./TODO.md) |
 
 ---
 
@@ -133,9 +133,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 
 ### 6.3 Issue import from Oracle
 
-| ID | Requirement | Pri |
-|---|---|---|
-**Source columns** (Oracle table or view — name **[OPEN]**):
+**Source columns.** The table name is set in GI's configuration at installation (not stored in this repository):
 
 | Oracle column | Use in GI |
 |---|---|
@@ -145,35 +143,41 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | `SUIT_SIZE` | → size (value mapping) |
 | `SUIT_LEVEL` | → location, Fab1 / Fab2 (value mapping) |
 | `STATE` | Filter: only `'EMPLOYEE GOWN ISSUE'` is imported |
-| `INOUT_CATEGORY`, `INOUT_ACTION` | Stored for reference and troubleshooting. **[OPEN]** meaning — may identify returns or reversals (ORA-06) |
-| `INSERT_TIME` | When the row was written. Incremental import key. **[OPEN]** confirm |
-| `RECTIME` | **[OPEN]** Assumed to be the time of the issue; used as "issued at" for trends |
+| `INOUT_CATEGORY`, `INOUT_ACTION` | Not imported — always the same for `EMPLOYEE GOWN ISSUE` rows |
+| `INSERT_TIME` | Part of the issue key. Assumed to be when the row was written → incremental import key. **[OPEN]** confirm (TODO) |
+| `RECTIME` | Assumed to be the time of the issue → "issued at" for Trends and the starting-count cut-off. **[OPEN]** confirm (TODO) |
 | `EMPLOYEE_ID`, `INSERT_USER` | **Not imported** — GI only needs counts (data minimization). **[OPEN]** unless per-employee reports are wanted |
+
+Rows are **never edited or deleted** after they are written, and `SUIT_BARCODE` + `INSERT_TIME` is unique. `EMPLOYEE GOWN ISSUE` covers **all garment types** (gowns, hoods, boots).
+
+A second Oracle table — the **suit master** (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`) — is **not needed** for the import. It is optional, only as an extra way to recover incomplete rows (DQ-08), if it turns out to hold the real color and size.
 
 | ID | Requirement | Pri |
 |---|---|---|
 | ORA-01 | GI reads rows with `STATE = 'EMPLOYEE GOWN ISSUE'` from the Oracle database over a **read-only** account, on a schedule (default every 5 minutes; **[OPEN]** confirm). | M |
-| ORA-02 | Each row is **one garment issued** (quantity 1). Each row is imported **exactly once**, keyed by `SUIT_BARCODE` + `INSERT_TIME` (barcode alone is not unique, as garments are reused); re-running an import never double-counts. **[OPEN]** confirm this pair is unique. | M |
+| ORA-02 | Each row is **one garment issued** (quantity 1). Each row is imported **exactly once**, keyed by `SUIT_BARCODE` + `INSERT_TIME` (barcode alone is not unique, as garments are reused); re-running an import never double-counts. (Confirmed unique; rows are never edited or deleted.) | M |
 | ORA-03 | Import is incremental on `INSERT_TIME`, with an overlap window (e.g. 10 minutes) to catch late-committed rows and rows sharing the same timestamp. | M |
 | ORA-04 | Each row's `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL` are translated through the value mapping (§6.10) to a GI stock item, whose on hand is reduced by 1. Incomplete rows follow §6.4. | M |
 | ORA-05 | A row containing a value not yet in the value mapping (e.g. a new size code) is **held**: it does not affect stock, is listed under Settings › Oracle values with a count, and is applied as soon as the value is mapped. | M |
-| ORA-06 | Reversals: if the source records an issue being undone (scanned by mistake, returned unused — via another `STATE`, `INOUT_ACTION`, or deleting the row), GI gives the garment back to stock. **[OPEN]** how the source records this; until known, reversals are handled by stock correction. | S |
+| ORA-06 | Reversals ("cancellations"): if an issue is undone — scanned by mistake, or the garment handed back unused — and the source records it (rows are never edited or deleted, so it would have to be a separate row, e.g. another `STATE`), GI gives the garment back to stock. **[OPEN]** whether and how this is recorded (TODO); until known, handled by stock correction. | S |
 | ORA-07 | Sync status is visible on Stock and Trends: "Issues up to HH:MM". If the last successful import is older than 30 minutes, a warning is shown and admins are notified. | M |
 | ORA-08 | Admin screen: connection test, last runs (time, rows read, applied, held, incomplete, errors), and "Run now". | M |
 | ORA-09 | Historic backfill from a chosen start date, **for Trends only** — issues before the starting count do not change stock (rule 7.8). | S |
-| ORA-10 | The Oracle load stays small: one query per run with bind variables, filtered on `STATE` and `INSERT_TIME` (index needed — agree with the Oracle DBA), row limit per run. | M |
+| ORA-10 | The Oracle load stays small: one query per run with bind variables, filtered on `STATE` and `INSERT_TIME` (index advisable — **[OPEN]** TODO), row limit per run. | M |
+| ORA-11 | Oracle connection details, credentials and table names are **configuration**, set at installation, never in source code. Table names are validated as plain identifiers before use. | M |
 
 ### 6.4 Data quality — incomplete issue rows
 
 | ID | Requirement | Pri |
 |---|---|---|
 | DQ-01 | A row is **incomplete** when it matches a known-bad pattern. Today the only pattern is `SUIT_TYPE` = GOWN with `SUIT_COLOR` = OTHER and `SUIT_SIZE` = OTHER. Admins can add or remove patterns without a code change. | M |
-| DQ-02 | **Recovery by barcode:** for an incomplete row, GI looks up the same `SUIT_BARCODE` in earlier complete rows. If they agree on one color and size, the row is booked to that item and marked "recovered". **[OPEN]** confirm a barcode's color and size never change. | S |
+| DQ-02 | **Recovery by barcode:** for an incomplete row, GI looks up the same `SUIT_BARCODE` in earlier complete rows. Because a barcode's color and size never change (confirmed), any earlier complete row gives the answer; the row is booked to that item and marked "recovered". | M |
 | DQ-03 | An incomplete row that cannot be recovered still counts in **issued per day**, **garment-type totals** and **location totals** (these stay correct), but is booked to that type and location's **unknown bucket**, not to the real "Other · Other" item. | M |
 | DQ-04 | The unknown bucket is shown as its own line ("Gowns · color/size unknown") on Stock › Summary and below the Stock › Grid, with the notice "N gown issues in the last 7 days had no color/size — stock per size and color may be overstated by up to N." | M |
 | DQ-05 | **Data quality report** for the lead: incomplete rows per day (recovered / unrecovered), by location, with example barcodes — to show the vendor and to check whether their fix works. | M |
 | DQ-06 | After a spot check of the affected garments, the lead can clear the unknown bucket with a stock correction (reason "Spot check"), which also corrects the per-size items. | M |
-| DQ-07 | When the vendor's fix is in place, no GI change is needed: complete rows import normally and the unknown bucket stops growing. | M |
+| DQ-07 | When the vendor's fix is in place, no GI change is needed: complete rows import normally and the unknown bucket stops growing. The vendor will **not** correct old rows, so incomplete rows stay in history; Trends by size/color for gowns show them as "unknown". | M |
+| DQ-08 | Optional second recovery source: look up the barcode in the suit master table, if it is configured and its color/size are real (not OTHER). **[OPEN]** check the master table (TODO). | C |
 
 ### 6.5 Stock — summary (front page)
 
@@ -267,14 +271,17 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 7. GI never writes to the Oracle database.
 8. **Starting count cut-off:** stock starts from the starting count's as-of time per location. Issues with an issue time before it, and deliveries received before it, are history for Trends only and never change stock. The count should be done at a quiet moment (after the morning delivery is put away), and the as-of time recorded when counting finishes.
 9. One Oracle issue row = one garment.
-10. Incomplete issue rows never reduce a real size/color item unless recovered by barcode (DQ-02); otherwise they go to the unknown bucket (DQ-03).
+10. Incomplete issue rows never reduce a real size/color item unless recovered by barcode (DQ-02/08); otherwise they go to the unknown bucket (DQ-03).
+11. A garment's barcode keeps the same type, color and size for its whole life.
 
 ## 8. Non-functional requirements
 
 | ID | Requirement |
 |---|---|
-| NFR-01 **Responsive web app** | Runs in the browser; no app install. Phone (390 px) first: single column, touch targets ≥ 44 px, tabs across the top. |
-| NFR-02 **Laptop** | ≥ 900 px wide: tabs move to a left sidebar; layouts widen (mockup: 1440 × 900). |
+| NFR-01 **Web app, layout by device type** | Runs in the browser; no app install. GI detects the **type of device** when it loads and shows the layout made for it — not a layout chosen by window width. Resizing or rotating does not switch layouts. |
+| NFR-02 **Phone layout** | For phones: single column, touch targets ≥ 44 px, tabs across the top under the app name (mockup: 390 × 844). Content still fits any phone width (320–480 px) and both orientations. |
+| NFR-02a **Laptop layout** | For laptops and desktops: tabs in a left sidebar; wider multi-column layouts (mockup: 1440 × 900). Content still fits windows from 1024 px up. |
+| NFR-02b **Device detection** | Phone = the browser reports a mobile device (User-Agent Client Hints `mobile`, falling back to the user-agent string). Everything else gets the laptop layout. Tablets: **[OPEN]** (TODO) — default laptop layout with touch-size targets when the screen is touch-only. A "Switch to phone / laptop view" option overrides detection and is remembered on that device. |
 | NFR-03 **Cleanroom-friendly** | Usable with gloves: large targets, −/+ steppers, numeric keypad for quantities, high contrast. |
 | NFR-04 **Manual entry only** | GI users never scan: no barcode scanning and no scanner hardware in GI. (Garment barcodes exist only in the Oracle issue data.) |
 | NFR-05 **Performance** | Screens load in < 2 s on plant Wi-Fi; posting a delivery < 1 s; charts for 90 days < 2 s. |
@@ -290,6 +297,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 ## 9. Acceptance criteria (v1 sign-off)
 
 - Floor staff enter and post a 5-line mixed delivery on a phone in under 2 minutes.
+- A phone always gets the phone layout and a laptop the laptop layout, even when the laptop window is made narrow; the view switch overrides it.
 - After posting, Stock and Trends show the new quantities without reload.
 - An issue recorded in Oracle appears in GI (issued today, on hand reduced) within the agreed freshness window.
 - Re-running the import for an already imported period changes nothing.
@@ -303,30 +311,16 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 
 ## 10. Open questions
 
-### Oracle data (for the vendor / Oracle DBA)
-
-1. Name of the table or view to read, Oracle version, and who grants the read-only account and network access from the GI server.
-2. `INSERT_TIME` vs `RECTIME`: which is the time the garment was issued, and which the time the row was written? Is there an index on `INSERT_TIME` (or `STATE, INSERT_TIME`)?
-3. Is `SUIT_BARCODE` + `INSERT_TIME` unique for every issue row? Can rows be updated or deleted after they are written?
-4. A one-time list of distinct values (with counts) of `STATE`, `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL`, `INOUT_CATEGORY`, `INOUT_ACTION` — to build the value mapping.
-5. Does `STATE = 'EMPLOYEE GOWN ISSUE'` cover hoods and boots as well as gowns, or are they issued under another state?
-6. **Reversals:** when a garment is issued by mistake, or returned unused, what happens in Oracle — another `STATE`, an `INOUT_ACTION`, an update, or nothing?
-7. Does a barcode always belong to one color and size for its whole life? (Needed for recovery, DQ-02.)
-8. Vendor fix for GOWN / OTHER / OTHER rows: expected date; will old rows be corrected too?
-
-### Business
-
-9. Required freshness of issue data (5 min? hourly?) and how far back to backfill history for Trends.
-10. Is any per-employee usage report wanted? (If not, `EMPLOYEE_ID` stays out of GI.)
-11. Default minimum for new stock items (mockup: 2) and the "Close to min" threshold.
-12. Delivery chart periods (day / week / month) and trend ranges.
-13. Approval rules for large or late delivery corrections.
-14. Alert channel (email, Teams, other).
-15. Additional garment types (gloves, masks, liners, glasses).
-16. Hosting (on-prem vs internal cloud), SSO provider, existing MariaDB server or a new one.
+All open questions are tracked as a checklist in [`TODO.md`](./TODO.md).
 
 ### Decided
 
-- Issue data comes from Oracle rows with `STATE = 'EMPLOYEE GOWN ISSUE'`; `SUIT_LEVEL` is the location; one row per garment, identified by barcode.
-- GOWN / OTHER / OTHER rows are known to be incomplete; the lead is taking this up with the vendor.
+- Issue data comes from Oracle rows with `STATE = 'EMPLOYEE GOWN ISSUE'`, which covers all garment types; `SUIT_LEVEL` is the location; one row per garment.
+- `SUIT_BARCODE` + `INSERT_TIME` is unique; rows are never edited or deleted.
+- `INOUT_CATEGORY` and `INOUT_ACTION` are constant for these rows and are not needed.
+- The suit master table is not needed for the import (optional for recovery only, DQ-08).
+- A barcode's color and size never change — recovery by barcode (DQ-02) is reliable.
+- GOWN / OTHER / OTHER rows are incomplete; the vendor may fix new rows (date unknown) but will not correct old ones.
+- Oracle connection details and table names go in configuration at installation.
 - Floor staff do a full starting count of everything before go-live.
+- Layout is chosen by device type (phone / laptop), not by window width.

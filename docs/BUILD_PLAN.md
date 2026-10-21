@@ -9,8 +9,10 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`, `ORA-02`) refe
         │  HTTPS (intranet: garments.fab.local)
         ▼
  ┌──────────────────────────────┐
- │ Web app (responsive SPA)     │  React + TypeScript + Vite
- │  - top tabs <900px, sidebar ≥900px
+ │ Web app (SPA)                │  React + TypeScript + Vite
+ │  - layout by device type:    │
+ │    phone → top tabs,         │
+ │    laptop → left sidebar     │
  │  - delivery draft kept in browser storage
  │  - Broadsheet design tokens
  └──────────────┬───────────────┘
@@ -30,7 +32,7 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`, `ORA-02`) refe
    MariaDB 11.4 LTS, InnoDB, utf8mb4  (Drizzle ORM, mysql2 driver + migrations)
 ```
 
-**Why**: one language end to end; one responsive web app serves phones and laptops with nothing to install; MariaDB InnoDB transactions with row locks keep deliveries and imported issues consistent (NFR-06/07). Oracle is read with `node-oracledb` in **thin mode** (pure JavaScript — no Oracle Instant Client to install on the server). MariaDB is fixed; the web/API layers can be swapped for an IT-standard stack without changing the data model or phases.
+**Why**: one language end to end; one web app serves phones and laptops with nothing to install, choosing its layout by device type (§1.2); MariaDB InnoDB transactions with row locks keep deliveries and imported issues consistent (NFR-06/07). Oracle is read with `node-oracledb` in **thin mode** (pure JavaScript — no Oracle Instant Client to install on the server). MariaDB is fixed; the web/API layers can be swapped for an IT-standard stack without changing the data model or phases.
 
 ### 1.1 Repository layout (monorepo, pnpm workspaces)
 
@@ -42,9 +44,38 @@ packages/
   domain/         shared types, stock key, status rules, days-of-cover calc
   ui/             Broadsheet tokens + shared components (Segmented, Dropdown, Stepper, StatusCell, charts…)
 design/mockups/   source mockups (reference only)
-docs/             URD, build plan, ADRs
+docs/             URD, build plan, to-do list, ADRs
+.env.example      configuration template (no real values)
 infra/            docker-compose (dev: MariaDB + Oracle Free container), deployment manifests
 ```
+
+### 1.2 Layout by device type
+
+- At start-up the web app classifies the device once:
+  1. a saved manual choice ("Switch to phone / laptop view", stored per device in `localStorage`), else
+  2. `navigator.userAgentData.mobile` (User-Agent Client Hints), else
+  3. the user-agent string (`iPhone`, `Android … Mobile`, `Mobile`).
+  Phone → **phone layout**; anything else → **laptop layout**. Tablets: TODO — default laptop layout, with touch-size targets when `(pointer: coarse)`.
+- The result is stored in a React context (`DeviceContext`) and set as `data-device="phone|laptop"` on `<html>`. Each tab has a phone and a laptop **page component** sharing the same data hooks and domain logic; only composition differs (e.g. Stock: stacked cards on phone, grid + detail side by side on laptop).
+- Resizing or rotating never swaps layouts. Inside each layout, CSS still flexes (phone 320–480 px, both orientations; laptop ≥ 1024 px).
+- Device detection lives in one small module with unit tests over a table of real user-agent strings.
+
+### 1.3 Configuration
+
+All environment-specific values are set at installation in a `.env` file (or the host's secret store) — never committed. The repository ships `.env.example` with placeholders only.
+
+| Key | Purpose |
+|---|---|
+| `ORACLE_CONNECT_STRING` | Oracle host / service (Easy Connect) |
+| `ORACLE_USER`, `ORACLE_PASSWORD` | Read-only account (password as a secret) |
+| `ORACLE_ISSUE_TABLE` | Issue table or view, `SCHEMA.TABLE` |
+| `ORACLE_SUIT_TABLE` | Optional suit master table for DQ-08; empty = not used |
+| `ORACLE_POLL_SECONDS`, `ORACLE_OVERLAP_MINUTES`, `ORACLE_MAX_ROWS` | Import schedule and batch (defaults 300 / 10 / 5000) |
+| `MARIADB_URL` | GI database |
+| `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | SSO |
+| `SITE_TIMEZONE` | Display time zone |
+
+Table names cannot be bind variables, so the API validates them at start-up against `^[A-Za-z][A-Za-z0-9_$#]*(\.[A-Za-z][A-Za-z0-9_$#]*)?$` and refuses to start otherwise (ORA-11). An admin "Test connection" checks access and that the expected columns exist.
 
 ## 2. Data model (MariaDB)
 
@@ -66,15 +97,15 @@ oracle_value_map(id, oracle_column ENUM(SUIT_TYPE,SUIT_COLOR,SUIT_SIZE,SUIT_LEVE
                  gi_ref_id NULL, ignore BOOL, row_count, first_seen, last_seen, updated_by, updated_at,
                  UNIQUE(oracle_column, oracle_value))                  -- MAP-*
 issue_import(id, suit_barcode, insert_time, rectime,                     -- copy of one Oracle row
-             suit_type, suit_color, suit_size, suit_level, inout_category, inout_action,
+             suit_type, suit_color, suit_size, suit_level,
              stock_item_id NULL,
              quality ENUM(complete,recovered,incomplete),               -- DQ-01..03
              status ENUM(applied,held_unmapped,before_start,ignored,reversed),
              ledger_entry_id NULL, imported_at,
              UNIQUE(suit_barcode, insert_time))                         -- ORA-02 (no EMPLOYEE_ID / INSERT_USER)
 dq_pattern(id, suit_type, suit_color, suit_size, active)                 -- e.g. GOWN / OTHER / OTHER
-barcode_profile(suit_barcode PK, garment_type_id, color_id, size_id,    -- last known complete color/size,
-                complete_rows, conflicting BOOL, last_seen)              -- for recovery (DQ-02)
+barcode_profile(suit_barcode PK, garment_type_id, color_id, size_id,    -- color/size of this barcode (never changes),
+                source ENUM(issue_history,suit_master), last_seen)       -- for recovery (DQ-02/08)
 starting_count(location_id PK, as_of DATETIME(3), entered_by)            -- URD rule 7.8
 sync_run(id, started_at, finished_at, from_watermark, to_watermark,
          rows_read, rows_applied, rows_held, rows_incomplete, rows_recovered, status ENUM(ok,failed), error)
@@ -106,16 +137,18 @@ Invariant: `stock_item.on_hand = Σ ledger_entry.delta` for that item. Every wri
 
 ```sql
 SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
-       INOUT_CATEGORY, INOUT_ACTION, INSERT_TIME, RECTIME
-  FROM <ISSUE_TABLE_OR_VIEW>                       -- name: URD open question 1
+       INSERT_TIME, RECTIME
+  FROM <ORACLE_ISSUE_TABLE>                        -- from configuration (§1.3), validated identifier
  WHERE STATE = 'EMPLOYEE GOWN ISSUE'
    AND INSERT_TIME > :watermark - INTERVAL '10' MINUTE   -- overlap for late commits / equal timestamps
  ORDER BY INSERT_TIME
  FETCH FIRST :maxRows ROWS ONLY                    -- Oracle 12c+; ROWNUM wrapper if older
 ```
 
-- Bind variables only; `EMPLOYEE_ID` and `INSERT_USER` are not selected (data minimization).
-- Needs an index on `INSERT_TIME` (ideally `STATE, INSERT_TIME`) — agree with the Oracle DBA; ask for a view if the table cannot be indexed.
+- Bind variables for all values; `EMPLOYEE_ID`, `INSERT_USER`, `INOUT_CATEGORY` and `INOUT_ACTION` are not selected (not needed).
+- Rows are append-only in Oracle (never edited or deleted), so only new rows need reading; the overlap only covers rows committed late.
+- An index on `INSERT_TIME` (ideally `STATE, INSERT_TIME`) is advisable — TODO with the DBA.
+- Which of `INSERT_TIME` / `RECTIME` is the write time vs the issue time is a TODO; the watermark column and the "issued at" column are configurable until confirmed.
 - `node-oracledb` thin mode; timestamps converted from the Oracle session time zone to UTC.
 
 ### 3.2 Processing each row (one MariaDB transaction per batch)
@@ -123,8 +156,8 @@ SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
 1. **De-duplicate**: insert into `issue_import` keyed by `(suit_barcode, insert_time)`; rows already present are skipped (ORA-02).
 2. **Map values** through `oracle_value_map`. Any unmapped value → `held_unmapped`; any value mapped to Ignore → `ignored` (ORA-05, MAP-05).
 3. **Data-quality check** against `dq_pattern` (today GOWN / OTHER / OTHER):
-   - complete → update `barcode_profile` (type/color/size for this barcode; set `conflicting` if it differs from before);
-   - incomplete → look up `barcode_profile`; if present and not conflicting → book to that color/size, `quality = recovered`; otherwise → book to the type × location **unknown bucket**, `quality = incomplete` (DQ-02/03).
+   - complete → upsert `barcode_profile` (a barcode's color/size never change);
+   - incomplete → look up `barcode_profile`; if missing and `ORACLE_SUIT_TABLE` is configured, look the barcode up in the suit master (DQ-08, only if its color/size are not OTHER); if found → book to that color/size, `quality = recovered`; otherwise → book to the type × location **unknown bucket**, `quality = incomplete` (DQ-02/03).
 4. **Cut-off**: if the issue time is before the location's `starting_count.as_of` → `before_start` (Trends only, no stock change; URD rule 7.8).
 5. Otherwise `StockLedger.apply(issue, −1)` → `applied`.
 6. Advance the watermark only after commit; write `sync_run` with counts per outcome.
@@ -132,7 +165,7 @@ SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
 ### 3.3 Other paths
 
 - **Mapping a new value** applies all its `held_unmapped` rows in one transaction (MAP-03).
-- **Reversals** (ORA-06): once the source's representation is known (another `STATE`, an `INOUT_ACTION`, or deleted rows — URD question 6), add a second query or a periodic reconciliation of the last N days that marks rows `reversed` and applies +1. Until then, handled by stock correction.
+- **Reversals** (ORA-06, TODO with the lead): since Oracle rows are never edited or deleted, a reversal could only appear as a separate row (e.g. another `STATE`). If one exists, add it to the query and apply +1, marking the original `reversed`. Until then, handled by stock correction.
 - **Failure**: Oracle unreachable → run fails, watermark unchanged, next run catches up; stale > 30 min → banner + admin alert (ORA-07).
 - **Backfill** (ORA-09): same code path from a start date in batches; everything before the cut-off lands as `before_start`, which also builds `barcode_profile` so recovery works from day one.
 - **Data quality report** (DQ-05): `issue_import` grouped by day, location, `quality`.
@@ -165,12 +198,12 @@ SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
 Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time designer/QA, plus a contact on the Oracle issuing system. Sprints are 2 weeks.
 
 ### Phase 0 — Foundations + Oracle discovery (Sprint 1)
-- Get answers to URD §10 Oracle questions 1–8 from the vendor / Oracle DBA. **Gate:** table/view name, meaning of `INSERT_TIME` vs `RECTIME`, uniqueness of barcode + `INSERT_TIME`, and the distinct-values list.
-- Run the distinct-values query once (with the DBA) and draft the initial value mapping (MAP-04); measure the share of GOWN / OTHER / OTHER rows and how many of their barcodes have earlier complete rows (shows how well recovery will work).
+- Work through the vendor / DBA items in [`TODO.md`](./TODO.md). **Gate:** meaning of `INSERT_TIME` vs `RECTIME`.
+- On site, with the configured table: run `SELECT DISTINCT` on `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL` and draft the initial value mapping (MAP-04); measure the share of GOWN / OTHER / OTHER rows, how many of their barcodes have earlier complete rows, and whether the suit master table has real color/size for them (DQ-08).
 - Request the read-only Oracle account and firewall access from the GI server (long lead time — start day 1).
 - Monorepo, lint/typecheck, CI (GitHub Actions: build, unit, integration against MariaDB 11.4 + Oracle Free service containers, e2e).
-- Docker-compose dev env; migrations; seed reproducing the mockup data plus a synthetic Oracle issue table with the real column names.
-- Broadsheet tokens into `packages/ui`; responsive app shell; auth stub + roles.
+- Docker-compose dev env; `.env.example`; migrations; seed reproducing the mockup data plus synthetic Oracle issue and suit master tables with the real column names.
+- Broadsheet tokens into `packages/ui`; app shell with device detection and the phone / laptop layouts (§1.2); auth stub + roles.
 
 **Exit**: app shell on a dev server; Oracle columns, keys and values understood; CI green.
 
@@ -183,7 +216,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 
 ### Phase 2 — Oracle issue import + data quality (Sprints 4–5)
 - Import job (§3) with watermark, overlap, `(barcode, INSERT_TIME)` de-duplication, held-unmapped handling.
-- Data quality: known-bad patterns, barcode recovery, unknown bucket, data quality report (DQ-01..07).
+- Data quality: known-bad patterns, barcode recovery, optional suit-master recovery, unknown bucket, data quality report (DQ-01..08).
 - Oracle values screen (MAP-01..05) and sync status / admin screen (ORA-07/08); daily reconciliation.
 - Backfill of issue history (ORA-09).
 - Integration tests against an Oracle Free container with the real column layout and sample rows, including GOWN / OTHER / OTHER rows.
@@ -224,9 +257,10 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 ## 7. Testing strategy
 
 - **Unit** (`packages/domain`, ledger): status thresholds incl. negative, days of cover, delivery correction diff, void, line merge.
-- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER with and without barcode history, and with a conflicting barcode; row before vs after the starting-count cut-off; Oracle outage then catch-up; watermark advances only on commit.
+- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER with and without barcode history, with and without the suit master configured; row before vs after the starting-count cut-off; Oracle outage then catch-up; watermark advances only on commit.
 - **Integration**: every write endpoint asserts the ledger invariant; delivery posted concurrently with an import run.
-- **E2E** (Playwright, 390×844 phone and 1440×900 laptop): URD §9 acceptance criteria.
+- **Device detection** (unit): table of real phone, tablet and laptop user-agent strings and client hints → expected layout; manual override.
+- **E2E** (Playwright device profiles — e.g. iPhone 13 and Pixel 7 for phone, Desktop Chrome 1440×900 for laptop): URD §9 acceptance criteria in both layouts, plus a narrow laptop window still showing the laptop layout.
 - **Pilot reconciliation**: daily GI vs manual count report during the parallel run; gowns compared at type level as well as per size while GOWN / OTHER / OTHER rows still occur.
 
 ## 8. Risks
@@ -235,13 +269,14 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 |---|---|---|
 | Oracle access / account approval slow | Blocks Phase 2 | Request in Sprint 1; build against an Oracle Free container with the real column layout |
 | GOWN / OTHER / OTHER rows persist (vendor fix late) | Per-size gown stock overstated | Barcode recovery, unknown bucket, notice on Stock, data quality report for the vendor, spot-check correction (DQ-*); type-level gown totals stay correct |
-| No single unique row ID; `(barcode, INSERT_TIME)` turns out not unique | Double counts or missed rows | Confirm in Phase 0; fall back to Oracle `ROWID` exposed via a view, or a vendor-added sequence column; daily count reconciliation |
-| Reversals not visible in Oracle | Stock drifts low | Clarify in Phase 0 (question 6); spot checks + stock correction; watch drift in the pilot |
+| Reversals not recorded in Oracle | Stock drifts low | Clarify with the lead (TODO); spot checks + stock correction; watch drift in the pilot |
 | `INSERT_TIME` not indexed | Slow import, load on the issuing system | Ask the DBA for an index or view; smaller batches; longer interval |
+| `INSERT_TIME` / `RECTIME` meaning guessed wrong | Missed rows or wrong cut-off | Confirm before Phase 2 (TODO); both columns configurable |
+| Device misdetected (e.g. new browser, tablet) | Wrong layout | Manual view switch remembered per device; detection tests with real UA strings |
 | Deliveries not entered (or entered late) | Negative / wrong stock | Negative flag, daily digest, back-dating (RCV-08), pilot reconciliation |
 | Starting count done while issuing continues | Off by a few items from day 1 | Count at a quiet moment, record as-of when finished, cut-off rule 7.8, parallel run |
 | Concurrent writes / deadlocks | Lost updates | Single ledger write path, ordered row locks, retry on 1213 |
 
 ## 9. Definition of done (per feature)
 
-Requirement IDs linked in the PR · unit + e2e tests · works at 390 px and 1440 px · touch targets ≥ 44 px · ledger invariant test passes · design tokens only · reviewed and merged with CI green.
+Requirement IDs linked in the PR · unit + e2e tests · works in the phone layout (on phone device profiles) and the laptop layout · touch targets ≥ 44 px · ledger invariant test passes · design tokens only · reviewed and merged with CI green.
