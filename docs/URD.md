@@ -81,7 +81,7 @@ stock on hand  =  starting count  +  deliveries (entered in GI)  −  issues (im
 | **Floor staff** | Cleanroom floor staff receiving the morning delivery (~06:40) | Enter deliveries; fix a wrong delivery entry; the one-off full count before go-live | Phone |
 | **Cleanroom lead** | Owns stock levels and reordering | Read stock, deliveries and issues; set minimums; manage sizes/colors; stock corrections; map new Oracle values; follow up data quality with the vendor | Laptop, phone |
 | **Viewer** | Fab managers, purchasing | Read stock and trends | Laptop |
-| **Admin** | IT | Users and roles, Oracle connection, item mapping, monitoring | Laptop |
+| **Admin** | IT | Users and roles, Oracle connection, value mapping, data-quality patterns, monitoring | Laptop |
 
 ## 5. Domain model and definitions
 
@@ -213,7 +213,7 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | ID | Requirement | Pri |
 |---|---|---|
 | SET-01 | Sizes and colors as removable chips; add a new size / color by text. | M |
-| SET-02 | New values appear immediately in Receive, Stock, Stock correction and item mapping. | M |
+| SET-02 | New values appear immediately in Receive, Stock, Stock correction and the Oracle value mapping. | M |
 | SET-03 | Removing a value only **hides** it; stock records and history are kept and it can be restored. | M |
 | SET-04 | Sizes keep a user-defined display order. | S |
 | SET-05 | Only lead/admin can change master data. | M |
