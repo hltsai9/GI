@@ -43,7 +43,7 @@ stock on hand  =  starting count  +  deliveries (entered in GI)  −  issues (im
 | Routine manual stock counts | Stopped after the pilot (only occasional spot checks remain) |
 | Time to record a morning delivery | < 2 minutes on a phone |
 | Stock accuracy | Spot-check count within ±5 % of system stock for ≥ 95 % of stocked items **[OPEN]** confirm target |
-| Freshness of issue data | Issues visible in GI within 15 minutes of being recorded in Oracle **[OPEN]** confirm |
+| Freshness of issue data | Issues visible in GI within one import interval (default 5 minutes, up to 12 hours) **[OPEN]** confirm interval |
 
 ## 3. Scope
 
@@ -154,13 +154,13 @@ A second Oracle table — the **suit master** (`SUIT_BARCODE`, `SUIT_CATEGORY`, 
 
 | ID | Requirement | Pri |
 |---|---|---|
-| ORA-01 | GI reads rows with `STATE = 'EMPLOYEE GOWN ISSUE'` from the Oracle database over a **read-only** account, on a schedule (default every 5 minutes; **[OPEN]** confirm). | M |
+| ORA-01 | GI reads rows with `STATE = 'EMPLOYEE GOWN ISSUE'` from the Oracle database over a **read-only** account, on a configurable interval from 5 minutes to 12 hours (default 5 minutes; **[OPEN]** confirm). Issues are always counted on the day they happened, whatever the interval; a longer interval only delays when today's numbers and stock are complete. | M |
 | ORA-02 | Each row is **one garment issued** (quantity 1). Each row is imported **exactly once**, keyed by `SUIT_BARCODE` + `INSERT_TIME` (barcode alone is not unique, as garments are reused); re-running an import never double-counts. (Confirmed unique; rows are never edited or deleted.) | M |
 | ORA-03 | Import is incremental on `INSERT_TIME`, with an overlap window (e.g. 10 minutes) to catch late-committed rows and rows sharing the same timestamp. | M |
 | ORA-04 | Each row's `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL` are translated through the value mapping (§6.10) to a GI stock item, whose on hand is reduced by 1. Incomplete rows follow §6.4. | M |
 | ORA-05 | A row containing a value not yet in the value mapping (e.g. a new size code) is **held**: it does not affect stock, is listed under Settings › Oracle values with a count, and is applied as soon as the value is mapped. | M |
 | ORA-06 | Reversals ("cancellations"): if an issue is undone — scanned by mistake, or the garment handed back unused — and the source records it (rows are never edited or deleted, so it would have to be a separate row, e.g. another `STATE`), GI gives the garment back to stock. **[OPEN]** whether and how this is recorded (TODO); until known, handled by stock correction. | S |
-| ORA-07 | Sync status is visible on Stock and Trends: "Issues up to HH:MM". If the last successful import is older than 30 minutes, a warning is shown and admins are notified. | M |
+| ORA-07 | Sync status is visible on Stock and Trends: "Issues up to HH:MM". If there has been no successful import for more than twice the interval, a warning is shown and admins are notified. | M |
 | ORA-08 | Admin screen: connection test, last runs (time, rows read, applied, held, incomplete, errors), and "Run now". | M |
 | ORA-09 | Historic backfill from a chosen start date, **for Trends only** — issues before the starting count do not change stock (rule 7.8). | S |
 | ORA-10 | The Oracle load stays small: one query per run with bind variables, filtered on `STATE` and `INSERT_TIME` (index advisable — **[OPEN]** TODO), row limit per run. | M |

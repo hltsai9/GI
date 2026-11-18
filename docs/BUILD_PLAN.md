@@ -25,7 +25,7 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`, `ORA-02`) refe
  │                              │            │  (1 row = 1 garment)      │
  │                              │            └────────────▲──────────────┘
  │  - scheduler:                │                         │ SELECT only,
- │     · Oracle issue import ───┼─────────────────────────┘ every 5 min
+ │     · Oracle issue import ───┼─────────────────────────┘ every 5 min–12 h
  │     · daily snapshot, alerts │
  └──────────────┬───────────────┘
                 ▼
@@ -70,7 +70,7 @@ All environment-specific values are set at installation in a `.env` file (or the
 | `ORACLE_USER`, `ORACLE_PASSWORD` | Read-only account (password as a secret) |
 | `ORACLE_ISSUE_TABLE` | Issue table or view, `SCHEMA.TABLE` |
 | `ORACLE_SUIT_TABLE` | Optional suit master table for DQ-08; empty = not used |
-| `ORACLE_POLL_SECONDS`, `ORACLE_OVERLAP_MINUTES`, `ORACLE_MAX_ROWS` | Import schedule and batch (defaults 300 / 10 / 5000) |
+| `ORACLE_POLL_SECONDS`, `ORACLE_OVERLAP_MINUTES`, `ORACLE_MAX_ROWS` | Import interval (300 s to 43,200 s = 12 h; default 300), overlap and batch size (defaults 10 / 5000). A run keeps reading batches until it has caught up. |
 | `MARIADB_URL` | GI database |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | SSO |
 | `SITE_TIMEZONE` | Display time zone |
@@ -80,60 +80,106 @@ Table names cannot be bind variables, so the API validates them at start-up agai
 ## 2. Data model (MariaDB)
 
 ```
+-- Reference data
 garment_type(id, code, name, plural, icon, sort, active)          -- Gown, Hood, Boot
-color(id, name, sort, active)                                      -- soft delete via active (SET-03)
-size(id, code, sort, active)
+color(id, name, sort, active, is_system)                           -- soft delete via active (SET-03);
+size(id, code, sort, active, is_system)                            --   is_system = the hidden "Unknown" value (DQ-03)
 location(id, code, name)                                           -- Fab1, Fab2
+
+-- Current balance: one row per garment × color × size × location
 stock_item(id, garment_type_id, color_id, size_id, location_id,
            on_hand INT (signed — may go negative, URD rule 7.4), min_qty INT UNSIGNED NULL,
-           is_unknown_bucket BOOL,             -- one per garment type × location, system color/size "Unknown" (DQ-03)
            updated_at, UNIQUE(garment_type_id, color_id, size_id, location_id))
+           -- unknown bucket = the item whose color and size are the system "Unknown" values
 
-delivery(id, received_at, created_by, status ENUM(posted,corrected,voided), note, idempotency_key UNIQUE)
+-- Deliveries
+delivery(id, received_at, created_at, created_by → app_user,      -- received_at may be back-dated (RCV-08);
+         status ENUM(posted,corrected,voided), note,               -- created_at = when it was entered
+         idempotency_key UNIQUE)
 delivery_line(id, delivery_id, stock_item_id, qty_original, qty_current)
+delivery_correction(id, delivery_id, user_id → app_user, at,       -- one row per Save correction / Void (HIS-04/05)
+                    is_void BOOL, total_delta INT, note)
 
 -- Oracle issue import
 oracle_value_map(id, oracle_column ENUM(SUIT_TYPE,SUIT_COLOR,SUIT_SIZE,SUIT_LEVEL), oracle_value,
-                 gi_ref_id NULL, ignore BOOL, row_count, first_seen, last_seen, updated_by, updated_at,
-                 UNIQUE(oracle_column, oracle_value))                  -- MAP-*
-issue_import(id, suit_barcode, insert_time, rectime,                     -- copy of one Oracle row
+                 garment_type_id NULL, color_id NULL, size_id NULL, location_id NULL,
+                 is_ignored BOOL, row_count, first_seen, last_seen, updated_by, updated_at,
+                 UNIQUE(oracle_column, oracle_value),
+                 CHECK: is_ignored, or exactly the FK matching oracle_column is set)          -- MAP-*
+issue_import(id, suit_barcode, insert_time DATETIME(6), rectime DATETIME(6),   -- copy of one Oracle row
              suit_type, suit_color, suit_size, suit_level,
-             stock_item_id NULL,
+             issued_at DATETIME(6),                    -- from INSERT_TIME or RECTIME (configurable until confirmed)
+             location_id NULL, stock_item_id NULL,     -- set when mapped
              quality ENUM(complete,recovered,incomplete),               -- DQ-01..03
              status ENUM(applied,held_unmapped,before_start,ignored,reversed),
-             ledger_entry_id NULL, imported_at,
-             UNIQUE(suit_barcode, insert_time))                         -- ORA-02 (no EMPLOYEE_ID / INSERT_USER)
+             imported_at,
+             UNIQUE(suit_barcode, insert_time),                         -- ORA-02 (no EMPLOYEE_ID / INSERT_USER)
+             INDEX(issued_at), INDEX(status), INDEX(suit_barcode))
 dq_pattern(id, suit_type, suit_color, suit_size, active)                 -- e.g. GOWN / OTHER / OTHER
 barcode_profile(suit_barcode PK, garment_type_id, color_id, size_id,    -- color/size of this barcode (never changes),
                 source ENUM(issue_history,suit_master), last_seen)       -- for recovery (DQ-02/08)
-starting_count(location_id PK, as_of DATETIME(3), entered_by)            -- URD rule 7.8
+starting_count(location_id PK, as_of DATETIME(6), entered_by → app_user) -- URD rule 7.8
 sync_run(id, started_at, finished_at, from_watermark, to_watermark,
-         rows_read, rows_applied, rows_held, rows_incomplete, rows_recovered, status ENUM(ok,failed), error)
+         rows_read, rows_applied, rows_held, rows_incomplete, rows_recovered,
+         first_issued_day DATE NULL, last_issued_day DATE NULL,          -- days touched → snapshot rebuild (§2.2)
+         status ENUM(ok,failed), error)
 
-ledger_entry(id, stock_item_id, at, actor (user id or 'oracle-import'),
+-- Stock history: every change to on_hand, append-only (AUD-01/03)
+ledger_entry(id, stock_item_id, at DATETIME(6),
              kind ENUM(starting_count,delivery,delivery_correction,issue,issue_correction,stock_correction),
-             delta INT, qty_before, qty_after, ref_type, ref_id, reason, note)   -- append-only (AUD-01/03)
+             delta INT, qty_before INT, qty_after INT,
+             source ENUM(user,oracle_import,system), user_id NULL → app_user,
+             delivery_line_id NULL, delivery_correction_id NULL,
+             issue_import_id NULL, stock_correction_id NULL,
+             CHECK: exactly one cause FK is set, matching kind,
+             INDEX(stock_item_id, at), INDEX(at))
 
-stock_correction(id, stock_item_id, counted, system_qty, reason, note, user_id, at)
-min_change(id, stock_item_id, old_min, new_min, user_id, at)
-user(id, sso_subject, name, role ENUM(floor,lead,viewer,admin))
-daily_snapshot(date, stock_item_id, on_hand, delivered, issued)               -- feeds Trends
+stock_correction(id, stock_item_id, counted, system_qty, user_id → app_user, at, note,
+                 reason ENUM(starting_count,spot_check,damaged,found,miscount_at_delivery,other))  -- ADJ-03
+audit_log(id, at, user_id → app_user, entity, entity_id,           -- minimums, sizes/colors, value mapping,
+          action ENUM(create,update,deactivate,restore), before JSON, after JSON)  -- DQ patterns, roles (AUD-02)
+app_user(id, sso_subject UNIQUE, name, role ENUM(floor,lead,viewer,admin), active)
+
+-- Trends cache (rebuildable from the tables above)
+daily_snapshot(day DATE, stock_item_id, on_hand INT NULL, delivered INT, issued INT,
+               PRIMARY KEY(day, stock_item_id))  -- on_hand NULL for days before the location's starting count
 ```
 
 Invariant: `stock_item.on_hand = Σ ledger_entry.delta` for that item. Every write — delivery, correction, imported issue — goes through one `StockLedger.apply()` inside an InnoDB transaction with `SELECT … FOR UPDATE` on the affected stock items, locked in ascending `id` order; the transaction is retried on deadlock (error 1213).
+
+Design notes:
+
+- **Balance vs history.** `stock_item` holds only the current balance (one row per item). The history is `ledger_entry`; stock on any past date is `Σ delta` up to that time. Issued per day comes from `issue_import.issued_at`; delivered per period from `delivery_line.qty_current` by `delivery.received_at`.
+- **Real foreign keys instead of "type + id" pairs.** Both `oracle_value_map` and `ledger_entry` use one nullable FK per possible target plus a `CHECK`, so MariaDB enforces every reference.
+- **Microsecond timestamps.** `DATETIME(6)` so Oracle `TIMESTAMP` values keep their precision and `UNIQUE(suit_barcode, insert_time)` stays exact. Check the Oracle column types on site; if they are `DATE` (seconds only), nothing changes.
+- **Unknown bucket.** A hidden system color and size called "Unknown" (`is_system = true`, never shown in pickers); the bucket is the stock item using both.
+- **Names.** `app_user` instead of `user`, and `is_ignored` instead of `ignore` (a reserved word in MariaDB), so no identifier needs quoting.
 
 ### 2.1 MariaDB notes
 
 - InnoDB, `utf8mb4` / `utf8mb4_unicode_ci`, server time zone UTC; API converts to site time.
 - Line and import quantities use `INT UNSIGNED` / `CHECK (qty > 0)`; `on_hand` is signed on purpose.
-- IDs `BIGINT UNSIGNED AUTO_INCREMENT`; timestamps `DATETIME(3)`.
+- IDs `BIGINT UNSIGNED AUTO_INCREMENT`; timestamps `DATETIME(6)`, stored in UTC.
 - App DB user has `INSERT, SELECT` only on `ledger_entry`.
-- Trend queries read `daily_snapshot` (rebuilt nightly, current day on demand) — built by the API scheduler, not MariaDB events, so jobs live in source control.
+- Trend queries read `daily_snapshot` — built by the API scheduler, not MariaDB events, so jobs live in source control. See §2.2 for when it is rebuilt.
 - Backups: nightly `mariadb-backup` + binlogs for point-in-time recovery.
+- Volume: about 1,000 issues a day ≈ 365,000 rows a year in each of `issue_import` and `ledger_entry` — no partitioning needed.
+
+### 2.2 Snapshot rebuilds and the import interval
+
+`daily_snapshot` is a cache, so any change dated in the past must refresh it. Days are site-time calendar days (`SITE_TIMEZONE`), and every issue is counted on the day of its `issued_at`, **not** the day it was imported.
+
+- After each import run: rebuild the snapshot rows for every day from `sync_run.first_issued_day` to `last_issued_day` (a 12-hourly run after midnight touches yesterday and today).
+- After a back-dated delivery, a delivery correction or a stock correction: rebuild from that day to today.
+- Nightly at 00:30: rebuild yesterday and today as a safety net.
+- The current day is always read live from the ledger and `issue_import` for "today so far".
+
+So the import interval (`ORACLE_POLL_SECONDS`, from 5 minutes up to 12 hours) never changes the per-day totals; it only changes how soon they are complete (see URD ORA-01).
+
 
 ## 3. Oracle issue import design
 
-### 3.1 Query (every 5 min, single-instance lock so runs never overlap)
+### 3.1 Query (every `ORACLE_POLL_SECONDS`, single-instance lock so runs never overlap)
 
 ```sql
 SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
@@ -154,19 +200,19 @@ SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
 ### 3.2 Processing each row (one MariaDB transaction per batch)
 
 1. **De-duplicate**: insert into `issue_import` keyed by `(suit_barcode, insert_time)`; rows already present are skipped (ORA-02).
-2. **Map values** through `oracle_value_map`. Any unmapped value → `held_unmapped`; any value mapped to Ignore → `ignored` (ORA-05, MAP-05).
+2. **Map values** through `oracle_value_map`. Any unmapped value → `held_unmapped`; any value with `is_ignored` → `ignored` (ORA-05, MAP-05). Set `issued_at` and `location_id`.
 3. **Data-quality check** against `dq_pattern` (today GOWN / OTHER / OTHER):
    - complete → upsert `barcode_profile` (a barcode's color/size never change);
    - incomplete → look up `barcode_profile`; if missing and `ORACLE_SUIT_TABLE` is configured, look the barcode up in the suit master (DQ-08, only if its color/size are not OTHER); if found → book to that color/size, `quality = recovered`; otherwise → book to the type × location **unknown bucket**, `quality = incomplete` (DQ-02/03).
 4. **Cut-off**: if the issue time is before the location's `starting_count.as_of` → `before_start` (Trends only, no stock change; URD rule 7.8).
-5. Otherwise `StockLedger.apply(issue, −1)` → `applied`.
-6. Advance the watermark only after commit; write `sync_run` with counts per outcome.
+5. Otherwise `StockLedger.apply(issue, −1)` → `applied` (ledger entry with `source = oracle_import`, `issue_import_id` set).
+6. Advance the watermark only after commit; write `sync_run` with counts per outcome and the range of issue days touched; rebuild those days' snapshots (§2.2).
 
 ### 3.3 Other paths
 
 - **Mapping a new value** applies all its `held_unmapped` rows in one transaction (MAP-03).
 - **Reversals** (ORA-06, TODO with the lead): since Oracle rows are never edited or deleted, a reversal could only appear as a separate row (e.g. another `STATE`). If one exists, add it to the query and apply +1, marking the original `reversed`. Until then, handled by stock correction.
-- **Failure**: Oracle unreachable → run fails, watermark unchanged, next run catches up; stale > 30 min → banner + admin alert (ORA-07).
+- **Failure**: Oracle unreachable → run fails, watermark unchanged, next run catches up; no successful run for more than twice the poll interval → banner + admin alert (ORA-07).
 - **Backfill** (ORA-09): same code path from a start date in batches; everything before the cut-off lands as `before_start`, which also builds `barcode_profile` so recovery works from day one.
 - **Data quality report** (DQ-05): `issue_import` grouped by day, location, `quality`.
 - **Daily reconciliation**: count of issue rows per day in Oracle vs `issue_import`; mismatch → admin alert.
@@ -232,7 +278,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 **Exit**: the lead can load a starting count and see live calculated stock.
 
 ### Phase 4 — Trends + alerts (Sprint 7)
-- `daily_snapshot` job; Trends: delivered per period, issued per day, stock over time, deliveries vs issues, breakdowns (TRD-01..07).
+- `daily_snapshot` rebuild jobs (§2.2); Trends: delivered per period, issued per day, stock over time, deliveries vs issues, breakdowns (TRD-01..07).
 - Daily digest and stale-import alert (ALR-02/03).
 
 **Exit**: the lead's three questions are answered on phone and laptop; chart totals match the ledger.
@@ -257,7 +303,7 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 ## 7. Testing strategy
 
 - **Unit** (`packages/domain`, ledger): status thresholds incl. negative, days of cover, delivery correction diff, void, line merge.
-- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER with and without barcode history, with and without the suit master configured; row before vs after the starting-count cut-off; Oracle outage then catch-up; watermark advances only on commit.
+- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER with and without barcode history, with and without the suit master configured; row before vs after the starting-count cut-off; a 12-hour import crossing midnight books issues to the right days and rebuilds both days' snapshots; Oracle outage then catch-up; watermark advances only on commit.
 - **Integration**: every write endpoint asserts the ledger invariant; delivery posted concurrently with an import run.
 - **Device detection** (unit): table of real phone, tablet and laptop user-agent strings and client hints → expected layout; manual override.
 - **E2E** (Playwright device profiles — e.g. iPhone 13 and Pixel 7 for phone, Desktop Chrome 1440×900 for laptop): URD §9 acceptance criteria in both layouts, plus a narrow laptop window still showing the laptop layout.

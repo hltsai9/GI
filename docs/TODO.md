@@ -7,7 +7,7 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 - [ ] **Cancellations / reversals** — does it happen that a garment is issued by mistake (wrong scan) or handed back unused? How often? Is it recorded anywhere — in the issuing system (as a separate row, e.g. another `STATE`, since rows are never edited or deleted) or on paper? → decides ORA-06. Until answered, reversals are fixed with a stock correction.
 - [ ] **Vendor fix for GOWN / OTHER / OTHER rows** — expected date (old rows will not be corrected). → DQ-07
 - [ ] **Tablets** — will anyone use GI on a tablet? If so, phone or laptop layout? (Default: laptop layout with touch-size targets.) → NFR-02b
-- [ ] **Freshness** — is an issue visible in GI within 15 minutes good enough (import every 5 minutes)? → ORA-01, §2.1
+- [ ] **Import interval** — how fresh must stock and "issued today" be? Every 5 minutes (default), hourly, or every 6 / 12 hours? Per-day totals are correct either way; a longer interval only delays them. → ORA-01, §2.1
 - [ ] **History** — how far back to load issue history for Trends. → ORA-09
 - [ ] **Accuracy target** — spot check within ±5 % for ≥ 95 % of stocked items? → §2.1
 - [ ] **Per-employee usage report** — wanted? If not, `EMPLOYEE_ID` stays out of GI. → §6.3
