@@ -13,7 +13,10 @@ RUN --mount=type=secret,id=company_ca \
     if [ -s /run/secrets/company_ca ]; then export NODE_EXTRA_CA_CERTS=/run/secrets/company_ca; fi; \
     npm ci --registry "$NPM_REGISTRY" --no-audit --no-fund
 COPY . .
-RUN npm run build
+# VITE_DEMO=true: read-only demo with the recorded data in public/demo-data; needs no backend.
+ARG VITE_DEMO=false
+ENV VITE_DEMO=${VITE_DEMO}
+RUN npm run build && if [ "$VITE_DEMO" != "true" ]; then rm -rf dist/demo-data; fi
 
 FROM ${NGINX_IMAGE}
 COPY nginx.conf /etc/nginx/conf.d/default.conf

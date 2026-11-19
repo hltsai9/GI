@@ -123,6 +123,27 @@ gunzip -c gi-images.tar.gz | docker load
 
 Or push to the company registry: set `IMAGE_PREFIX=registry.example.local/cleanroom/gi`, run `docker compose build && docker compose push`, and on the test host `docker compose pull`.
 
+## 5A. Optional first step — the web page only (demo mode)
+
+To check that the site works on your network before setting up the backend and database, run only the web page in **demo mode**. It is the same read-only demo as https://hltsai9.github.io/GI/: the recorded mock data is built into the image, so it needs no backend, no database and no Oracle. Saving shows a "read-only demo" message.
+
+```bash
+cd /opt/gi/deploy
+cp .env.example .env            # only the build settings in §5.2 matter here, if your network needs them
+GI_VERSION=demo docker compose build --build-arg VITE_DEMO=true frontend
+docker run -d --name gi-demo --restart unless-stopped -p 8080:80 gi-frontend:demo
+curl -s http://localhost:8080/healthz          # → ok
+```
+
+Open `http://<host>:8080`. All four tabs show data, on laptop and phone.
+
+When you are ready for the real system, remove the demo and continue with §6:
+```bash
+docker rm -f gi-demo
+```
+
+> A **normal** frontend image (built without `VITE_DEMO=true`) does not work on its own: every screen needs the backend, so it shows errors without one. Use the demo image for a frontend-only test.
+
 ## 6. Start
 
 ```bash

@@ -7,6 +7,10 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-19
 
+### Web page on its own (demo mode)
+- **The frontend image can be built as a self-contained demo** (`--build-arg VITE_DEMO=true`). It includes the recorded mock data, so the site can be checked on the company network before the backend and database are set up. Steps: [DEPLOYMENT_SOP.md §5A](./DEPLOYMENT_SOP.md).
+- **nginx now starts even when there is no backend**: it looks up the backend's address per request instead of at startup. Normal images do not include the demo data.
+
 ### Ready for Docker (company test environment)
 - **Three containers**, started together with `deploy/docker-compose.yml`:
   - `frontend` (nginx serving the web page and forwarding `/api`);
