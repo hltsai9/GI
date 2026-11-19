@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Version | 0.9 (draft for review) |
+| Version | 0.10 (draft for review) |
 | Date | 2026-10-21 |
 | Source | UI mockups in [`design/mockups/`](../design/mockups/) (`Garment Inventory.dc.html` explorations 1a–1j, `Garment Inventory App.dc.html` consolidated app, `Garment Inventory Devices.dc.html` phone + laptop frames) |
 | Status | Draft — items marked **[OPEN]** still need an answer; they are tracked in [`TODO.md`](./TODO.md) |
@@ -85,7 +85,7 @@ stock on hand  =  starting count  +  deliveries (entered in GI)  −  issues (im
 
 ## 5. Domain model and definitions
 
-- **Garment type** — Gown, Hood, Boots (**[OPEN]** gloves, masks, liners later?).
+- **Garment type** — Gown, Hood, Boots for v1. More types may be added after the first release is stable (a new row in Settings plus its Oracle value mapping; no schema change).
 - **Color** — White, Blue, Black, Other (editable in Settings).
 - **Size** — SM, MED, LG, XLG, 2XLG, 3XLG, 4XLG, Other (editable in Settings).
 - **Location** — Fab1, Fab2.
@@ -162,7 +162,7 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 | ORA-13 | **Time check**: a row whose `RECTIME` (in UTC) is earlier than its `INSERT_TIME` (in UTC) by more than a tolerance (default 10 minutes, configurable) — or whose `INSERT_TIME` is in the future — is still imported (counted on its `INSERT_TIME` day), and **the admin is alerted every time it happens**: one alert per import run listing each row (barcode, location, both times, gap in hours). The admin screen keeps the full list. (Seen once in history, about two months ago, with gaps beyond −130 hours; assumed fixed since.) Rows found during the historic backfill go into one summary, not one alert each. | M |
 | ORA-04 | Each row's `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL` are translated through the value mapping (§6.10) to a GI stock item, whose on hand is reduced by 1. Incomplete rows follow §6.4. | M |
 | ORA-05 | A row containing a value not yet in the value mapping (e.g. a new size code) is **held**: it does not affect stock, is listed under Settings › Oracle values with a count, and is applied as soon as the value is mapped. | M |
-| ORA-06 | Reversals ("cancellations"): if an issue is undone — scanned by mistake, or the garment handed back unused — and the source records it (rows are never edited or deleted, so it would have to be a separate row, e.g. another `STATE`), GI gives the garment back to stock. **[OPEN]** whether and how this is recorded (TODO); until known, handled by stock correction. | S |
+| ORA-06 | ~~Reversals~~ — **not needed**: issues are never made by mistake (staff check the input), and rows are never edited or deleted. An unusual case is fixed with a stock correction. | — |
 | ORA-07 | Sync status is visible on Stock and Trends: "Issues up to HH:MM". If there has been no successful import for more than twice the interval, a warning is shown and admins are notified. | M |
 | ORA-08 | Admin screen: connection test, last runs (time, rows read, applied, held, incomplete, errors), and "Run now". | M |
 | ORA-09 | Historic backfill from a chosen start date, **for Trends only** — issues before the starting count do not change stock (rule 7.8). | S |
@@ -284,7 +284,7 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 | NFR-01 **Web app, layout by device type** | Runs in the browser; no app install. GI detects the **type of device** when it loads and shows the layout made for it — not a layout chosen by window width. Resizing or rotating does not switch layouts. |
 | NFR-02 **Phone layout** | For phones: single column, touch targets ≥ 44 px, tabs across the top under the app name (mockup: 390 × 844). Content still fits any phone width (320–480 px) and both orientations. |
 | NFR-02a **Laptop layout** | For laptops and desktops: tabs in a left sidebar; wider multi-column layouts (mockup: 1440 × 900). Content still fits windows from 1024 px up. |
-| NFR-02b **Device detection** | Phone = the browser reports a mobile device (User-Agent Client Hints `mobile`, falling back to the user-agent string). Everything else gets the laptop layout. Tablets: **[OPEN]** (TODO) — default laptop layout with touch-size targets when the screen is touch-only. A "Switch to phone / laptop view" option overrides detection and is remembered on that device. |
+| NFR-02b **Device detection** | Phone = the browser reports a mobile device (User-Agent Client Hints `mobile`, falling back to the user-agent string). Everything else gets the laptop layout — **including tablets**, which may be used. On touch-only screens (tablets) the laptop layout uses touch-size targets (≥ 44 px). A "Switch to phone / laptop view" option overrides detection and is remembered on that device. |
 | NFR-03 **Cleanroom-friendly** | Usable with gloves: large targets, −/+ steppers, numeric keypad for quantities, high contrast. |
 | NFR-04 **Manual entry only** | GI users never scan: no barcode scanning and no scanner hardware in GI. (Garment barcodes exist only in the Oracle issue data.) |
 | NFR-05 **Performance** | Screens load in < 2 s on plant Wi-Fi; posting a delivery < 1 s; charts for 90 days < 2 s. |
@@ -333,3 +333,7 @@ All open questions are tracked as a checklist in [`TODO.md`](./TODO.md).
 - Oracle connection details and table names go in configuration at installation.
 - Floor staff do a full starting count of everything before go-live.
 - Layout is chosen by device type (phone / laptop), not by window width.
+- Tablets use the laptop layout.
+- No reversals / cancellations: issues are not made by mistake.
+- v1 garment types: gowns, hoods, boots; more may follow after the first release.
+- `INSERT_TIME` and `RECTIME` are Oracle `DATE` columns (seconds, no time zone stored).

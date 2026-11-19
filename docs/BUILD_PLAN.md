@@ -55,7 +55,7 @@ infra/            docker-compose (dev: MariaDB + Oracle Free container), deploym
   1. a saved manual choice ("Switch to phone / laptop view", stored per device in `localStorage`), else
   2. `navigator.userAgentData.mobile` (User-Agent Client Hints), else
   3. the user-agent string (`iPhone`, `Android … Mobile`, `Mobile`).
-  Phone → **phone layout**; anything else → **laptop layout**. Tablets: TODO — default laptop layout, with touch-size targets when `(pointer: coarse)`.
+  Phone → **phone layout**; anything else → **laptop layout**. **Tablets get the laptop layout** (decided) — they already report as non-mobile (iPadOS Safari identifies as a Mac; Android tablets omit `Mobile`), so no special case is needed; touch-size targets apply when `(pointer: coarse)`.
 - The result is stored in a React context (`DeviceContext`) and set as `data-device="phone|laptop"` on `<html>`. Each tab has a phone and a laptop **page component** sharing the same data hooks and domain logic; only composition differs (e.g. Stock: stacked cards on phone, grid + detail side by side on laptop).
 - Resizing or rotating never swaps layouts. Inside each layout, CSS still flexes (phone 320–480 px, both orientations; laptop ≥ 1024 px).
 - Device detection lives in one small module with unit tests over a table of real user-agent strings.
@@ -109,19 +109,19 @@ oracle_value_map(id, oracle_column ENUM(SUIT_TYPE,SUIT_COLOR,SUIT_SIZE,SUIT_LEVE
                  is_ignored BOOL, row_count, first_seen, last_seen, updated_by, updated_at,
                  UNIQUE(oracle_column, oracle_value),
                  CHECK: is_ignored, or exactly the FK matching oracle_column is set)          -- MAP-*
-issue_import(id, suit_barcode, insert_time DATETIME(6), rectime DATETIME(6),   -- raw Oracle values, local to their zones
+issue_import(id, suit_barcode, insert_time DATETIME, rectime DATETIME,   -- raw Oracle DATE values (seconds), local to their zones
              suit_type, suit_color, suit_size, suit_level,
              issued_at DATETIME(6), recorded_at DATETIME(6),  -- INSERT_TIME and RECTIME converted to UTC
              issued_day DATE,                          -- site-time day of issued_at (what Trends count by)
              location_id NULL, stock_item_id NULL,     -- set when mapped
              quality ENUM(complete,incomplete,recovered),               -- DQ-01/03; recovered only via DQ-08
-             status ENUM(applied,held_unmapped,before_start,ignored,reversed),
+             status ENUM(applied,held_unmapped,before_start,ignored),
              imported_at,
              UNIQUE(suit_barcode, insert_time),                         -- ORA-02 (no EMPLOYEE_ID / INSERT_USER)
              INDEX(issued_day), INDEX(issued_at), INDEX(status), INDEX(suit_barcode))
 dq_pattern(id, suit_type, suit_color, suit_size, active)                 -- e.g. GOWN / OTHER / OTHER
 starting_count(location_id PK, as_of DATETIME(6), entered_by → app_user) -- URD rule 7.8
-sync_watermark(suit_level PK, last_rectime DATETIME(6), updated_at)    -- one per SUIT_LEVEL; raw RECTIME (Phoenix time)
+sync_watermark(suit_level PK, last_rectime DATETIME, updated_at)      -- one per SUIT_LEVEL; raw RECTIME (Phoenix time)
 sync_run(id, kind ENUM(poll,sweep), started_at, finished_at,
          rows_read, rows_new, rows_applied, rows_held, rows_incomplete,
          rows_time_check_failed,                                         -- ORA-13
@@ -157,7 +157,7 @@ Design notes:
 
 - **Balance vs history.** `stock_item` holds only the current balance (one row per item). The history is `ledger_entry`; stock on any past date is `Σ delta` up to that time. Issued per day comes from `issue_import.issued_day` (scan day, site time); delivered per period from `delivery_line.qty_current` by `delivery.received_at`.
 - **Real foreign keys instead of "type + id" pairs.** Both `oracle_value_map` and `ledger_entry` use one nullable FK per possible target plus a `CHECK`, so MariaDB enforces every reference.
-- **Microsecond timestamps.** `DATETIME(6)` so Oracle `TIMESTAMP` values keep their precision and `UNIQUE(suit_barcode, insert_time)` stays exact. Check the Oracle column types on site; if they are `DATE` (seconds only), nothing changes.
+- **Timestamps.** `INSERT_TIME` and `RECTIME` are Oracle `DATE` columns (seconds, no time zone), so their raw copies are `DATETIME` (seconds) and `UNIQUE(suit_barcode, insert_time)` compares them exactly. Times GI creates itself use `DATETIME(6)`.
 - **Unregistered bucket.** A hidden system garment type, color and size called "Unregistered" (`is_system = true`, never shown in pickers or per-type totals); each location's bucket is the stock item using all three. Per-type queries filter `is_system = false`; location and grand totals include the bucket.
 - **Names.** `app_user` instead of `user`, and `is_ignored` instead of `ignore` (a reserved word in MariaDB), so no identifier needs quoting. Reserved words only matter for table and column names; ENUM values such as `'user'` or `'ignored'` are quoted strings and need no change.
 - **How issues reach the ledger.** Importing never edits a ledger entry. For each `issue_import` row that is `applied`, the import **inserts** one new `ledger_entry` (kind `issue`, delta −1, `issue_import_id` → that row) and updates `stock_item.on_hand` in the same transaction. Rows that are `held_unmapped`, `before_start` or `ignored` create no ledger entry; a held row gets its entry when its value is mapped. A reversal would be another new entry (kind `issue_correction`, +1), never a change to the old one.
@@ -242,16 +242,14 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 | — (new row) | `ignored` / `held_unmapped` / `before_start` / `applied` | Import run, via `classifyIssue` | −1 entry only for `applied` |
 | `held_unmapped` | `ignored` / `before_start` / `applied` | Lead or admin maps the missing value (or sets it to Ignore) → all held rows using that value are re-classified in one transaction | −1 entry for each row that becomes `applied` |
 | `before_start` | `applied` | Starting count saved for that location → its `before_start` rows with `issued_at ≥ as_of` are re-classified | −1 entry for each |
-| `applied` | `reversed` | Only if reversals turn out to exist in Oracle (ORA-06, TODO) | new +1 entry (`issue_correction`); the −1 stays |
 
 - **Why the starting-count step matters:** floor staff finish counting at, say, 14:00, but the counts may be entered at 16:00. Imports between 14:00 and 16:00 find no starting count and set `before_start` — including issues after 14:00 that should reduce stock. Saving the count (as-of 14:00) re-classifies those, so nothing is lost. The same covers Fab2 going live after Fab1: Fab2 rows stay `before_start` until Fab2's count is saved.
-- **Final states:** `applied` (unless reversed), `reversed`, and `before_start` rows earlier than the as-of time never change again. `ignored` rows stay ignored if the value is later un-ignored — changing an existing mapping applies only to new rows (MAP-03, TODO).
+- **Final states:** `applied`, and `before_start` rows earlier than the as-of time never change again. `ignored` rows stay ignored if the value is later un-ignored — changing an existing mapping applies only to new rows (MAP-03, TODO).
 - Each re-classification is a single transaction, recorded in `audit_log` with the number of rows changed.
 - **Late registration** (DQ-08, only if the TODO confirms barcodes get registered after being issued): each import run checks the unregistered barcodes against `ORACLE_SUIT_TABLE`; for each one now registered, its `applied` unregistered-bucket rows move to the real item with a pair of new `issue_correction` entries (+1 unregistered bucket, −1 real item) and `quality = recovered`. Status stays `applied`.
 
 ### 3.4 Other paths
 
-- **Reversals** (ORA-06, TODO with the lead): since Oracle rows are never edited or deleted, a reversal could only appear as a separate row (e.g. another `STATE`). If one exists, add it to the query and apply +1, marking the original `reversed`. Until then, handled by stock correction.
 - **Failure**: Oracle unreachable → run fails, watermarks unchanged, next run catches up; no successful run for more than twice the poll interval → banner + admin alert (ORA-07).
 - **Backfill** (ORA-09): same code path from a start date in batches; everything before the cut-off lands as `before_start`.
 - **Data quality report** (DQ-05): `issue_import` grouped by day, location, `quality`; unregistered-barcode list = distinct `suit_barcode` of `incomplete` rows with counts and first/last seen.
@@ -284,7 +282,7 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time designer/QA, plus a contact on the Oracle issuing system. Sprints are 2 weeks.
 
 ### Phase 0 — Foundations + Oracle discovery (Sprint 1)
-- Work through the vendor / DBA items in [`TODO.md`](./TODO.md). **Gate:** Oracle column types of `INSERT_TIME` / `RECTIME`, and a sample confirming the time zones (`RECTIME` in UTC never earlier than `INSERT_TIME` in UTC).
+- Work through the vendor / DBA items in [`TODO.md`](./TODO.md). **Gate:** connection and read access with the configured table; the column types (`DATE`, confirmed) and time zones are already checked.
 - On site, with the configured table: run `SELECT DISTINCT` on `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL` and draft the initial value mapping (MAP-04); measure the share of GOWN / OTHER / OTHER rows and how many distinct unregistered barcodes there are.
 - Request the read-only Oracle account and firewall access from the GI server (long lead time — start day 1).
 - Monorepo, lint/typecheck, CI (GitHub Actions: build, unit, integration against MariaDB 11.4 + Oracle Free service containers, e2e).
@@ -330,7 +328,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 - When the accuracy target is met, **stop manual counting at Fab1**; repeat starting count + a shorter parallel run at **Fab2**.
 
 ### Backlog
-Size × color grid entry for deliveries (1a), receive against a standing order (1c), additional garment types, purchasing integration, approval workflow for corrections (HIS-07).
+Size × color grid entry for deliveries (1a), receive against a standing order (1c), additional garment types (after the first release is stable), purchasing integration, approval workflow for corrections (HIS-07).
 
 ## 6. Timeline
 
@@ -355,7 +353,6 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 |---|---|---|
 | Oracle access / account approval slow | Blocks Phase 2 | Request in Sprint 1; build against an Oracle Free container with the real column layout |
 | Unregistered barcodes persist (vendor fix late) | Stock per type / size / color overstated, usage per type understated; below-minimum alerts late | Unregistered bucket per location, notice on Stock, unregistered-barcode list for the vendor, regular full spot checks clearing the bucket (DQ-*); total issued per day and location totals stay correct |
-| Reversals not recorded in Oracle | Stock drifts low | Clarify with the lead (TODO); spot checks + stock correction; watch drift in the pilot |
 | `RECTIME` not indexed | Slow import, load on the issuing system | Ask the DBA for an index or view; smaller batches; longer interval |
 | Time zones applied wrongly | Issues on the wrong day, wrong starting-count cut-off | Explicit, configurable zones; time check on every row (ORA-13); Phase 0 sample check (hour-of-day of scans should match Phoenix shifts); tests around both midnights |
 | `RECTIME` not in order across locations, or other ordering quirks | Rows skipped by the import | Per-location watermarks; daily 3-day catch-up sweep with alert |

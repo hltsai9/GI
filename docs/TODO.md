@@ -4,9 +4,9 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 
 ## Check with the lead (requester)
 
-- [ ] **Cancellations / reversals** — does it happen that a garment is issued by mistake (wrong scan) or handed back unused? How often? Is it recorded anywhere — in the issuing system (as a separate row, e.g. another `STATE`, since rows are never edited or deleted) or on paper? → decides ORA-06. Until answered, reversals are fixed with a stock correction.
+- [x] **Cancellations / reversals** — none: staff check the input, so issues are not made by mistake. → ORA-06 dropped
 - [ ] **Vendor fix for GOWN / OTHER / OTHER rows** — expected date (old rows will not be corrected). → DQ-07
-- [ ] **Tablets** — will anyone use GI on a tablet? If so, phone or laptop layout? (Default: laptop layout with touch-size targets.) → NFR-02b
+- [x] **Tablets** — may be used; they get the laptop layout. → NFR-02b
 - [ ] **Import interval** — how fresh must stock and "issued today" be? Every 5 minutes (default), hourly, or every 6 / 12 hours? Per-day totals are correct either way; a longer interval only delays them. → ORA-01, §2.1
 - [ ] **History** — how far back to load issue history for Trends. → ORA-09
 - [ ] **Accuracy target** — spot check within ±5 % for ≥ 95 % of stocked items? → §2.1
@@ -15,7 +15,7 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 - [ ] **Charts** — delivery chart periods (day / week / month) and trend ranges (7 / 14 / 30 / 90 days). → TRD-01, TRD-05
 - [ ] **Approval rules** — delivery corrections older than N days or larger than X items need the lead? → HIS-07
 - [ ] **Alerts** — channel for the daily digest (email, Teams, other). → ALR-02
-- [ ] **Garment types** — any more than gowns, hoods, boots (gloves, masks, liners, glasses)? → §5
+- [x] **Garment types** — gowns, hoods, boots for v1; more may be added once the first release is stable. → §5
 - [ ] **Standing order** — is there one to check deliveries against (mockup 1c)? → §3.3
 - [ ] **Data retention** — keep history ≥ 2 years? → NFR-10
 
@@ -31,9 +31,9 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 - [x] **Is `INSERT_TIME` really Taipei time?** — consistent with the delay check: if `INSERT_TIME` were Phoenix time, every converted delay would be 15 hours or more; if it were UTC, 8 hours or more. Delays of a few hours rule both out. → ORA-12
 - [x] **`RECTIME` earlier than `INSERT_TIME` (rare)** — seen about two months ago with gaps beyond −130 hours (over 5 days), not since. Assumed fixed; GI imports such rows and alerts the admin every time one appears. → ORA-13
 - [ ] **Where is `RECTIME` set** — by the database server when the row is inserted, or by the recording app/PC at each location? If by each location's PC, clock differences would explain both the out-of-order times across locations and the rare `RECTIME` before scan. → ORA-03, ORA-13
-- [ ] **Column types** — are `INSERT_TIME` / `RECTIME` `DATE`, `TIMESTAMP`, or `TIMESTAMP WITH TIME ZONE`? → ORA-12
+- [x] **Column types** — `DATE` (the delay query returned plain numbers; `TIMESTAMP` columns would have returned intervals). To be certain: `SELECT column_name, data_type FROM all_tab_columns WHERE table_name = '<ISSUE_TABLE>' AND column_name IN ('INSERT_TIME','RECTIME')`. → ORA-12
 - [ ] **Index** — are there indexes on `(STATE, SUIT_LEVEL, RECTIME)` and `(STATE, INSERT_TIME)` in the issue table? If not, can they be added, or a view provided? → ORA-10
-- [ ] **Cancellations in Oracle** — if the lead confirms they happen: how does the issuing system record them? → ORA-06
+- [x] **Cancellations in Oracle** — not needed (no cancellations). → ORA-06
 - [ ] **Late registration** — when a garment is issued with an unregistered barcode (GOWN / OTHER / OTHER), is that barcode registered in the suit master later? If yes, GI can move its earlier issues to the right size and color (DQ-08). If barcodes are never registered afterwards, DQ-08 is dropped. → DQ-08
 
 ## At installation (configuration, not in the repository)
