@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ChartLineUp, GearSix, Stack, Truck, type Icon } from '@phosphor-icons/react';
-import { api, DEMO, devUser, setDevUser, type Me, type Meta } from './api';
+import { api, DEMO, devUser, fmtClock, fmtToday, setDevUser, type Me, type Meta } from './api';
 import { currentDevice, isTouchOnly, saveDeviceChoice, type Device } from './device';
-import { ErrorNote, useLoad } from './components/ui';
+import { ErrorNote, Msg, useLoad } from './components/ui';
 import { Receive } from './pages/Receive';
 import { Stock } from './pages/Stock';
 import { Trends } from './pages/Trends';
@@ -17,10 +17,14 @@ const TABS: readonly { id: 'receive' | 'stock' | 'trends' | 'settings'; label: s
 ];
 type Tab = (typeof TABS)[number]['id'];
 
-const DEV_USERS = [
-  { id: 'dev-floor', label: 'Floor staff' }, { id: 'dev-lead', label: 'Cleanroom lead' },
-  { id: 'dev-admin', label: 'Admin' }, { id: 'dev-viewer', label: 'Viewer' },
-];
+function useClock() {
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const t = setInterval(() => setNow(new Date()), 30_000);
+    return () => clearInterval(t);
+  }, []);
+  return now;
+}
 
 export function App() {
   // Chosen once by device type; resizing or rotating never switches the layout (NFR-01).
@@ -29,6 +33,7 @@ export function App() {
   const [user, setUser] = useState(devUser);
   const me = useLoad(() => api<Me>('/me'), [user]);
   const meta = useLoad(() => api<Meta>('/meta'), [user]);
+  const now = useClock();
 
   useEffect(() => {
     document.documentElement.dataset.device = device;
@@ -38,62 +43,67 @@ export function App() {
     history.replaceState(null, '', `#${tab}`);
   }, [tab]);
 
-  const switchView = () => {
-    const next = device === 'phone' ? 'laptop' : 'phone';
-    saveDeviceChoice(next);
-    setDevice(next);
+  const switchView = (d: Device) => {
+    saveDeviceChoice(d);
+    setDevice(d);
+  };
+  const chooseUser = (u: string) => {
+    setDevUser(u);
+    setUser(u);
   };
 
-  const nav = (
-    <nav className="tabs" aria-label="Main">
-      {TABS.map((t) => (
-        <button key={t.id} className="tab" aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
-          <t.icon size={20} weight="regular" aria-hidden />{t.label}
-        </button>
-      ))}
-    </nav>
-  );
-  const foot = (
-    <div className="sidebar-foot small">
-      {DEMO ? <span className="muted">Demo: signed in as the cleanroom lead</span> : <label className="field">
-        <span>Signed in as (dev)</span>
-        <select className="input" value={user} onChange={(e) => { setDevUser(e.target.value); setUser(e.target.value); }}>
-          {DEV_USERS.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
-        </select>
-      </label>}
-      <button className="btn" onClick={switchView}>Switch to {device === 'phone' ? 'laptop' : 'phone'} view</button>
+  const page = !me.data || !meta.data ? (
+    <div className="p-body"><ErrorNote error={me.error ?? meta.error} /></div>
+  ) : tab === 'receive' ? <Receive meta={meta.data} me={me.data} />
+    : tab === 'stock' ? <Stock meta={meta.data} me={me.data} />
+    : tab === 'trends' ? <Trends />
+    : <Settings meta={meta.data} me={me.data} device={device} reloadMeta={meta.reload} onSwitchView={switchView} user={user} onChooseUser={chooseUser} />;
+
+  const demo = DEMO && (
+    <div className="p-seg" style={{ paddingTop: 10 }}>
+      <Msg tone="neutral" tag="Demo" text={<span className="muted" style={{ fontSize: 13 }}>Mock data · read-only{device === 'laptop' && <> · <a href="https://github.com/hltsai9/GI">source on GitHub</a></>}</span>} />
     </div>
   );
 
-  const banner = DEMO && (
-    <p className="notice small" style={{ margin: '0 0 var(--space-4)' }}>
-      Demo with mock data — read-only: saving is turned off. <a href="https://github.com/hltsai9/GI">Source on GitHub</a>
-    </p>
-  );
-  const page = !me.data || !meta.data ? (
-    <ErrorNote error={me.error ?? meta.error} />
-  ) : tab === 'receive' ? <Receive meta={meta.data} me={me.data} />
-    : tab === 'stock' ? <Stock meta={meta.data} me={me.data} device={device} />
-    : tab === 'trends' ? <Trends />
-    : <Settings meta={meta.data} me={me.data} reloadMeta={meta.reload} />;
-
-  if (device === 'laptop') {
-    return (
-      <div className="shell">
-        <aside className="sidebar">
-          <div><div className="brand">Cleanroom stores</div><div className="muted small">Garments · Fab1 + Fab2</div></div>
-          {nav}
-          {foot}
-        </aside>
-        <main className="main">{banner}{page}</main>
-      </div>
-    );
-  }
   return (
-    <div className="shell">
-      <header className="shell-header"><span className="brand">Garments</span><span className="muted small">Fab1 + Fab2</span></header>
-      {nav}
-      <main className="main">{banner}{page}<div style={{ marginTop: 'var(--space-8)' }}>{foot}</div></main>
+    <div className="app">
+      {device === 'laptop' && (
+        <aside className="side">
+          <div style={{ padding: '0 12px' }}>
+            <div className="kicker">Cleanroom stores</div>
+            <div style={{ fontSize: 24, fontWeight: 600, lineHeight: 1.2 }}>Garments</div>
+          </div>
+          <nav className="side-nav" aria-label="Main">
+            {TABS.map((t) => (
+              <button key={t.id} aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
+                <t.icon size={22} weight="regular" aria-hidden />{t.label}
+              </button>
+            ))}
+          </nav>
+          <div style={{ marginTop: 'auto', padding: '0 12px', fontSize: 13, color: 'var(--color-neutral-700)', lineHeight: 1.5 }}>
+            Fab1 + Fab2<br />{fmtToday(now)} · {fmtClock(now.toISOString())}
+          </div>
+        </aside>
+      )}
+      <div className="col">
+        {device === 'phone' && (
+          <>
+            <div className="ph-head">
+              <span style={{ fontSize: 18, fontWeight: 600 }}>Garments</span>
+              <span style={{ fontSize: 12, color: 'var(--color-neutral-700)' }}>Fab1 + Fab2 · {fmtClock(now.toISOString())}</span>
+            </div>
+            <nav className="ph-tabs" aria-label="Main">
+              {TABS.map((t) => (
+                <button key={t.id} aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
+                  <t.icon size={22} weight="regular" aria-hidden />{t.label}
+                </button>
+              ))}
+            </nav>
+          </>
+        )}
+        {demo}
+        {page}
+      </div>
     </div>
   );
 }

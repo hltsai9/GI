@@ -1,16 +1,32 @@
 # Release notes
 
-What changed on each working day, newest first. Dates are UTC (the commit dates).
+What changed on each working day, newest first. Dates are **Phoenix time (UTC−7)**.
 Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are in [TODO.md](./TODO.md).
 
 ---
 
 ## 2026-11-19
 
-### App
+### Look and feel
+- **Restyled to match the mockups** (`design/mockups`):
+  - the app now uses the Broadsheet design system stylesheet unchanged, with the mockup's layout;
+  - small blue kicker above a large page title;
+  - full-width segmented controls with the selected option in blue;
+  - dropdowns with the label inside the box;
+  - blue garment icons and 44 px −/+ steppers;
+  - the "Post delivery" bar pinned at the bottom;
+  - the mockup's stock grid colors and chart styles (cyan / magenta / ink lines, in-and-out bars).
+- **Settings**: on phones the section is chosen from a dropdown (seven sections do not fit in one row). The layout switch and the dev user picker moved to **Settings › This device**, so the sidebar footer matches the mockup.
+
+### Navigation and demo
 - **Navigation icons**: Receive, Stock, Trends and Settings now use Phosphor Icons (Regular): truck, stack, chart-line-up, gear-six.
 - **Phone tabs**: icon above the label, the four tabs share the width, so all fit even on a 320 px phone.
 - **Demo on GitHub Pages is live**: https://hltsai9.github.io/GI/. It is the real frontend reading recorded mock data, and it is read-only (saving shows a "demo" message).
+
+### Notes
+- Release notes now use Phoenix time, and `CLAUDE.md` asks every session to add what was done that day.
+
+## 2026-11-18
 
 ### First build (backend + frontend)
 - **Backend** (`backend/`, Node.js + TypeScript, Fastify, MariaDB):
@@ -47,9 +63,8 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - gowns, hoods and boots only for v1.
 - **Status rules** for imported issues defined: one `classifyIssue` function, plus re-checks when a value is mapped or a starting count is saved.
 
-## 2026-11-18
-
-- **Data model review applied**:
+### Data model review applied
+-
   - `app_user` / `is_ignored` names;
   - `DATETIME(6)`;
   - real foreign keys instead of "type + id" pairs;
@@ -59,10 +74,6 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - stock correction reasons as an `ENUM`;
   - snapshot stock empty before go-live.
 - **Import interval** can be set from 5 minutes to 12 hours. Issues always count on the day they happened; a longer interval only delays them.
-
-## 2026-10-22
-
-- **Data model walkthrough** (review only, no file changes): how the current balance (`stock_item`) and the history (`ledger_entry`) work together, how trends are calculated, and a list of 10 schema fixes, applied on 2026-11-18.
 
 ## 2026-10-21
 
@@ -75,6 +86,7 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 - **Oracle issue table**: rows with `STATE = 'EMPLOYEE GOWN ISSUE'`, one row per garment, `SUIT_LEVEL` = location; GOWN / OTHER / OTHER rows are known to be wrong (URD v0.4).
 - **Layout by device type** (phone / laptop) instead of by window width.
 - **Open questions** moved to the `docs/TODO.md` checklist (URD v0.5).
+- **Data model walkthrough** (evening, review only, no file changes): how the current balance (`stock_item`) and the history (`ledger_entry`) work together, how trends are calculated, and a list of 10 schema fixes, applied on 2026-11-18.
 
 ## 2026-10-19
 

@@ -75,3 +75,10 @@ export const fmtTime = (iso: string) =>
 export const fmtClock = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: SITE_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
 export const fmtDay = (day: string) => new Date(day + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 export const fmtNum = (n: number) => n.toLocaleString('en-US');
+/** "Thu 19 Nov" in site time, as in the mockup kickers. */
+export const fmtToday = (d = new Date()) => {
+  const p = Object.fromEntries(new Intl.DateTimeFormat('en-GB', { timeZone: SITE_TZ, weekday: 'short', day: 'numeric', month: 'short' }).formatToParts(d).map((x) => [x.type, x.value]));
+  return `${p.weekday} ${p.day} ${p.month}`;
+};
+/** "Fri 2 Oct, 06:40" in site time. */
+export const fmtWhen = (iso: string) => `${fmtToday(new Date(iso))}, ${fmtClock(iso)}`;
