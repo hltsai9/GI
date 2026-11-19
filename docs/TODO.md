@@ -29,7 +29,7 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 - [x] **Delay between scan and record** — usually within about 15 hours. → catch-up sweep window 3 days
 - [x] **Check the 15 hours** — measured after converting to Phoenix time: delays are spread over single-digit hours up to 13–14 hours, so records really are entered up to ~15 hours after the scan. → ORA-12
 - [x] **Is `INSERT_TIME` really Taipei time?** — consistent with the delay check: if `INSERT_TIME` were Phoenix time, every converted delay would be 15 hours or more; if it were UTC, 8 hours or more. Delays of a few hours rule both out. → ORA-12
-- [ ] **`RECTIME` earlier than `INSERT_TIME` (rare)** — for those rows: how big is the gap (seconds, about 1 hour, about 15 hours?) and do they share a location or day? Seconds/minutes → clocks on different machines; ~1 hour → a daylight-saving setting somewhere; ~15 hours → a time zone mix-up. → ORA-13
+- [x] **`RECTIME` earlier than `INSERT_TIME` (rare)** — seen about two months ago with gaps beyond −130 hours (over 5 days), not since. Assumed fixed; GI imports such rows and alerts the admin every time one appears. → ORA-13
 - [ ] **Where is `RECTIME` set** — by the database server when the row is inserted, or by the recording app/PC at each location? If by each location's PC, clock differences would explain both the out-of-order times across locations and the rare `RECTIME` before scan. → ORA-03, ORA-13
 - [ ] **Column types** — are `INSERT_TIME` / `RECTIME` `DATE`, `TIMESTAMP`, or `TIMESTAMP WITH TIME ZONE`? → ORA-12
 - [ ] **Index** — are there indexes on `(STATE, SUIT_LEVEL, RECTIME)` and `(STATE, INSERT_TIME)` in the issue table? If not, can they be added, or a view provided? → ORA-10

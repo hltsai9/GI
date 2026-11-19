@@ -71,6 +71,7 @@ All environment-specific values are set at installation in a `.env` file (or the
 | `ORACLE_ISSUE_TABLE` | Issue table or view, `SCHEMA.TABLE` |
 | `ORACLE_SUIT_TABLE` | Optional suit master table, only for late registration (DQ-08); empty = not used |
 | `ORACLE_SWEEP_DAYS` | Days of `INSERT_TIME` re-checked by the daily catch-up sweep (default 3) |
+| `ORACLE_TIME_TOLERANCE_MINUTES` | How far `RECTIME` may be before `INSERT_TIME` before it is alerted (default 10) |
 | `ORACLE_POLL_SECONDS`, `ORACLE_OVERLAP_MINUTES`, `ORACLE_MAX_ROWS` | Import interval (300 s to 43,200 s = 12 h; default 300), overlap and batch size (defaults 10 / 5000). A run keeps reading batches until it has caught up. |
 | `MARIADB_URL` | GI database |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | SSO |
@@ -123,7 +124,7 @@ starting_count(location_id PK, as_of DATETIME(6), entered_by → app_user) -- UR
 sync_watermark(suit_level PK, last_rectime DATETIME(6), updated_at)    -- one per SUIT_LEVEL; raw RECTIME (Phoenix time)
 sync_run(id, kind ENUM(poll,sweep), started_at, finished_at,
          rows_read, rows_new, rows_applied, rows_held, rows_incomplete,
-         rows_rectime_before_scan,                                       -- ORA-13
+         rows_time_check_failed,                                         -- ORA-13
          first_issued_day DATE NULL, last_issued_day DATE NULL,          -- days touched → snapshot rebuild (§2.2)
          status ENUM(ok,failed), error)
 
@@ -144,6 +145,8 @@ audit_log(id, at, user_id → app_user, entity, entity_id,           -- minimums
 app_user(id, sso_subject UNIQUE, name, role ENUM(floor,lead,viewer,admin), active)
 
 -- Trends cache (rebuildable from the tables above)
+time_check_alert(id, issue_import_id, sync_run_id, gap_hours DECIMAL(9,2),   -- ORA-13: RECTIME before scan,
+                 future_scan BOOL, alerted_at NULL, acknowledged_by NULL, acknowledged_at NULL)  -- or scan in the future
 daily_snapshot(day DATE, stock_item_id, on_hand INT NULL, delivered INT, issued INT,
                PRIMARY KEY(day, stock_item_id))  -- on_hand NULL for days before the location's starting count
 ```
@@ -198,7 +201,7 @@ SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
 
 Plus, in the same run, a **discovery query** for locations GI has no watermark for yet: `SUIT_LEVEL NOT IN (:knownLevels) AND RECTIME > :oldestWatermark − overlap`. A new `SUIT_LEVEL` found this way gets its own watermark from then on.
 
-**Daily catch-up sweep** (03:00 site time): re-read every row with `INSERT_TIME` in the last `ORACLE_SWEEP_DAYS` (default 3) days and import any that are missing. Rows already present are skipped by the unique key, so a normal sweep imports nothing. If it does import rows, the polling missed them: the admin is alerted with the barcodes, locations and times, so the cause can be found.
+**Daily catch-up sweep** (03:00 site time): re-read every row with `INSERT_TIME` from `ORACLE_SWEEP_DAYS` (default 3) days ago onwards — with **no upper limit**, so a row stamped with a future scan time is also caught — and import any that are missing. Rows already present are skipped by the unique key, so a normal sweep imports nothing. If it does import rows, the polling missed them: the admin is alerted with the barcodes, locations and times, so the cause can be found.
 
 - Bind variables for all values; `EMPLOYEE_ID`, `INSERT_USER`, `INOUT_CATEGORY` and `INOUT_ACTION` are not selected (not needed).
 - Rows are append-only in Oracle (never edited or deleted), so only new rows need reading; the overlap only covers rows committed late.
@@ -214,7 +217,8 @@ Plus, in the same run, a **discovery query** for locations GI has no watermark f
 Only the server sets `status`; no screen edits it directly. One function, `classifyIssue(row)`, decides `status`, `quality` and `stock_item_id`, and is used by the import **and** by every action that can change the answer later (§3.3), so a row is always classified by the same rules.
 
 1. **De-duplicate**: insert into `issue_import` keyed by `(suit_barcode, insert_time)`; rows already present are skipped (ORA-02). Set `issued_at`, `recorded_at` and `issued_day`.
-   **Time check** (ORA-13): a row whose `recorded_at` is before its `issued_at` is still imported normally (counted on its `INSERT_TIME` day) and counted in `sync_run.rows_rectime_before_scan`. These are known to happen rarely. The admin screen shows the count and the size of the gaps; GI alerts only if they become frequent (more than 1 % of a day's rows) or if the gaps cluster near whole hours — the sign of a wrong zone setting rather than an occasional clock difference.
+   **Time check** (ORA-13): if `recorded_at` is more than `ORACLE_TIME_TOLERANCE_MINUTES` (default 10) before `issued_at`, or `issued_at` is in the future, the row is still imported normally (counted on its `INSERT_TIME` day) and listed in `time_check_alert`; at the end of the run the admin gets **one alert per run** listing every such row. During the historic backfill they are only summarised.
+   Such a row is also why the sweep matters: with a `RECTIME` days in the past it falls behind its location's watermark and is found only by the sweep (which reads by `INSERT_TIME`).
 2. **`classifyIssue`** — checks in this order; the first match wins:
 
    | # | Check | Result |
