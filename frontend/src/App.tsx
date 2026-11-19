@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { api, BASE, DEMO, devUser, setDevUser, type Me, type Meta } from './api';
+import { ChartLineUp, GearSix, Stack, Truck, type Icon } from '@phosphor-icons/react';
+import { api, DEMO, devUser, setDevUser, type Me, type Meta } from './api';
 import { currentDevice, isTouchOnly, saveDeviceChoice, type Device } from './device';
 import { ErrorNote, useLoad } from './components/ui';
 import { Receive } from './pages/Receive';
@@ -7,12 +8,13 @@ import { Stock } from './pages/Stock';
 import { Trends } from './pages/Trends';
 import { Settings } from './pages/Settings';
 
-const TABS = [
-  { id: 'receive', label: 'Receive', icon: 'icons/truck.svg' },
-  { id: 'stock', label: 'Stock', icon: 'icons/gown.svg' },
-  { id: 'trends', label: 'Trends', icon: undefined },
-  { id: 'settings', label: 'Settings', icon: undefined },
-] as const;
+// Phosphor Icons, Regular weight.
+const TABS: readonly { id: 'receive' | 'stock' | 'trends' | 'settings'; label: string; icon: Icon }[] = [
+  { id: 'receive', label: 'Receive', icon: Truck },
+  { id: 'stock', label: 'Stock', icon: Stack },
+  { id: 'trends', label: 'Trends', icon: ChartLineUp },
+  { id: 'settings', label: 'Settings', icon: GearSix },
+];
 type Tab = (typeof TABS)[number]['id'];
 
 const DEV_USERS = [
@@ -46,7 +48,7 @@ export function App() {
     <nav className="tabs" aria-label="Main">
       {TABS.map((t) => (
         <button key={t.id} className="tab" aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
-          {t.icon && <img src={BASE + t.icon} alt="" width={20} height={20} />}{t.label}
+          <t.icon size={20} weight="regular" aria-hidden />{t.label}
         </button>
       ))}
     </nav>

@@ -95,3 +95,7 @@ table.tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabula
 .chart .grid { stroke: var(--color-divider); }
 .series-key { display: flex; gap: var(--space-3); flex-wrap: wrap; font-size: 13px; }
 .series-key i { display: inline-block; width: 12px; height: 4px; margin-right: 5px; vertical-align: 3px; border-radius: 2px; }
+
+/* Phone: four tabs share the width, icon above the label, so all fit on a 320 px screen. */
+[data-device="phone"] .tabs { padding: 0; }
+[data-device="phone"] .tab { flex: 1 1 0; flex-direction: column; justify-content: center; gap: 2px; min-height: 56px; padding: 6px 2px; font-size: 13px; }
