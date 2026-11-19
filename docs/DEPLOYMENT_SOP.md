@@ -6,6 +6,8 @@
 | Files | `Dockerfile` (repository root), `deploy/docker-compose.yml`, `deploy/.env.example`, `deploy/backup.sh` |
 | Time needed | About 1 hour the first time (most of it is building the image) |
 
+> Deploying to **Kubernetes with Azure DevOps** instead of a single Docker host? See [KUBERNETES_DEPLOYMENT.md](./KUBERNETES_DEPLOYMENT.md).
+
 > **Test environments only, for now.** Company sign-in (SSO) is not connected yet. With `DEV_AUTH=true`, anyone who can open the page can choose to act as any user (floor staff, lead, admin). Keep the test site on the internal network.
 
 ---
@@ -32,7 +34,7 @@
 - The `gi` image is the only one you build.
 - The database runs separately, so its data survives image updates and can be backed up on its own.
 - Only the app's port is published; the database is reachable only inside the Docker network.
-- **Run exactly one `app` container.** It runs the import scheduler; two would import side by side.
+- Several `app` containers are safe: only one imports at a time (it holds a lock in MariaDB). On a single Docker host one is enough.
 
 ### Without an Oracle connection
 With `ISSUE_SOURCE=mock` (the default), the app generates realistic mock issue data inside its own container and imports it like real Oracle rows. The mock data has the real system's quirks:

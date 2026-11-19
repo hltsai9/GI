@@ -47,6 +47,12 @@ services:
       - "${HTTP_PORT:-8080}:3000"
     environment:
       MARIADB_URL: ${MARIADB_URL:-mysql://gi:${DB_PASSWORD}@mariadb:3306/gi}
+      # Or separate settings (used when MARIADB_HOST is set); the password needs no URL-encoding:
+      MARIADB_HOST: ${MARIADB_HOST:-}
+      MARIADB_PORT: ${MARIADB_PORT:-3306}
+      MARIADB_USER: ${MARIADB_USER:-gi}
+      MARIADB_PASSWORD: ${MARIADB_PASSWORD:-}
+      MARIADB_DATABASE: ${MARIADB_DATABASE:-gi}
       ISSUE_SOURCE: ${ISSUE_SOURCE:-mock}
       MOCK_ORACLE_DIR: /app/mock-oracle/data
       ORACLE_CONNECT_STRING: ${ORACLE_CONNECT_STRING:-}

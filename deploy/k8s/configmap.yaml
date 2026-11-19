@@ -1,0 +1,26 @@
+# Non-secret settings for GI. The database password is NOT here: it is in the Secret "gi-secrets",
+# which the pipeline creates from a secret variable (see docs/KUBERNETES_DEPLOYMENT.md).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gi-config
+  labels: { app.kubernetes.io/name: gi }
+data:
+  # Company on-premise MariaDB (fill in)
+  MARIADB_HOST: "mariadb.example.local"
+  MARIADB_PORT: "3306"
+  MARIADB_USER: "gi"
+  MARIADB_DATABASE: "gi"
+  # "mock" = generated test data, no Oracle connection. "oracle" later (then also ORACLE_* below and
+  # ORACLE_PASSWORD in the Secret).
+  ISSUE_SOURCE: "mock"
+  # ORACLE_CONNECT_STRING: "oradb.example.local:1521/ISSUEPDB"
+  # ORACLE_USER: "GI_READER"
+  # ORACLE_ISSUE_TABLE: "SCHEMA.ISSUE_TABLE"
+  # ORACLE_BACKFILL_FROM: "2026-10-01 00:00:00"
+  ORACLE_POLL_SECONDS: "300"
+  # No SSO yet: choose the user in Settings › This device. Test environments only.
+  DEV_AUTH: "true"
+  SITE_TIMEZONE: "America/Phoenix"
+  ORACLE_INSERT_TIME_ZONE: "Asia/Taipei"
+  ORACLE_RECTIME_ZONE: "America/Phoenix"

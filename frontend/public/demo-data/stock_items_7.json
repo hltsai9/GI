@@ -1,1 +1,1 @@
-{"id":7,"on_hand":22,"min_qty":20,"garment":"Hood","color":"White","size":"SM","location":"Fab1","status":"close_to_min","issuedToday":8,"lastDelivery":{"at":"2026-11-18T13:40:00.000Z","qty":5}}
+{"id":7,"on_hand":25,"min_qty":20,"garment":"Hood","color":"White","size":"SM","location":"Fab1","status":"close_to_min","issuedToday":4,"lastDelivery":{"at":"2026-11-19T13:40:00.000Z","qty":10}}

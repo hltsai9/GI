@@ -10,8 +10,8 @@ import { saveStartingCount } from '../services/counts.js';
 import { postDelivery } from '../services/deliveries.js';
 
 if (!config.DEV_AUTH) throw new Error('refusing: DEV_AUTH is not true');
-await resetDatabase(config.MARIADB_URL);
-await migrate(config.MARIADB_URL, { seedDev: true });
+await resetDatabase();
+await migrate(undefined, { seedDev: true });
 const db = getPool();
 const user = async (s: string) => (await one<{ id: number }>(db, 'SELECT id FROM app_user WHERE sso_subject = ?', [s]))!.id;
 const lead = await user('dev-lead');

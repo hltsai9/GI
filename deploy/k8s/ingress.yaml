@@ -1,0 +1,20 @@
+# Internal address for the site. Ask the platform team for the ingress class and host name.
+# Keep it internal: with DEV_AUTH=true anyone who can open the page can act as any user.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gi
+  labels: { app.kubernetes.io/name: gi }
+spec:
+  ingressClassName: nginx                 # your company's ingress class
+  rules:
+    - host: gi-test.example.local         # your host name
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service: { name: gi, port: { name: http } }
+  # tls:
+  #   - hosts: [gi-test.example.local]
+  #     secretName: gi-test-tls           # certificate from your platform team

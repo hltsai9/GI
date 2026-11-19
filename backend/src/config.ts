@@ -8,6 +8,13 @@ const oracleIdentifier = z
 
 const schema = z.object({
   MARIADB_URL: z.string().default('mysql://gi:gi@localhost:3306/gi'),
+  // Alternative to MARIADB_URL (used when MARIADB_HOST is set): only the password needs to be secret,
+  // and it needs no URL-encoding.
+  MARIADB_HOST: z.string().optional(),
+  MARIADB_PORT: z.coerce.number().int().default(3306),
+  MARIADB_USER: z.string().default('gi'),
+  MARIADB_PASSWORD: z.string().optional(),
+  MARIADB_DATABASE: z.string().default('gi'),
   ISSUE_SOURCE: z.enum(['mock', 'oracle']).default('mock'),
   MOCK_ORACLE_DIR: z.string().default('./mock-oracle/data'),
   ORACLE_CONNECT_STRING: z.string().optional(),

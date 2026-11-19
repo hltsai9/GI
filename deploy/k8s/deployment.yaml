@@ -1,0 +1,72 @@
+# GI: web page + API + issue import, in one image. Several replicas are safe: only the replica that
+# holds a MariaDB lock runs the import; database migrations also run under a lock.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gi
+  labels: { app.kubernetes.io/name: gi }
+spec:
+  replicas: 2
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels: { app.kubernetes.io/name: gi }
+  strategy:
+    type: RollingUpdate
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }   # updates without downtime
+  template:
+    metadata:
+      labels: { app.kubernetes.io/name: gi }
+    spec:
+      terminationGracePeriodSeconds: 30                  # the app finishes requests on SIGTERM
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000                                  # "node" user in the image
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile: { type: RuntimeDefault }
+      affinity:
+        podAntiAffinity:                                 # spread replicas over nodes where possible
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels: { app.kubernetes.io/name: gi }
+      # imagePullSecrets: [{ name: company-registry }]   # if the registry needs credentials
+      containers:
+        - name: gi
+          # The pipeline replaces this with the image it just built (same repository, new tag).
+          image: registry.example.local/cleanroom/gi:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - { name: http, containerPort: 3000 }
+          envFrom:
+            - configMapRef: { name: gi-config }
+            - secretRef: { name: gi-secrets }            # MARIADB_PASSWORD (and ORACLE_PASSWORD later)
+          startupProbe:                                  # first start runs migrations and generates mock data
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 5
+            failureThreshold: 60
+          readinessProbe:                                # traffic only while the database is reachable
+            httpGet: { path: /api/health, port: http }
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:                                 # restart only if the process itself hangs
+            httpGet: { path: /healthz, port: http }
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { memory: 512Mi }
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities: { drop: [ALL] }
+          volumeMounts:
+            - { name: mock-data, mountPath: /app/mock-oracle/data }
+            - { name: tmp, mountPath: /tmp }
+      volumes:
+        - name: mock-data        # generated mock Oracle data (ISSUE_SOURCE=mock); same data on every replica
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

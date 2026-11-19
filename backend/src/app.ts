@@ -4,7 +4,7 @@ import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import { config } from './config.js';
 import { ZodError, z } from 'zod';
-import { exec, getPool, rows } from './db.js';
+import { dbReachable, exec, getPool, rows, withNamedLock } from './db.js';
 import { authenticate, HttpError, requireRole } from './http.js';
 import { getIssueSource } from './import/index.js';
 import { poll, sweep, syncStatus } from './import/importer.js';
@@ -33,7 +33,9 @@ export function buildApp(): FastifyInstance {
     return reply.status(500).send({ error: 'internal error' });
   });
 
-  app.get('/api/health', async () => ({ ok: true }));
+  // Readiness: only send traffic to an instance that can reach the database.
+  app.get('/api/health', async (_req, reply) => ((await dbReachable()) ? { ok: true } : reply.status(503).send({ ok: false, error: 'database unreachable' })));
+  // Liveness: the process is up (does not depend on the database, so a database blip restarts nothing).
   app.get('/healthz', async () => 'ok\n');
 
   // One-image deployment: the backend also serves the built web page (STATIC_DIR).
@@ -130,8 +132,13 @@ export function buildApp(): FastifyInstance {
     const rs = await rows<Record<string, unknown> & { started_at: string; finished_at: string | null }>(db, 'SELECT * FROM sync_run ORDER BY id DESC LIMIT 20');
     return rs.map((r) => ({ ...r, started_at: fromDb(r.started_at).toISOString(), finished_at: r.finished_at ? fromDb(r.finished_at).toISOString() : null }));
   });
-  app.post('/api/sync/run', { preHandler: admin }, async () => poll(await getIssueSource()));
-  app.post('/api/sync/sweep', { preHandler: admin }, async () => sweep(await getIssueSource()));
+  const locked = async <T>(fn: () => Promise<T>) => {
+    const r = await withNamedLock('import', fn);
+    if (!r.ran) throw new HttpError(409, 'an import is running right now; try again in a minute');
+    return r.result;
+  };
+  app.post('/api/sync/run', { preHandler: admin }, async () => locked(async () => poll(await getIssueSource())));
+  app.post('/api/sync/sweep', { preHandler: admin }, async () => locked(async () => sweep(await getIssueSource())));
   app.get('/api/alerts', async () => {
     const rs = await rows<Record<string, unknown> & { at: string }>(db, 'SELECT id, at, kind, message, details, acknowledged_at FROM admin_alert ORDER BY id DESC LIMIT 50');
     return rs.map((r) => ({ ...r, at: fromDb(r.at).toISOString() }));

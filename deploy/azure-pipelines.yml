@@ -1,0 +1,83 @@
+# Example Azure DevOps pipeline: build the GI image from the Dockerfile and deploy it to Kubernetes.
+# Adapt the names marked "company" to your organisation. Full guide: docs/KUBERNETES_DEPLOYMENT.md
+#
+# Secrets: the database password is a SECRET variable "GI_DB_PASSWORD" in the variable group below
+# (Pipelines › Library), optionally linked to Azure Key Vault. It is never in git or in the image.
+
+trigger:
+  branches:
+    include: [main]
+
+variables:
+  - group: gi-test                         # Library variable group with GI_DB_PASSWORD (secret)
+  - name: registryServiceConnection        # company: Docker registry service connection
+    value: company-registry
+  - name: registryHost                     # company: registry host name
+    value: registry.example.local
+  - name: imageRepository
+    value: cleanroom/gi
+  - name: imageTag
+    value: $(Build.BuildId)
+  - name: k8sServiceConnection             # company: Kubernetes service connection
+    value: company-k8s-test
+  - name: namespace
+    value: gi-test
+
+stages:
+  - stage: Build
+    jobs:
+      - job: build
+        pool: { vmImage: ubuntu-latest }   # company: or your own agent pool
+        steps:
+          - task: Docker@2
+            displayName: Build and push the image
+            inputs:
+              command: buildAndPush
+              containerRegistry: $(registryServiceConnection)
+              repository: $(imageRepository)
+              Dockerfile: Dockerfile
+              buildContext: .
+              tags: |
+                $(imageTag)
+                latest
+            # Company proxy / npm mirror / base-image mirror, if needed:
+            #   arguments: --build-arg HTTPS_PROXY=$(proxy) --build-arg NPM_REGISTRY=$(npmMirror) --build-arg NODE_IMAGE=$(nodeImage)
+
+  - stage: Deploy
+    dependsOn: Build
+    jobs:
+      - deployment: deploy
+        environment: gi-test               # Azure DevOps environment (add approvals there if wanted)
+        pool: { vmImage: ubuntu-latest }
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                - checkout: self
+
+                # The Secret is (re)created from the secret pipeline variable on every deployment.
+                - task: KubernetesManifest@1
+                  displayName: Update the Secret gi-secrets
+                  inputs:
+                    action: createSecret
+                    connectionType: kubernetesServiceConnection
+                    kubernetesServiceConnection: $(k8sServiceConnection)
+                    namespace: $(namespace)
+                    secretType: generic
+                    secretName: gi-secrets
+                    secretArguments: --from-literal=MARIADB_PASSWORD=$(GI_DB_PASSWORD)
+
+                - task: KubernetesManifest@1
+                  displayName: Deploy GI
+                  inputs:
+                    action: deploy
+                    connectionType: kubernetesServiceConnection
+                    kubernetesServiceConnection: $(k8sServiceConnection)
+                    namespace: $(namespace)
+                    manifests: |
+                      deploy/k8s/configmap.yaml
+                      deploy/k8s/deployment.yaml
+                      deploy/k8s/service.yaml
+                      deploy/k8s/pdb.yaml
+                      deploy/k8s/ingress.yaml
+                    containers: $(registryHost)/$(imageRepository):$(imageTag)

@@ -77,6 +77,7 @@ Table names cannot be bind variables, so the API validates them at start-up agai
 ### 1.4 Where the first build differs from this plan
 
 - Deployment: one Docker image (`Dockerfile` at the root) in which the backend also serves the built web page, plus MariaDB, with `deploy/docker-compose.yml`; steps in [DEPLOYMENT_SOP.md](./DEPLOYMENT_SOP.md).
+- Kubernetes: `deploy/k8s/` and `deploy/azure-pipelines.yml`; replicas coordinate the import and migrations with MariaDB `GET_LOCK` ([KUBERNETES_DEPLOYMENT.md](./KUBERNETES_DEPLOYMENT.md)).
 
 - Two folders, `backend/` and `frontend/`, each with its own `npm` project, instead of a pnpm monorepo with shared `packages/`.
 - Plain SQL migrations (`backend/db/migrations`) and `mysql2` instead of the Drizzle ORM: the schema is reviewed as real DDL.

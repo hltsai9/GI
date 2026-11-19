@@ -3,5 +3,5 @@ import { config } from '../config.js';
 import { migrate, resetDatabase } from '../migrate.js';
 
 if (!config.DEV_AUTH) throw new Error('refusing to reset: DEV_AUTH is not true (is this production?)');
-await resetDatabase(config.MARIADB_URL);
-console.log(await migrate(config.MARIADB_URL, { seedDev: true }));
+await resetDatabase();
+console.log(await migrate(undefined, { seedDev: true }));

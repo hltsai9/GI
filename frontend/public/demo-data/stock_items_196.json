@@ -1,1 +1,1 @@
-{"id":196,"on_hand":6,"min_qty":2,"garment":"Gown","color":"White","size":"4XLG","location":"Fab2","status":"plenty","issuedToday":0,"lastDelivery":{"at":"2026-11-17T13:40:00.000Z","qty":5}}
+{"id":196,"on_hand":9,"min_qty":2,"garment":"Gown","color":"White","size":"4XLG","location":"Fab1","status":"plenty","issuedToday":1,"lastDelivery":{"at":"2026-11-17T13:40:00.000Z","qty":5}}

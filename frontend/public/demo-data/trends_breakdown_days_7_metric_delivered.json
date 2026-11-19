@@ -1,1 +1,1 @@
-{"metric":"delivered","bySize":[{"size":"SM","n":270},{"size":"MED","n":845},{"size":"LG","n":1220},{"size":"XLG","n":820},{"size":"2XLG","n":420},{"size":"3XLG","n":140},{"size":"4XLG","n":45}],"byLocation":[{"location":"Fab2","n":1450},{"location":"Fab1","n":2310}]}
+{"metric":"delivered","bySize":[{"size":"SM","n":335},{"size":"MED","n":810},{"size":"LG","n":1225},{"size":"XLG","n":875},{"size":"2XLG","n":380},{"size":"3XLG","n":165},{"size":"4XLG","n":100}],"byLocation":[{"location":"Fab1","n":2385},{"location":"Fab2","n":1505}]}

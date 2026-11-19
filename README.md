@@ -6,6 +6,7 @@ Web app with phone and laptop layouts (chosen by device type) that replaces manu
 - [Build plan](docs/BUILD_PLAN.md)
 - [To-do: open questions](docs/TODO.md)
 - [Deployment SOP (Docker)](docs/DEPLOYMENT_SOP.md) — setting up a test environment
+- [Kubernetes with Azure DevOps](docs/KUBERNETES_DEPLOYMENT.md) — deploying to the company cluster
 - [Release notes](docs/RELEASE_NOTES.md) — what changed each day (Phoenix time)
 - [UI mockups](design/mockups/) — open the `.dc.html` files in a browser
 
@@ -21,7 +22,7 @@ backend/    Node.js + TypeScript API (Fastify), MariaDB, Oracle issue import
   test/       Vitest tests (run against a separate gi_test database)
 frontend/   React + TypeScript (Vite); phone layout or laptop layout by device type
 docs/       URD, build plan, to-do list, deployment SOP, release notes
-deploy/     docker-compose.yml, .env.example, backup.sh (Docker deployment)
+deploy/     docker-compose.yml, .env.example, backup.sh (Docker); k8s/ manifests and azure-pipelines.yml (Kubernetes)
 Dockerfile  one image with the web page and the backend
 design/     original UI mockups and the Broadsheet design system
 ```

@@ -7,6 +7,23 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-19
 
+### Kubernetes with Azure DevOps
+- **Deployment target decided**: the company Kubernetes cluster, built and deployed by Azure DevOps, with the company's on-premise MariaDB. New guide: [KUBERNETES_DEPLOYMENT.md](./KUBERNETES_DEPLOYMENT.md); files in `deploy/k8s/` and `deploy/azure-pipelines.yml`.
+- **Passwords**: stored as a secret variable in Azure DevOps (optionally Azure Key Vault). The pipeline copies them into the Kubernetes Secret `gi-secrets`, which the pod reads as `MARIADB_PASSWORD`. They are never in git or the image.
+- **New database settings** `MARIADB_HOST`, `MARIADB_USER`, `MARIADB_PASSWORD`, `MARIADB_DATABASE`, so only the password is secret and it needs no URL-encoding. `MARIADB_URL` still works.
+- **Several replicas for a stable site** (2 by default, rolling updates without downtime):
+  - only the replica holding a MariaDB lock runs the import, and another takes over if it dies;
+  - migrations run under a lock too;
+  - readiness depends on the database, liveness does not;
+  - pods shut down cleanly.
+- **Mock data is now the same for a given day on every replica.** Mock barcodes are unique per garment (Blue and Black garments used to share them), and the GitHub demo data was refreshed.
+- **Tested here**:
+  - two instances starting together: migrations ran once, one imported, and the other took over after a clean stop;
+  - the image running read-only and non-root with no extra privileges;
+  - readiness 503 / liveness 200 while the database was down;
+  - the documented demo-load command;
+  - 23 backend tests.
+
 ### One image for the whole app
 - **Decision: frontend and backend ship as one Docker image (`gi`)**, built from the `Dockerfile` at the repository root. The backend now also serves the web page, so there is no separate nginx container. Deployment is two containers: `app` and the official MariaDB image, which can be replaced by an existing MariaDB server.
 - **First deployment without Oracle**: `ISSUE_SOURCE=mock` (the default) generates realistic issue data inside the container. Switching to Oracle later needs no rebuild, only settings (SOP §8.3).

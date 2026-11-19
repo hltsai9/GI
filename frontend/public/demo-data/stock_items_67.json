@@ -1,1 +1,1 @@
-{"id":67,"on_hand":64,"min_qty":20,"garment":"Boots","color":"White","size":"XLG","location":"Fab1","status":"plenty","issuedToday":16,"lastDelivery":{"at":"2026-11-18T13:40:00.000Z","qty":25}}
+{"id":67,"on_hand":69,"min_qty":20,"garment":"Boots","color":"White","size":"XLG","location":"Fab1","status":"plenty","issuedToday":10,"lastDelivery":{"at":"2026-11-19T13:40:00.000Z","qty":15}}
