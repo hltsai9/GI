@@ -1,4 +1,8 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import Fastify, { type FastifyInstance } from 'fastify';
+import fastifyStatic from '@fastify/static';
+import { config } from './config.js';
 import { ZodError, z } from 'zod';
 import { exec, getPool, rows } from './db.js';
 import { authenticate, HttpError, requireRole } from './http.js';
@@ -30,6 +34,27 @@ export function buildApp(): FastifyInstance {
   });
 
   app.get('/api/health', async () => ({ ok: true }));
+  app.get('/healthz', async () => 'ok\n');
+
+  // One-image deployment: the backend also serves the built web page (STATIC_DIR).
+  if (config.STATIC_DIR && existsSync(resolve(config.STATIC_DIR, 'index.html'))) {
+    const root = resolve(config.STATIC_DIR);
+    app.register(fastifyStatic, {
+      root,
+      wildcard: false,
+      cacheControl: false, // set below instead of the plugin's max-age=0
+      setHeaders: (res, path) => {
+        // Built assets have content hashes in their names; index.html must never be cached.
+        res.setHeader('Cache-Control', path.includes('/assets/') ? 'public, max-age=31536000, immutable' : 'no-cache');
+      },
+    });
+    app.setNotFoundHandler((req, reply) => {
+      if (req.method === 'GET' && !req.url.startsWith('/api/')) {
+        return reply.header('Cache-Control', 'no-cache').sendFile('index.html', root); // single-page app
+      }
+      return reply.status(404).send({ error: 'not found' });
+    });
+  }
   app.addHook('preHandler', async (req) => {
     if (req.url.startsWith('/api/') && req.url !== '/api/health') await authenticate(req);
   });

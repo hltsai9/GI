@@ -1,0 +1,13 @@
+# Keep the build context small; only frontend/ and backend/ sources are needed.
+**/node_modules
+**/dist
+**/*.log
+.git
+.github
+design
+docs
+deploy
+backend/.env
+backend/test
+backend/mock-oracle/data
+frontend/public/demo-data

@@ -7,6 +7,17 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-19
 
+### One image for the whole app
+- **Decision: frontend and backend ship as one Docker image (`gi`)**, built from the `Dockerfile` at the repository root. The backend now also serves the web page, so there is no separate nginx container. Deployment is two containers: `app` and the official MariaDB image, which can be replaced by an existing MariaDB server.
+- **First deployment without Oracle**: `ISSUE_SOURCE=mock` (the default) generates realistic issue data inside the container. Switching to Oracle later needs no rebuild, only settings (SOP §8.3).
+- **Tested here**:
+  - a fresh install;
+  - the web page, its files and the API served from the one container, with correct caching;
+  - loading the demo history and posting a delivery;
+  - running the image alone without Compose;
+  - all 21 backend tests.
+- **[DEPLOYMENT_SOP.md](./DEPLOYMENT_SOP.md) rewritten for the one-image setup.** The separate frontend/backend Dockerfiles, nginx and the frontend-only demo image from earlier today were removed.
+
 ### Web page on its own (demo mode)
 - **The frontend image can be built as a self-contained demo** (`--build-arg VITE_DEMO=true`). It includes the recorded mock data, so the site can be checked on the company network before the backend and database are set up. Steps: [DEPLOYMENT_SOP.md §5A](./DEPLOYMENT_SOP.md).
 - **nginx now starts even when there is no backend**: it looks up the backend's address per request instead of at startup. Normal images do not include the demo data.

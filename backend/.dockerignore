@@ -1,6 +1,0 @@
-node_modules
-dist
-.env
-mock-oracle/data
-test
-*.log

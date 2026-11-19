@@ -25,6 +25,8 @@ const schema = z.object({
   ORACLE_INSERT_TIME_ZONE: z.string().default('Asia/Taipei'),
   ORACLE_RECTIME_ZONE: z.string().default('America/Phoenix'),
   PORT: z.coerce.number().int().default(3000),
+  // Built web page to serve (the single Docker image sets /app/public); unset = API only.
+  STATIC_DIR: z.string().optional(),
   DEV_AUTH: z
     .string()
     .default('false')

@@ -20,7 +20,9 @@ backend/    Node.js + TypeScript API (Fastify), MariaDB, Oracle issue import
   mock-oracle/  generator for mock Oracle issue data
   test/       Vitest tests (run against a separate gi_test database)
 frontend/   React + TypeScript (Vite); phone layout or laptop layout by device type
-docs/       URD, build plan, to-do list
+docs/       URD, build plan, to-do list, deployment SOP, release notes
+deploy/     docker-compose.yml, .env.example, backup.sh (Docker deployment)
+Dockerfile  one image with the web page and the backend
 design/     original UI mockups and the Broadsheet design system
 ```
 

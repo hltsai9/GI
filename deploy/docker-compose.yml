@@ -1,4 +1,4 @@
-# GI on Docker: MariaDB + backend (API, Oracle import) + web front end (nginx).
+# GI on Docker: one app image (web page + API + import) and MariaDB.
 # Usage and settings: docs/DEPLOYMENT_SOP.md. Settings come from deploy/.env (copy of .env.example).
 name: gi
 
@@ -25,24 +25,26 @@ services:
       retries: 12
       start_period: 30s
 
-  backend:
+  app:
     build:
-      context: ../backend
+      context: ..
+      dockerfile: Dockerfile
       network: ${BUILD_NETWORK:-default}
-      args: &build-args
+      args:
         HTTP_PROXY: ${HTTP_PROXY:-}
         HTTPS_PROXY: ${HTTPS_PROXY:-}
         NO_PROXY: ${NO_PROXY:-}
         NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
         NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
-        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:1.27-alpine}
       secrets: [company_ca]
-    image: ${IMAGE_PREFIX:-gi}-backend:${GI_VERSION:-latest}
+    image: ${IMAGE_PREFIX:-gi}:${GI_VERSION:-latest}
     restart: unless-stopped
     depends_on:
       mariadb:
         condition: service_healthy
         required: false
+    ports:
+      - "${HTTP_PORT:-8080}:3000"
     environment:
       MARIADB_URL: ${MARIADB_URL:-mysql://gi:${DB_PASSWORD}@mariadb:3306/gi}
       ISSUE_SOURCE: ${ISSUE_SOURCE:-mock}
@@ -62,24 +64,9 @@ services:
       ORACLE_INSERT_TIME_ZONE: ${ORACLE_INSERT_TIME_ZONE:-Asia/Taipei}
       ORACLE_RECTIME_ZONE: ${ORACLE_RECTIME_ZONE:-America/Phoenix}
       DEV_AUTH: ${DEV_AUTH:-true}
-      PORT: "3000"
     volumes:
       - mock-oracle-data:/app/mock-oracle/data
-    # One backend only: it runs the import scheduler. Do not scale it.
-
-  frontend:
-    build:
-      context: ../frontend
-      network: ${BUILD_NETWORK:-default}
-      args: *build-args
-      secrets: [company_ca]
-    image: ${IMAGE_PREFIX:-gi}-frontend:${GI_VERSION:-latest}
-    restart: unless-stopped
-    depends_on:
-      backend:
-        condition: service_healthy
-    ports:
-      - "${HTTP_PORT:-8080}:80"
+    # One app container only: it runs the import scheduler. Do not scale it.
 
 secrets:
   # Company root certificate (PEM) for TLS-inspecting proxies; empty file = none.
