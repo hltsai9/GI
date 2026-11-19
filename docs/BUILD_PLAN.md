@@ -128,7 +128,7 @@ sync_run(id, started_at, finished_at, from_watermark, to_watermark,
 ledger_entry(id, stock_item_id, at DATETIME(6),
              kind ENUM(starting_count,delivery,delivery_correction,issue,issue_correction,stock_correction),
              delta INT, qty_before INT, qty_after INT,
-             source ENUM(user,oracle_import,system), user_id NULL → app_user,
+             source ENUM(user,oracle_import), user_id NULL → app_user,  -- user_id set iff source = user
              delivery_line_id NULL, delivery_correction_id NULL,
              issue_import_id NULL, stock_correction_id NULL,
              CHECK: exactly one cause FK is set, matching kind,
@@ -153,7 +153,8 @@ Design notes:
 - **Real foreign keys instead of "type + id" pairs.** Both `oracle_value_map` and `ledger_entry` use one nullable FK per possible target plus a `CHECK`, so MariaDB enforces every reference.
 - **Microsecond timestamps.** `DATETIME(6)` so Oracle `TIMESTAMP` values keep their precision and `UNIQUE(suit_barcode, insert_time)` stays exact. Check the Oracle column types on site; if they are `DATE` (seconds only), nothing changes.
 - **Unknown bucket.** A hidden system color and size called "Unknown" (`is_system = true`, never shown in pickers); the bucket is the stock item using both.
-- **Names.** `app_user` instead of `user`, and `is_ignored` instead of `ignore` (a reserved word in MariaDB), so no identifier needs quoting.
+- **Names.** `app_user` instead of `user`, and `is_ignored` instead of `ignore` (a reserved word in MariaDB), so no identifier needs quoting. Reserved words only matter for table and column names; ENUM values such as `'user'` or `'ignored'` are quoted strings and need no change.
+- **How issues reach the ledger.** Importing never edits a ledger entry. For each `issue_import` row that is `applied`, the import **inserts** one new `ledger_entry` (kind `issue`, delta −1, `issue_import_id` → that row) and updates `stock_item.on_hand` in the same transaction. Rows that are `held_unmapped`, `before_start` or `ignored` create no ledger entry; a held row gets its entry when its value is mapped. A reversal would be another new entry (kind `issue_correction`, +1), never a change to the old one.
 
 ### 2.1 MariaDB notes
 
