@@ -29,6 +29,7 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - browser checks of every screen, laptop and phone: posting and correcting a delivery, stock grid and minimum, chart read-outs, settings, switching user and layout;
   - Docker Compose;
   - two read-only, non-root containers: migrations ran once, one imported, and the other took over after a clean stop.
+- **Merged into `main`** as [hltsai9/GI#2](https://github.com/hltsai9/GI/pull/2).
 - Docs updated: README, [DEPLOYMENT_SOP.md](./DEPLOYMENT_SOP.md), [KUBERNETES_DEPLOYMENT.md](./KUBERNETES_DEPLOYMENT.md) §6, [BUILD_PLAN.md](./BUILD_PLAN.md) §1. The GitHub demo data was refreshed.
 
 ### Kubernetes with Azure DevOps
