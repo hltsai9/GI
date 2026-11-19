@@ -1,0 +1,72 @@
+/* App layout, matching design/mockups/Garment Inventory App.dc.html. Components come from broadsheet.css. */
+html, body, #root { height: 100%; }
+body { background: var(--color-bg); color: var(--color-text); font-family: var(--font-body); }
+button, input, select { font: inherit; color: inherit; }
+
+.app { height: 100vh; height: 100dvh; display: flex; background: var(--color-bg); color: var(--color-text); overflow: hidden; }
+.col { flex: 1; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+
+/* laptop sidebar */
+.side { width: 236px; flex: none; display: flex; flex-direction: column; gap: var(--space-8); padding: 32px 16px 24px; background: var(--color-surface); }
+.side-nav { display: flex; flex-direction: column; gap: 4px; }
+.side-nav button { display: flex; align-items: center; gap: 12px; min-height: 46px; padding: 0 12px; border: none; border-radius: var(--radius-lg); font-size: 16px; text-align: left; cursor: pointer; background: transparent; color: var(--color-neutral-700); }
+.side-nav button:hover { background: var(--color-accent-100); }
+.side-nav button[aria-current="page"] { background: var(--color-accent-100); color: var(--color-accent-700); font-weight: 600; }
+
+/* phone header and tabs */
+.ph-head { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 20px 0; }
+.ph-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 8px 8px 0; }
+.ph-tabs button { min-height: 56px; border: none; border-bottom: 2px solid transparent; background: transparent; font-size: 11.5px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--color-neutral-700); }
+.ph-tabs button[aria-current="page"] { border-bottom-color: var(--color-accent); color: var(--color-accent-700); font-weight: 600; }
+
+.kicker { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-700); }
+.muted { color: var(--color-neutral-700); }
+.num { font-variant-numeric: tabular-nums; }
+
+/* page regions: head, segmented row, scrolling body, pinned footer */
+.p-head { padding: 14px 20px 8px; }
+.p-seg { padding: 0 20px 8px; }
+.p-body { flex: 1; overflow: auto; padding: 4px 20px 16px; display: grid; grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content; gap: var(--space-4); }
+.p-foot { padding: 10px 20px 14px; display: flex; align-items: center; gap: 12px; }
+.p-head h3 { margin: 2px 0 0; font-size: 24px; }
+[data-device="laptop"] .p-head { padding: 32px var(--side) 12px; }
+[data-device="laptop"] .p-head h3 { font-size: 34px; }
+[data-device="laptop"] .p-seg { padding: 0 var(--side) 12px; }
+[data-device="laptop"] .p-body { padding: 8px var(--side) 40px; }
+[data-device="laptop"] .p-foot { padding: 14px var(--side) 20px; }
+.col { --side: max(40px, calc((100% - 880px) / 2)); }
+
+.seg { display: flex; }
+.seg-opt { flex: 1; justify-content: center; min-height: 40px; }
+.gicon { display: inline-block; flex: none; background: currentColor; -webkit-mask: var(--src) center / contain no-repeat; mask: var(--src) center / contain no-repeat; }
+
+/* floating-label fields (mockup dropdowns and quantity) */
+.dd { position: relative; }
+.dd-btn { position: relative; display: block; width: 100%; height: 54px; padding: 21px 36px 5px 12px; text-align: left; border: 1px solid transparent; border-radius: var(--radius-lg); background: var(--color-surface); font-size: 15px; font-weight: 600; color: var(--color-text); cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dd-btn[aria-expanded="true"] { border-color: var(--color-accent); }
+.dd-label { position: absolute; top: 7px; left: 12px; font-size: 11px; font-weight: 400; letter-spacing: .04em; color: var(--color-neutral-700); pointer-events: none; }
+.dd-caret { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--color-accent-700); }
+.dd-scrim { position: fixed; inset: 0; z-index: 20; }
+.dd-menu { position: absolute; top: calc(100% + 6px); left: 0; min-width: 100%; z-index: 21; background: var(--color-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-lg); padding: 6px; max-height: 280px; overflow: auto; display: flex; flex-direction: column; gap: 2px; }
+.dd-menu button { display: flex; align-items: center; gap: 10px; min-height: 44px; padding: 0 10px; border: none; border-radius: var(--radius-md); font-size: 15px; text-align: left; cursor: pointer; white-space: nowrap; background: transparent; color: var(--color-text); }
+.dd-menu button:hover { background: var(--color-accent-100); }
+.dd-menu button[aria-selected="true"] { background: var(--color-accent-100); color: var(--color-accent-800); font-weight: 600; }
+.qty { position: relative; display: block; background: var(--color-surface); border-radius: var(--radius-lg); }
+.qty input { width: 100%; height: 54px; padding: 21px 12px 5px 12px; border: 1px solid transparent; border-radius: var(--radius-lg); background: transparent; font-size: 15px; font-weight: 600; color: var(--color-text); outline: none; font-variant-numeric: tabular-nums; caret-color: var(--color-accent); }
+.qty input:hover { border-color: var(--color-neutral-400); }
+.qty input:focus { border-color: var(--color-accent); }
+.fields { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+
+.stepbtn { width: 44px; height: 44px; font-size: 18px; }
+.line { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.line-name { font-weight: 600; font-size: 15px; }
+.line-meta { font-size: 13px; color: var(--color-neutral-700); }
+.msg { display: flex; gap: 10px; align-items: baseline; font-size: 14px; }
+.warn { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: var(--color-neutral-800); text-wrap: pretty; }
+.warn svg { flex: none; margin-top: 1px; color: var(--color-accent-2-700); }
+.note { font-size: 13px; color: var(--color-neutral-700); text-wrap: pretty; }
+.chip { display: inline-flex; align-items: center; gap: 2px; padding-left: 12px; background: var(--color-surface); border-radius: var(--radius-md); font-size: 14px; font-weight: 600; }
+.chip.off { opacity: .5; }
+h4.sec { margin: 0 0 6px; }
+.axis { display: flex; justify-content: space-between; font-size: 12px; color: var(--color-neutral-700); margin-top: 4px; }
+.cell { min-height: 40px; border: none; border-radius: var(--radius-md); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer; outline-offset: 1px; }

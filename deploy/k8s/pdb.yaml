@@ -1,0 +1,10 @@
+# Keep at least one replica running during node maintenance.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gi
+  labels: { app.kubernetes.io/name: gi }
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels: { app.kubernetes.io/name: gi }
