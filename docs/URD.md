@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Version | 0.7 (draft for review) |
+| Version | 0.8 (draft for review) |
 | Date | 2026-10-21 |
 | Source | UI mockups in [`design/mockups/`](../design/mockups/) (`Garment Inventory.dc.html` explorations 1a–1j, `Garment Inventory App.dc.html` consolidated app, `Garment Inventory Devices.dc.html` phone + laptop frames) |
 | Status | Draft — items marked **[OPEN]** still need an answer; they are tracked in [`TODO.md`](./TODO.md) |
@@ -144,11 +144,11 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | `SUIT_LEVEL` | → location, Fab1 / Fab2 (value mapping) |
 | `STATE` | Filter: only `'EMPLOYEE GOWN ISSUE'` is imported |
 | `INOUT_CATEGORY`, `INOUT_ACTION` | Not imported — always the same for `EMPLOYEE GOWN ISSUE` rows |
-| `INSERT_TIME` | Part of the issue key. Assumed to be when the row was written → incremental import key. **[OPEN]** confirm (TODO) |
-| `RECTIME` | Assumed to be the time of the issue → "issued at" for Trends and the starting-count cut-off. **[OPEN]** confirm (TODO) |
+| `INSERT_TIME` | When the barcode was scanned = **when the garment was issued**, in **Taipei time** (`Asia/Taipei`, UTC+8). Part of the issue key; → "issued at" for issued-per-day, Trends and the starting-count cut-off. |
+| `RECTIME` | When staff put the record into the database, in **Phoenix time** (`America/Phoenix`, UTC−7). → incremental import key (ORA-03). |
 | `EMPLOYEE_ID`, `INSERT_USER` | **Not imported** — GI only needs counts (data minimization). **[OPEN]** unless per-employee reports are wanted |
 
-Rows are **never edited or deleted** after they are written, and `SUIT_BARCODE` + `INSERT_TIME` is unique. `EMPLOYEE GOWN ISSUE` covers **all garment types** (gowns, hoods, boots).
+Rows are **never edited or deleted** after they are written, and `SUIT_BARCODE` + `INSERT_TIME` is unique. A record can be entered some time after the scan, and the two times are in different time zones 15 hours apart, so `INSERT_TIME` and `RECTIME` often fall on **different calendar days** (e.g. a scan at 09:00 on 20 Nov in Taipei is 18:00 on 19 Nov in Phoenix). Neither zone uses daylight saving time, so conversion is a fixed offset. `EMPLOYEE GOWN ISSUE` covers **all garment types** (gowns, hoods, boots).
 
 The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`) is **not needed** for the import: a registered barcode's issue rows already carry its real type, color and size, and an unregistered barcode is missing from it. It is only useful if barcodes are registered later (DQ-08).
 
@@ -156,14 +156,16 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 |---|---|---|
 | ORA-01 | GI reads rows with `STATE = 'EMPLOYEE GOWN ISSUE'` from the Oracle database over a **read-only** account, on a configurable interval from 5 minutes to 12 hours (default 5 minutes; **[OPEN]** confirm). Issues are always counted on the day they happened, whatever the interval; a longer interval only delays when today's numbers and stock are complete. | M |
 | ORA-02 | Each row is **one garment issued** (quantity 1). Each row is imported **exactly once**, keyed by `SUIT_BARCODE` + `INSERT_TIME` (barcode alone is not unique, as garments are reused); re-running an import never double-counts. (Confirmed unique; rows are never edited or deleted.) | M |
-| ORA-03 | Import is incremental on `INSERT_TIME`, with an overlap window (e.g. 10 minutes) to catch late-committed rows and rows sharing the same timestamp. | M |
+| ORA-03 | Import is incremental on **`RECTIME`** (when the record reached the database), with an overlap window (e.g. 10 minutes) for late-committed rows and rows sharing a timestamp. Not on `INSERT_TIME`: a record entered late carries an old scan time and would be skipped. | M |
+| ORA-12 | **Time zones**: `INSERT_TIME` is read as Taipei time and `RECTIME` as Phoenix time (both configurable), and both are stored in UTC. Issues are counted on the **site-time day of `INSERT_TIME`**, never the day of `RECTIME` or of the import. A record that arrives late is added to the day it was issued, and that day's figures are updated. | M |
+| ORA-13 | **Time-zone check**: every import verifies `RECTIME` (in UTC) is not earlier than `INSERT_TIME` (in UTC) by more than a few minutes; rows that fail are counted in the admin screen, since this means a time zone setting is wrong. | M |
 | ORA-04 | Each row's `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL` are translated through the value mapping (§6.10) to a GI stock item, whose on hand is reduced by 1. Incomplete rows follow §6.4. | M |
 | ORA-05 | A row containing a value not yet in the value mapping (e.g. a new size code) is **held**: it does not affect stock, is listed under Settings › Oracle values with a count, and is applied as soon as the value is mapped. | M |
 | ORA-06 | Reversals ("cancellations"): if an issue is undone — scanned by mistake, or the garment handed back unused — and the source records it (rows are never edited or deleted, so it would have to be a separate row, e.g. another `STATE`), GI gives the garment back to stock. **[OPEN]** whether and how this is recorded (TODO); until known, handled by stock correction. | S |
 | ORA-07 | Sync status is visible on Stock and Trends: "Issues up to HH:MM". If there has been no successful import for more than twice the interval, a warning is shown and admins are notified. | M |
 | ORA-08 | Admin screen: connection test, last runs (time, rows read, applied, held, incomplete, errors), and "Run now". | M |
 | ORA-09 | Historic backfill from a chosen start date, **for Trends only** — issues before the starting count do not change stock (rule 7.8). | S |
-| ORA-10 | The Oracle load stays small: one query per run with bind variables, filtered on `STATE` and `INSERT_TIME` (index advisable — **[OPEN]** TODO), row limit per run. | M |
+| ORA-10 | The Oracle load stays small: one query per run with bind variables, filtered on `STATE` and `RECTIME` (index advisable — **[OPEN]** TODO), row limit per run. | M |
 | ORA-11 | Oracle connection details, credentials and table names are **configuration**, set at installation, never in source code. Table names are validated as plain identifiers before use. | M |
 
 ### 6.4 Data quality — incomplete issue rows
@@ -292,7 +294,7 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 | NFR-10 **Data retention** | Ledger and history kept ≥ 2 years. **[OPEN]** confirm. |
 | NFR-11 **Accessibility** | WCAG 2.1 AA contrast; status never by color alone. |
 | NFR-12 **Look & feel** | "Broadsheet" design system tokens used in the mockups (`design/mockups/_ds/`). |
-| NFR-13 **Locale** | English; dates like "Mon 5 Oct · 09:41"; site time zone (Oracle and MariaDB timestamps normalized). |
+| NFR-13 **Locale** | English; dates like "Mon 5 Oct · 09:41"; shown in the site time zone (default `Asia/Taipei`, **[OPEN]** confirm). All timestamps stored in UTC; Oracle times converted from their own zones (ORA-12). |
 
 ## 9. Acceptance criteria (v1 sign-off)
 
@@ -300,6 +302,7 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 - A phone always gets the phone layout and a laptop the laptop layout, even when the laptop window is made narrow; the view switch overrides it.
 - After posting, Stock and Trends show the new quantities without reload.
 - An issue recorded in Oracle appears in GI (issued today, on hand reduced) within the agreed freshness window.
+- A record scanned at 23:50 Taipei time and entered the next morning is counted on the day it was scanned, and that day's chart total goes up by one when it arrives.
 - Re-running the import for an already imported period changes nothing.
 - A row with a new, unmapped value is held and does not change stock; once the value is mapped, its held rows are applied.
 - A GOWN / OTHER / OTHER row is booked to the location's unregistered bucket (not to Gowns), and its barcode appears in the unregistered-barcode list.
@@ -317,6 +320,7 @@ All open questions are tracked as a checklist in [`TODO.md`](./TODO.md).
 
 - Issue data comes from Oracle rows with `STATE = 'EMPLOYEE GOWN ISSUE'`, which covers all garment types; `SUIT_LEVEL` is the location; one row per garment.
 - `SUIT_BARCODE` + `INSERT_TIME` is unique; rows are never edited or deleted.
+- `INSERT_TIME` = scan time = issue time (Taipei time); `RECTIME` = time the record was entered (Phoenix time). They can fall on different days.
 - `INOUT_CATEGORY` and `INOUT_ACTION` are constant for these rows and are not needed.
 - The suit master table is not needed for the import. GOWN / OTHER / OTHER means the barcode is not registered in it, so a barcode never has a complete row followed by an incomplete one — recovery from issue history is not possible and was removed.
 - A barcode's type, color and size never change.

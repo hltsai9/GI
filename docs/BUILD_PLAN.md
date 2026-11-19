@@ -73,7 +73,8 @@ All environment-specific values are set at installation in a `.env` file (or the
 | `ORACLE_POLL_SECONDS`, `ORACLE_OVERLAP_MINUTES`, `ORACLE_MAX_ROWS` | Import interval (300 s to 43,200 s = 12 h; default 300), overlap and batch size (defaults 10 / 5000). A run keeps reading batches until it has caught up. |
 | `MARIADB_URL` | GI database |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | SSO |
-| `SITE_TIMEZONE` | Display time zone |
+| `SITE_TIMEZONE` | Time zone for calendar days and display (default `Asia/Taipei`) |
+| `ORACLE_INSERT_TIME_ZONE`, `ORACLE_RECTIME_ZONE` | Zones of the Oracle columns (defaults `Asia/Taipei`, `America/Phoenix`) |
 
 Table names cannot be bind variables, so the API validates them at start-up against `^[A-Za-z][A-Za-z0-9_$#]*(\.[A-Za-z][A-Za-z0-9_$#]*)?$` and refuses to start otherwise (ORA-11). An admin "Test connection" checks access and that the expected columns exist.
 
@@ -106,19 +107,20 @@ oracle_value_map(id, oracle_column ENUM(SUIT_TYPE,SUIT_COLOR,SUIT_SIZE,SUIT_LEVE
                  is_ignored BOOL, row_count, first_seen, last_seen, updated_by, updated_at,
                  UNIQUE(oracle_column, oracle_value),
                  CHECK: is_ignored, or exactly the FK matching oracle_column is set)          -- MAP-*
-issue_import(id, suit_barcode, insert_time DATETIME(6), rectime DATETIME(6),   -- copy of one Oracle row
+issue_import(id, suit_barcode, insert_time DATETIME(6), rectime DATETIME(6),   -- raw Oracle values, local to their zones
              suit_type, suit_color, suit_size, suit_level,
-             issued_at DATETIME(6),                    -- from INSERT_TIME or RECTIME (configurable until confirmed)
+             issued_at DATETIME(6), recorded_at DATETIME(6),  -- INSERT_TIME and RECTIME converted to UTC
+             issued_day DATE,                          -- site-time day of issued_at (what Trends count by)
              location_id NULL, stock_item_id NULL,     -- set when mapped
              quality ENUM(complete,incomplete,recovered),               -- DQ-01/03; recovered only via DQ-08
              status ENUM(applied,held_unmapped,before_start,ignored,reversed),
              imported_at,
              UNIQUE(suit_barcode, insert_time),                         -- ORA-02 (no EMPLOYEE_ID / INSERT_USER)
-             INDEX(issued_at), INDEX(status), INDEX(suit_barcode))
+             INDEX(issued_day), INDEX(issued_at), INDEX(status), INDEX(suit_barcode))
 dq_pattern(id, suit_type, suit_color, suit_size, active)                 -- e.g. GOWN / OTHER / OTHER
 starting_count(location_id PK, as_of DATETIME(6), entered_by → app_user) -- URD rule 7.8
-sync_run(id, started_at, finished_at, from_watermark, to_watermark,
-         rows_read, rows_applied, rows_held, rows_incomplete,
+sync_run(id, started_at, finished_at, from_watermark, to_watermark,     -- raw RECTIME values (Phoenix time)
+         rows_read, rows_applied, rows_held, rows_incomplete, rows_time_check_failed,
          first_issued_day DATE NULL, last_issued_day DATE NULL,          -- days touched → snapshot rebuild (§2.2)
          status ENUM(ok,failed), error)
 
@@ -147,7 +149,7 @@ Invariant: `stock_item.on_hand = Σ ledger_entry.delta` for that item. Every wri
 
 Design notes:
 
-- **Balance vs history.** `stock_item` holds only the current balance (one row per item). The history is `ledger_entry`; stock on any past date is `Σ delta` up to that time. Issued per day comes from `issue_import.issued_at`; delivered per period from `delivery_line.qty_current` by `delivery.received_at`.
+- **Balance vs history.** `stock_item` holds only the current balance (one row per item). The history is `ledger_entry`; stock on any past date is `Σ delta` up to that time. Issued per day comes from `issue_import.issued_day` (scan day, site time); delivered per period from `delivery_line.qty_current` by `delivery.received_at`.
 - **Real foreign keys instead of "type + id" pairs.** Both `oracle_value_map` and `ledger_entry` use one nullable FK per possible target plus a `CHECK`, so MariaDB enforces every reference.
 - **Microsecond timestamps.** `DATETIME(6)` so Oracle `TIMESTAMP` values keep their precision and `UNIQUE(suit_barcode, insert_time)` stays exact. Check the Oracle column types on site; if they are `DATE` (seconds only), nothing changes.
 - **Unregistered bucket.** A hidden system garment type, color and size called "Unregistered" (`is_system = true`, never shown in pickers or per-type totals); each location's bucket is the stock item using all three. Per-type queries filter `is_system = false`; location and grand totals include the bucket.
@@ -166,7 +168,7 @@ Design notes:
 
 ### 2.2 Snapshot rebuilds and the import interval
 
-`daily_snapshot` is a cache, so any change dated in the past must refresh it. Days are site-time calendar days (`SITE_TIMEZONE`), and every issue is counted on the day of its `issued_at`, **not** the day it was imported.
+`daily_snapshot` is a cache, so any change dated in the past must refresh it. Days are site-time calendar days (`SITE_TIMEZONE`), and every issue is counted on `issued_day` — the site-time day of its scan (`INSERT_TIME`) — **not** the day it was entered (`RECTIME`) or imported.
 
 - After each import run: rebuild the snapshot rows for every day from `sync_run.first_issued_day` to `last_issued_day` (a 12-hourly run after midnight touches yesterday and today).
 - After a back-dated delivery, a delivery correction or a stock correction: rebuild from that day to today.
@@ -185,22 +187,24 @@ SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
        INSERT_TIME, RECTIME
   FROM <ORACLE_ISSUE_TABLE>                        -- from configuration (§1.3), validated identifier
  WHERE STATE = 'EMPLOYEE GOWN ISSUE'
-   AND INSERT_TIME > :watermark - INTERVAL '10' MINUTE   -- overlap for late commits / equal timestamps
- ORDER BY INSERT_TIME
+   AND RECTIME > :watermark - INTERVAL '10' MINUTE   -- when the record was entered; overlap for late commits
+ ORDER BY RECTIME
  FETCH FIRST :maxRows ROWS ONLY                    -- Oracle 12c+; ROWNUM wrapper if older
 ```
 
 - Bind variables for all values; `EMPLOYEE_ID`, `INSERT_USER`, `INOUT_CATEGORY` and `INOUT_ACTION` are not selected (not needed).
 - Rows are append-only in Oracle (never edited or deleted), so only new rows need reading; the overlap only covers rows committed late.
-- An index on `INSERT_TIME` (ideally `STATE, INSERT_TIME`) is advisable — TODO with the DBA.
-- Which of `INSERT_TIME` / `RECTIME` is the write time vs the issue time is a TODO; the watermark column and the "issued at" column are configurable until confirmed.
-- `node-oracledb` thin mode; timestamps converted from the Oracle session time zone to UTC.
+- **Watermark on `RECTIME`, not `INSERT_TIME`.** `INSERT_TIME` is the scan time; a record entered hours later still carries the old scan time and would fall behind an `INSERT_TIME` watermark and never be read. `RECTIME` only moves forward as records are entered.
+- The watermark is kept as a raw `RECTIME` value (Phoenix local time), so the query compares like with like and no conversion happens inside Oracle.
+- An index on `RECTIME` (ideally `STATE, RECTIME`) is advisable — TODO with the DBA.
+- **Time zones** (ORA-12): `node-oracledb` returns the columns as plain local date-times. GI converts them explicitly — `INSERT_TIME` from `ORACLE_INSERT_TIME_ZONE` (Taipei, UTC+8) and `RECTIME` from `ORACLE_RECTIME_ZONE` (Phoenix, UTC−7) — to UTC `issued_at` / `recorded_at`, and derives `issued_day` in `SITE_TIMEZONE`. It never relies on the Oracle session or server time zone. Neither zone has daylight saving, so the offsets are fixed (Taipei is 15 hours ahead of Phoenix). If the columns turn out to be `TIMESTAMP WITH TIME ZONE`, the stored zone is used instead (check on site).
 
 ### 3.2 Processing each row (one MariaDB transaction per batch)
 
 Only the server sets `status`; no screen edits it directly. One function, `classifyIssue(row)`, decides `status`, `quality` and `stock_item_id`, and is used by the import **and** by every action that can change the answer later (§3.3), so a row is always classified by the same rules.
 
-1. **De-duplicate**: insert into `issue_import` keyed by `(suit_barcode, insert_time)`; rows already present are skipped (ORA-02). Set `issued_at`.
+1. **De-duplicate**: insert into `issue_import` keyed by `(suit_barcode, insert_time)`; rows already present are skipped (ORA-02). Set `issued_at`, `recorded_at` and `issued_day`.
+   **Time check** (ORA-13): if `recorded_at` is more than 5 minutes before `issued_at`, count it in `sync_run.rows_time_check_failed` and alert the admin — a zone setting is probably wrong. The row is still imported.
 2. **`classifyIssue`** — checks in this order; the first match wins:
 
    | # | Check | Result |
@@ -213,7 +217,7 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 
    Ignore is checked before unmapped, so a row from an ignored location (e.g. a test area) is never held just because it also has a new size code.
 3. **Apply**: only `applied` writes to stock — `StockLedger.apply(issue, −1)` inserts one ledger entry (`source = oracle_import`, `issue_import_id` set). All other statuses touch no stock and no ledger.
-4. Advance the watermark only after commit; write `sync_run` with counts per status and the range of issue days touched; rebuild those days' snapshots (§2.2).
+4. Advance the watermark (highest `RECTIME` read) only after commit; write `sync_run` with counts per status and the range of **issue days** touched (records entered late touch past days); rebuild those days' snapshots (§2.2).
 
 `quality` and `status` are independent: an `incomplete` row can be `applied` (to the unregistered bucket) or `before_start`.
 
@@ -237,7 +241,7 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 - **Failure**: Oracle unreachable → run fails, watermark unchanged, next run catches up; no successful run for more than twice the poll interval → banner + admin alert (ORA-07).
 - **Backfill** (ORA-09): same code path from a start date in batches; everything before the cut-off lands as `before_start`.
 - **Data quality report** (DQ-05): `issue_import` grouped by day, location, `quality`; unregistered-barcode list = distinct `suit_barcode` of `incomplete` rows with counts and first/last seen.
-- **Daily reconciliation**: count of issue rows per day in Oracle vs `issue_import`; mismatch → admin alert.
+- **Daily reconciliation**: for the last 7 issue days, count rows per `INSERT_TIME` day in Oracle vs `issue_import.issued_day`; mismatch → admin alert. A window, not just yesterday, because late records keep changing recent days.
 
 ## 4. API sketch
 
@@ -266,7 +270,7 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time designer/QA, plus a contact on the Oracle issuing system. Sprints are 2 weeks.
 
 ### Phase 0 — Foundations + Oracle discovery (Sprint 1)
-- Work through the vendor / DBA items in [`TODO.md`](./TODO.md). **Gate:** meaning of `INSERT_TIME` vs `RECTIME`.
+- Work through the vendor / DBA items in [`TODO.md`](./TODO.md). **Gate:** Oracle column types of `INSERT_TIME` / `RECTIME`, and a sample confirming the time zones (`RECTIME` in UTC never earlier than `INSERT_TIME` in UTC).
 - On site, with the configured table: run `SELECT DISTINCT` on `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL` and draft the initial value mapping (MAP-04); measure the share of GOWN / OTHER / OTHER rows and how many distinct unregistered barcodes there are.
 - Request the read-only Oracle account and firewall access from the GI server (long lead time — start day 1).
 - Monorepo, lint/typecheck, CI (GitHub Actions: build, unit, integration against MariaDB 11.4 + Oracle Free service containers, e2e).
@@ -283,7 +287,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 **Exit**: floor staff can post and correct deliveries on a phone.
 
 ### Phase 2 — Oracle issue import + data quality (Sprints 4–5)
-- Import job (§3) with watermark, overlap, `(barcode, INSERT_TIME)` de-duplication, held-unmapped handling.
+- Import job (§3) with `RECTIME` watermark, overlap, `(barcode, INSERT_TIME)` de-duplication, time zone conversion and check, held-unmapped handling.
 - Data quality: known-bad patterns, unregistered bucket, data quality report with the unregistered-barcode list (DQ-01, 03–07); late registration (DQ-08) only if confirmed.
 - Oracle values screen (MAP-01..05) and sync status / admin screen (ORA-07/08); daily reconciliation.
 - Backfill of issue history (ORA-09).
@@ -325,7 +329,7 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 ## 7. Testing strategy
 
 - **Unit** (`packages/domain`, ledger): status thresholds incl. negative, days of cover, delivery correction diff, void, line merge.
-- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER booked to the unregistered bucket (and excluded from Gowns) and listed as unregistered; late registration moving earlier rows (if DQ-08 is built); row before vs after the starting-count cut-off; a 12-hour import crossing midnight books issues to the right days and rebuilds both days' snapshots; Oracle outage then catch-up; watermark advances only on commit.
+- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER booked to the unregistered bucket (and excluded from Gowns) and listed as unregistered; late registration moving earlier rows (if DQ-08 is built); row before vs after the starting-count cut-off; a 12-hour import crossing midnight books issues to the right days and rebuilds both days' snapshots; a record entered a day after its scan is read (`RECTIME` watermark) and counted on the scan day; Taipei/Phoenix conversion around both midnights; a row failing the time check; Oracle outage then catch-up; watermark advances only on commit.
 - **Integration**: every write endpoint asserts the ledger invariant; delivery posted concurrently with an import run.
 - **Device detection** (unit): table of real phone, tablet and laptop user-agent strings and client hints → expected layout; manual override.
 - **E2E** (Playwright device profiles — e.g. iPhone 13 and Pixel 7 for phone, Desktop Chrome 1440×900 for laptop): URD §9 acceptance criteria in both layouts, plus a narrow laptop window still showing the laptop layout.
@@ -338,8 +342,9 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 | Oracle access / account approval slow | Blocks Phase 2 | Request in Sprint 1; build against an Oracle Free container with the real column layout |
 | Unregistered barcodes persist (vendor fix late) | Stock per type / size / color overstated, usage per type understated; below-minimum alerts late | Unregistered bucket per location, notice on Stock, unregistered-barcode list for the vendor, regular full spot checks clearing the bucket (DQ-*); total issued per day and location totals stay correct |
 | Reversals not recorded in Oracle | Stock drifts low | Clarify with the lead (TODO); spot checks + stock correction; watch drift in the pilot |
-| `INSERT_TIME` not indexed | Slow import, load on the issuing system | Ask the DBA for an index or view; smaller batches; longer interval |
-| `INSERT_TIME` / `RECTIME` meaning guessed wrong | Missed rows or wrong cut-off | Confirm before Phase 2 (TODO); both columns configurable |
+| `RECTIME` not indexed | Slow import, load on the issuing system | Ask the DBA for an index or view; smaller batches; longer interval |
+| Time zones applied wrongly | Issues on the wrong day, wrong starting-count cut-off | Explicit, configurable zones; time check on every row (ORA-13); Phase 0 sample check; tests around both midnights |
+| Records entered long after the scan | Today's numbers and stock lag; past days change | Count by scan day; rebuild touched days; 7-day reconciliation; show "issues up to" stamp |
 | Device misdetected (e.g. new browser, tablet) | Wrong layout | Manual view switch remembered per device; detection tests with real UA strings |
 | Deliveries not entered (or entered late) | Negative / wrong stock | Negative flag, daily digest, back-dating (RCV-08), pilot reconciliation |
 | Starting count done while issuing continues | Off by a few items from day 1 | Count at a quiet moment, record as-of when finished, cut-off rule 7.8, parallel run |

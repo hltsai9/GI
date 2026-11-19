@@ -21,11 +21,14 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 
 - [ ] **Spot checks while barcodes are unregistered** — how often can floor staff do a quick full count per fab (e.g. weekly) to clear the unregistered bucket? → DQ-06
 - [ ] **Estimated split** — show unregistered issues split across gowns / hoods / boots by the usual mix, labelled "estimated", in Trends? → DQ-09
+- [ ] **Site time zone** — are both fabs in Taiwan, so days and times are shown in Taipei time? → NFR-13
 
 ## Check with the vendor / Oracle DBA
 
-- [ ] **`INSERT_TIME` vs `RECTIME`** — which is the moment the garment was issued, and which the time the row was written? → §6.3, import watermark and starting-count cut-off
-- [ ] **Index** — is there an index on `INSERT_TIME` (ideally `STATE, INSERT_TIME`) in the issue table? If not, can one be added, or a view provided? → ORA-10
+- [x] **`INSERT_TIME` vs `RECTIME`** — `INSERT_TIME` = scan/issue time (Taipei), `RECTIME` = record entered (Phoenix); they can be on different days. → ORA-03, ORA-12
+- [ ] **Delay between scan and record** — how long after the scan is a record usually entered, and what is the longest it can be (hours? days?) → decides how late "issued today" and stock can be, and the reconciliation window (7 days assumed)
+- [ ] **Column types** — are `INSERT_TIME` / `RECTIME` `DATE`, `TIMESTAMP`, or `TIMESTAMP WITH TIME ZONE`? → ORA-12
+- [ ] **Index** — is there an index on `RECTIME` (ideally `STATE, RECTIME`) in the issue table? If not, can one be added, or a view provided? → ORA-10
 - [ ] **Cancellations in Oracle** — if the lead confirms they happen: how does the issuing system record them? → ORA-06
 - [ ] **Late registration** — when a garment is issued with an unregistered barcode (GOWN / OTHER / OTHER), is that barcode registered in the suit master later? If yes, GI can move its earlier issues to the right size and color (DQ-08). If barcodes are never registered afterwards, DQ-08 is dropped. → DQ-08
 
