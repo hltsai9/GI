@@ -81,16 +81,16 @@ Table names cannot be bind variables, so the API validates them at start-up agai
 
 ```
 -- Reference data
-garment_type(id, code, name, plural, icon, sort, active)          -- Gown, Hood, Boot
-color(id, name, sort, active, is_system)                           -- soft delete via active (SET-03);
-size(id, code, sort, active, is_system)                            --   is_system = the hidden "Unknown" value (DQ-03)
+garment_type(id, code, name, plural, icon, sort, active, is_system)  -- Gown, Hood, Boot; soft delete via active (SET-03);
+color(id, name, sort, active, is_system)                              --   is_system = the hidden "Unregistered" value
+size(id, code, sort, active, is_system)                               --   of each (DQ-03)
 location(id, code, name)                                           -- Fab1, Fab2
 
 -- Current balance: one row per garment × color × size × location
 stock_item(id, garment_type_id, color_id, size_id, location_id,
            on_hand INT (signed — may go negative, URD rule 7.4), min_qty INT UNSIGNED NULL,
            updated_at, UNIQUE(garment_type_id, color_id, size_id, location_id))
-           -- unknown bucket = the item whose color and size are the system "Unknown" values
+           -- unregistered bucket = per location, the item whose type, color and size are the system "Unregistered" values
 
 -- Deliveries
 delivery(id, received_at, created_at, created_by → app_user,      -- received_at may be back-dated (RCV-08);
@@ -150,7 +150,7 @@ Design notes:
 - **Balance vs history.** `stock_item` holds only the current balance (one row per item). The history is `ledger_entry`; stock on any past date is `Σ delta` up to that time. Issued per day comes from `issue_import.issued_at`; delivered per period from `delivery_line.qty_current` by `delivery.received_at`.
 - **Real foreign keys instead of "type + id" pairs.** Both `oracle_value_map` and `ledger_entry` use one nullable FK per possible target plus a `CHECK`, so MariaDB enforces every reference.
 - **Microsecond timestamps.** `DATETIME(6)` so Oracle `TIMESTAMP` values keep their precision and `UNIQUE(suit_barcode, insert_time)` stays exact. Check the Oracle column types on site; if they are `DATE` (seconds only), nothing changes.
-- **Unknown bucket.** A hidden system color and size called "Unknown" (`is_system = true`, never shown in pickers); the bucket is the stock item using both.
+- **Unregistered bucket.** A hidden system garment type, color and size called "Unregistered" (`is_system = true`, never shown in pickers or per-type totals); each location's bucket is the stock item using all three. Per-type queries filter `is_system = false`; location and grand totals include the bucket.
 - **Names.** `app_user` instead of `user`, and `is_ignored` instead of `ignore` (a reserved word in MariaDB), so no identifier needs quoting. Reserved words only matter for table and column names; ENUM values such as `'user'` or `'ignored'` are quoted strings and need no change.
 - **How issues reach the ledger.** Importing never edits a ledger entry. For each `issue_import` row that is `applied`, the import **inserts** one new `ledger_entry` (kind `issue`, delta −1, `issue_import_id` → that row) and updates `stock_item.on_hand` in the same transaction. Rows that are `held_unmapped`, `before_start` or `ignored` create no ledger entry; a held row gets its entry when its value is mapped. A reversal would be another new entry (kind `issue_correction`, +1), never a change to the old one.
 
@@ -207,7 +207,7 @@ Only the server sets `status`; no screen edits it directly. One function, `class
    |---|---|---|
    | a | Any of the four values is mapped to Ignore (`is_ignored`) | `ignored` — no stock item |
    | b | Any of the four values is not mapped yet | `held_unmapped` — no stock item |
-   | c | Data quality (`dq_pattern`, today GOWN / OTHER / OTHER = barcode not registered in the suit master) | sets `quality` and the stock item: complete → the real item; incomplete → the type × location unknown bucket |
+   | c | Data quality (`dq_pattern`, today GOWN / OTHER / OTHER = barcode not registered in the suit master) | sets `quality` and the stock item: complete → the real item; incomplete → the location's unregistered bucket (type unknown) |
    | d | The location has no starting count yet, or `issued_at` is before its `as_of` | `before_start` — Trends only |
    | e | Otherwise | `applied` |
 
@@ -215,7 +215,7 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 3. **Apply**: only `applied` writes to stock — `StockLedger.apply(issue, −1)` inserts one ledger entry (`source = oracle_import`, `issue_import_id` set). All other statuses touch no stock and no ledger.
 4. Advance the watermark only after commit; write `sync_run` with counts per status and the range of issue days touched; rebuild those days' snapshots (§2.2).
 
-`quality` and `status` are independent: an `incomplete` row can be `applied` (to the unknown bucket) or `before_start`.
+`quality` and `status` are independent: an `incomplete` row can be `applied` (to the unregistered bucket) or `before_start`.
 
 ### 3.3 Status changes after import
 
@@ -229,7 +229,7 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 - **Why the starting-count step matters:** floor staff finish counting at, say, 14:00, but the counts may be entered at 16:00. Imports between 14:00 and 16:00 find no starting count and set `before_start` — including issues after 14:00 that should reduce stock. Saving the count (as-of 14:00) re-classifies those, so nothing is lost. The same covers Fab2 going live after Fab1: Fab2 rows stay `before_start` until Fab2's count is saved.
 - **Final states:** `applied` (unless reversed), `reversed`, and `before_start` rows earlier than the as-of time never change again. `ignored` rows stay ignored if the value is later un-ignored — changing an existing mapping applies only to new rows (MAP-03, TODO).
 - Each re-classification is a single transaction, recorded in `audit_log` with the number of rows changed.
-- **Late registration** (DQ-08, only if the TODO confirms barcodes get registered after being issued): each import run checks the unregistered barcodes against `ORACLE_SUIT_TABLE`; for each one now registered, its `applied` unknown-bucket rows move to the real item with a pair of new `issue_correction` entries (+1 unknown bucket, −1 real item) and `quality = recovered`. Status stays `applied`.
+- **Late registration** (DQ-08, only if the TODO confirms barcodes get registered after being issued): each import run checks the unregistered barcodes against `ORACLE_SUIT_TABLE`; for each one now registered, its `applied` unregistered-bucket rows move to the real item with a pair of new `issue_correction` entries (+1 unregistered bucket, −1 real item) and `quality = recovered`. Status stays `applied`.
 
 ### 3.4 Other paths
 
@@ -284,7 +284,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 
 ### Phase 2 — Oracle issue import + data quality (Sprints 4–5)
 - Import job (§3) with watermark, overlap, `(barcode, INSERT_TIME)` de-duplication, held-unmapped handling.
-- Data quality: known-bad patterns, unknown bucket, data quality report with the unregistered-barcode list (DQ-01, 03–07); late registration (DQ-08) only if confirmed.
+- Data quality: known-bad patterns, unregistered bucket, data quality report with the unregistered-barcode list (DQ-01, 03–07); late registration (DQ-08) only if confirmed.
 - Oracle values screen (MAP-01..05) and sync status / admin screen (ORA-07/08); daily reconciliation.
 - Backfill of issue history (ORA-09).
 - Integration tests against an Oracle Free container with the real column layout and sample rows, including GOWN / OTHER / OTHER rows.
@@ -292,7 +292,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 **Exit**: real issues from Oracle (test or prod copy) flow into GI; re-runs are no-ops.
 
 ### Phase 3 — Stock views + starting count (Sprint 6)
-- Stock › Summary (STK-01..05) and Grid with minimums (GRD-01..06), negative flag, unknown-bucket line and notice (DQ-04).
+- Stock › Summary (STK-01..05) and Grid with minimums (GRD-01..06), negative flag, unregistered-bucket line and notice (DQ-04).
 - Starting count entry with per-location as-of time (ADJ-05, rule 7.8): size × color grid per garment and location on the phone, plus CSV import.
 - Stock correction (ADJ-01..07); sizes & colors (SET-01..05).
 - In-app below-minimum indicator (ALR-01).
@@ -325,7 +325,7 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 ## 7. Testing strategy
 
 - **Unit** (`packages/domain`, ledger): status thresholds incl. negative, days of cover, delivery correction diff, void, line merge.
-- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER booked to the unknown bucket and listed as unregistered; late registration moving earlier rows (if DQ-08 is built); row before vs after the starting-count cut-off; a 12-hour import crossing midnight books issues to the right days and rebuilds both days' snapshots; Oracle outage then catch-up; watermark advances only on commit.
+- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER booked to the unregistered bucket (and excluded from Gowns) and listed as unregistered; late registration moving earlier rows (if DQ-08 is built); row before vs after the starting-count cut-off; a 12-hour import crossing midnight books issues to the right days and rebuilds both days' snapshots; Oracle outage then catch-up; watermark advances only on commit.
 - **Integration**: every write endpoint asserts the ledger invariant; delivery posted concurrently with an import run.
 - **Device detection** (unit): table of real phone, tablet and laptop user-agent strings and client hints → expected layout; manual override.
 - **E2E** (Playwright device profiles — e.g. iPhone 13 and Pixel 7 for phone, Desktop Chrome 1440×900 for laptop): URD §9 acceptance criteria in both layouts, plus a narrow laptop window still showing the laptop layout.
@@ -336,7 +336,7 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Oracle access / account approval slow | Blocks Phase 2 | Request in Sprint 1; build against an Oracle Free container with the real column layout |
-| GOWN / OTHER / OTHER rows persist (vendor fix late) | Per-size gown stock overstated | Unknown bucket, notice on Stock, unregistered-barcode list for the vendor to register, spot-check correction (DQ-*); issued-per-day and location totals stay correct; per-type totals too if only gowns go unregistered (TODO) |
+| Unregistered barcodes persist (vendor fix late) | Stock per type / size / color overstated, usage per type understated; below-minimum alerts late | Unregistered bucket per location, notice on Stock, unregistered-barcode list for the vendor, regular full spot checks clearing the bucket (DQ-*); total issued per day and location totals stay correct |
 | Reversals not recorded in Oracle | Stock drifts low | Clarify with the lead (TODO); spot checks + stock correction; watch drift in the pilot |
 | `INSERT_TIME` not indexed | Slow import, load on the issuing system | Ask the DBA for an index or view; smaller batches; longer interval |
 | `INSERT_TIME` / `RECTIME` meaning guessed wrong | Missed rows or wrong cut-off | Confirm before Phase 2 (TODO); both columns configurable |

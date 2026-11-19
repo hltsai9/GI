@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Version | 0.6 (draft for review) |
+| Version | 0.7 (draft for review) |
 | Date | 2026-10-21 |
 | Source | UI mockups in [`design/mockups/`](../design/mockups/) (`Garment Inventory.dc.html` explorations 1a–1j, `Garment Inventory App.dc.html` consolidated app, `Garment Inventory Devices.dc.html` phone + laptop frames) |
 | Status | Draft — items marked **[OPEN]** still need an answer; they are tracked in [`TODO.md`](./TODO.md) |
@@ -94,8 +94,8 @@ stock on hand  =  starting count  +  deliveries (entered in GI)  −  issues (im
 - **Delivery** — garments received, entered by floor staff: timestamp, user, lines (stock item + quantity), correction note.
 - **Issue** — one garment handed out, i.e. one Oracle row with `STATE = 'EMPLOYEE GOWN ISSUE'`. GI holds a read-only copy. Garments are laundered and reused, so the same barcode is issued many times; an issue is identified by barcode + time (§6.3).
 - **Value mapping** — how a value in an Oracle column translates to a GI value (e.g. `SUIT_TYPE` "GOWN" → Gown, a `SUIT_LEVEL` value → Fab1).
-- **Incomplete issue** — an issue row whose color and size are known to be wrong; today: `SUIT_TYPE` = GOWN with `SUIT_COLOR` = OTHER and `SUIT_SIZE` = OTHER.
-- **Unknown bucket** — per garment type and location, a separate stock line that collects incomplete issues (§6.4).
+- **Incomplete issue** — an issue of a garment whose barcode is not registered in the suit master; Oracle reports it as GOWN / OTHER / OTHER, so its **type, color and size are all unknown** (it may really be a gown, hood or boots).
+- **Unregistered bucket** — per location, a separate stock line ("Unregistered garments · Fab1") that collects incomplete issues (§6.4). It belongs to no garment type.
 - **Starting count** — the full count by floor staff just before go-live, with an *as-of* time per location. Stock starts from it.
 - **Stock correction** — a change to on hand that is neither a delivery nor an issue (starting count, spot check, damaged, found). Always has a reason and is logged.
 - **On hand** — starting count + deliveries − issues ± corrections. Calculated, never counted routinely.
@@ -171,12 +171,13 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 | ID | Requirement | Pri |
 |---|---|---|
 | DQ-01 | A row is **incomplete** when it matches a known-bad pattern. Today the only pattern is `SUIT_TYPE` = GOWN with `SUIT_COLOR` = OTHER and `SUIT_SIZE` = OTHER. Admins can add or remove patterns without a code change. | M |
-| DQ-03 | An incomplete row still counts in **issued per day** and **location totals** (these stay correct), but is booked to the gown **unknown bucket** for its location, not to the real "Other · Other" item. If unregistered hoods or boots are also reported as GOWN, gown totals are overstated and hood/boot totals understated by the same amount — **[OPEN]** TODO. | M |
-| DQ-04 | The unknown bucket is shown as its own line ("Gowns · color/size unknown") on Stock › Summary and below the Stock › Grid, with the notice "N gown issues in the last 7 days had no color/size — stock per size and color may be overstated by up to N." | M |
+| DQ-03 | An incomplete row is booked to the **unregistered bucket** for its location — **not** to Gowns, and not to any real item. It counts in **total issued per day** and **location totals**, which stay correct. Per-type numbers (gowns / hoods / boots issued, on hand, days of cover) exclude it, so each type's stock may be **overstated** and its usage **understated** by part of the bucket. | M |
+| DQ-04 | The unregistered bucket is shown as its own line ("Unregistered garments · Fab1: −N") on Stock › Summary and below the Stock › Grid, with the notice "N garments issued since the last full check were not registered — stock per garment type, size and color may be overstated by up to N in total." Trends show unregistered issues as their own series / bar segment next to Gowns, Hoods and Boots. | M |
 | DQ-05 | **Data quality report** for the lead: incomplete rows per day and by location, plus the **list of unregistered barcodes** (each barcode seen as GOWN / OTHER / OTHER, how often, first/last seen, exportable as CSV) — so the vendor can register them, and to check whether their fix works. | M |
-| DQ-06 | After a spot check of the affected garments, the lead can clear the unknown bucket with a stock correction (reason "Spot check"), which also corrects the per-size items. | M |
-| DQ-07 | When the vendor's fix is in place, no GI change is needed: complete rows import normally and the unknown bucket stops growing. The vendor will **not** correct old rows, so incomplete rows stay in history; Trends by size/color for gowns show them as "unknown". | M |
+| DQ-06 | After a spot check of **all garment types** at a location, the lead enters the counted quantities and clears that location's unregistered bucket in one stock correction (reason "Spot check"), which corrects the real items. While the bucket keeps growing, a regular spot check (e.g. weekly) is recommended — below-minimum alerts can come late because per-item stock reads high. | M |
+| DQ-07 | When the vendor's fix is in place, no GI change is needed: complete rows import normally and the unregistered bucket stops growing. The vendor will **not** correct old rows, so incomplete rows stay in history; Trends by garment type, size and color show them as "Unregistered". | M |
 | DQ-08 | **Late registration** (only if barcodes are registered in the suit master after being issued — **[OPEN]** TODO): when a barcode in the unregistered list appears in the suit master, GI moves its earlier unknown-bucket issues to the real item (new ledger entries, never edits) and marks them "recovered". | C |
+| DQ-09 | Optional **estimated split** (display only, never in stock): Trends can show the unregistered issues split across types in the same proportions as registered issues that week, clearly labelled "estimated". **[OPEN]** wanted? (TODO) | C |
 
 ### 6.5 Stock — summary (front page)
 
@@ -270,7 +271,7 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 7. GI never writes to the Oracle database.
 8. **Starting count cut-off:** stock starts from the starting count's as-of time per location. Issues with an issue time before it, and deliveries received before it, are history for Trends only and never change stock. The count should be done at a quiet moment (after the morning delivery is put away), and the as-of time recorded when counting finishes.
 9. One Oracle issue row = one garment.
-10. Incomplete issue rows never reduce a real size/color item; they go to the unknown bucket (DQ-03), unless late registration moves them (DQ-08).
+10. Incomplete issue rows never reduce a real item or a garment type's total; they go to the location's unregistered bucket (DQ-03), unless late registration moves them (DQ-08).
 11. A garment's barcode keeps the same type, color and size for its whole life.
 
 ## 8. Non-functional requirements
@@ -301,7 +302,7 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 - An issue recorded in Oracle appears in GI (issued today, on hand reduced) within the agreed freshness window.
 - Re-running the import for an already imported period changes nothing.
 - A row with a new, unmapped value is held and does not change stock; once the value is mapped, its held rows are applied.
-- A GOWN / OTHER / OTHER row is booked to the unknown bucket, and its barcode appears in the unregistered-barcode list.
+- A GOWN / OTHER / OTHER row is booked to the location's unregistered bucket (not to Gowns), and its barcode appears in the unregistered-barcode list.
 - After the starting count (as-of 14:00, say), an issue at 13:55 does not change stock and one at 14:05 does.
 - Correcting a delivery by −10 reduces on hand by exactly 10 and marks it "Edited"; voiding reverses all its lines.
 - The lead can answer, on a phone, "how many delivered this week", "how many issued per day" and "how many in stock" from the Trends and Stock tabs.
@@ -319,6 +320,7 @@ All open questions are tracked as a checklist in [`TODO.md`](./TODO.md).
 - `INOUT_CATEGORY` and `INOUT_ACTION` are constant for these rows and are not needed.
 - The suit master table is not needed for the import. GOWN / OTHER / OTHER means the barcode is not registered in it, so a barcode never has a complete row followed by an incomplete one — recovery from issue history is not possible and was removed.
 - A barcode's type, color and size never change.
+- Every unregistered barcode is reported as GOWN / OTHER / OTHER whatever the garment really is, so its type is unknown too.
 - GOWN / OTHER / OTHER rows are incomplete; the vendor may fix new rows (date unknown) but will not correct old ones.
 - Oracle connection details and table names go in configuration at installation.
 - Floor staff do a full starting count of everything before go-live.
