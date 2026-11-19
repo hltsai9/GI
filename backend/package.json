@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:reset": "tsx src/cli/resetDev.ts",
-    "demo": "tsx src/cli/demo.ts"
+    "demo": "tsx src/cli/demo.ts",
+    "export:demo": "tsx src/cli/exportDemo.ts"
   },
   "dependencies": {
     "dotenv": "^16.6.1",

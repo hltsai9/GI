@@ -1,0 +1,1 @@
+[{"id":1,"at":"2026-11-19T04:07:19.420Z","kind":"time_check","message":"History load: 1 rows have RECTIME before the scan or a scan in the future","details":{"runId":1,"count":1,"examples":[{"barcode":"G-100365","level":"FAB1","insertTime":"2026-10-19 13:18:57","rectime":"2026-10-12 20:32:07","gapHours":-145.78,"futureScan":false}]},"acknowledged_at":null}]

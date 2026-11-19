@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { api, fmtNum, fmtTime, type Me, type Meta } from '../api';
+import { api, DEMO, demoFetch, fmtNum, fmtTime, type Me, type Meta } from '../api';
 import { ErrorNote, Segmented, Select, Toast, useLoad } from '../components/ui';
 
 type View = 'values' | 'correct' | 'count' | 'oracle' | 'quality' | 'import';
@@ -285,7 +285,8 @@ function DataQuality() {
         <section>
           <div className="spread"><h2>Unregistered barcodes</h2><a className="btn" href="#" onClick={async (e) => {
             e.preventDefault();
-            const res = await fetch('/api/data-quality/unregistered.csv', { headers: { 'X-Dev-User': localStorage.getItem('gi.devUser') ?? 'dev-lead' } });
+            const res = DEMO ? await demoFetch('/data-quality/unregistered.csv')
+              : await fetch('/api/data-quality/unregistered.csv', { headers: { 'X-Dev-User': localStorage.getItem('gi.devUser') ?? 'dev-lead' } });
             const url = URL.createObjectURL(await res.blob());
             Object.assign(document.createElement('a'), { href: url, download: 'unregistered-barcodes.csv' }).click();
           }} style={{ display: 'inline-flex', alignItems: 'center' }}>Download CSV</a></div>

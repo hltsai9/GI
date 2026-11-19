@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, devUser, setDevUser, type Me, type Meta } from './api';
+import { api, BASE, DEMO, devUser, setDevUser, type Me, type Meta } from './api';
 import { currentDevice, isTouchOnly, saveDeviceChoice, type Device } from './device';
 import { ErrorNote, useLoad } from './components/ui';
 import { Receive } from './pages/Receive';
@@ -8,8 +8,8 @@ import { Trends } from './pages/Trends';
 import { Settings } from './pages/Settings';
 
 const TABS = [
-  { id: 'receive', label: 'Receive', icon: '/icons/truck.svg' },
-  { id: 'stock', label: 'Stock', icon: '/icons/gown.svg' },
+  { id: 'receive', label: 'Receive', icon: 'icons/truck.svg' },
+  { id: 'stock', label: 'Stock', icon: 'icons/gown.svg' },
   { id: 'trends', label: 'Trends', icon: undefined },
   { id: 'settings', label: 'Settings', icon: undefined },
 ] as const;
@@ -46,23 +46,28 @@ export function App() {
     <nav className="tabs" aria-label="Main">
       {TABS.map((t) => (
         <button key={t.id} className="tab" aria-current={tab === t.id ? 'page' : undefined} onClick={() => setTab(t.id)}>
-          {t.icon && <img src={t.icon} alt="" width={20} height={20} />}{t.label}
+          {t.icon && <img src={BASE + t.icon} alt="" width={20} height={20} />}{t.label}
         </button>
       ))}
     </nav>
   );
   const foot = (
     <div className="sidebar-foot small">
-      <label className="field">
+      {DEMO ? <span className="muted">Demo: signed in as the cleanroom lead</span> : <label className="field">
         <span>Signed in as (dev)</span>
         <select className="input" value={user} onChange={(e) => { setDevUser(e.target.value); setUser(e.target.value); }}>
           {DEV_USERS.map((u) => <option key={u.id} value={u.id}>{u.label}</option>)}
         </select>
-      </label>
+      </label>}
       <button className="btn" onClick={switchView}>Switch to {device === 'phone' ? 'laptop' : 'phone'} view</button>
     </div>
   );
 
+  const banner = DEMO && (
+    <p className="notice small" style={{ margin: '0 0 var(--space-4)' }}>
+      Demo with mock data — read-only: saving is turned off. <a href="https://github.com/hltsai9/GI">Source on GitHub</a>
+    </p>
+  );
   const page = !me.data || !meta.data ? (
     <ErrorNote error={me.error ?? meta.error} />
   ) : tab === 'receive' ? <Receive meta={meta.data} me={me.data} />
@@ -78,7 +83,7 @@ export function App() {
           {nav}
           {foot}
         </aside>
-        <main className="main">{page}</main>
+        <main className="main">{banner}{page}</main>
       </div>
     );
   }
@@ -86,7 +91,7 @@ export function App() {
     <div className="shell">
       <header className="shell-header"><span className="brand">Garments</span><span className="muted small">Fab1 + Fab2</span></header>
       {nav}
-      <main className="main">{page}<div style={{ marginTop: 'var(--space-8)' }}>{foot}</div></main>
+      <main className="main">{banner}{page}<div style={{ marginTop: 'var(--space-8)' }}>{foot}</div></main>
     </div>
   );
 }

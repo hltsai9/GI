@@ -7,6 +7,8 @@ Web app with phone and laptop layouts (chosen by device type) that replaces manu
 - [To-do: open questions](docs/TODO.md)
 - [UI mockups](design/mockups/) — open the `.dc.html` files in a browser
 
+**Live demo:** https://hltsai9.github.io/GI/ — the frontend with recorded mock data, read-only (see [Demo on GitHub Pages](#demo-on-github-pages)).
+
 ## Repository layout
 
 ```
@@ -58,3 +60,11 @@ To read the real Oracle database instead, set `ISSUE_SOURCE=oracle` and the `ORA
 cd backend && npm run typecheck && npm test     # unit + integration tests (needs gi_test)
 cd frontend && npm run build && npm test
 ```
+
+## Demo on GitHub Pages
+
+GitHub Pages cannot run the backend or MariaDB, so the published page is the frontend in **demo mode**: it reads API responses recorded from the demo database (`frontend/public/demo-data`) and refuses every change. The workflow `.github/workflows/pages.yml` builds and publishes it on every push that touches `frontend/`.
+
+To refresh the recorded data: `cd backend && npm run mock:generate && npm run demo && npm run export:demo`, then commit `frontend/public/demo-data`.
+
+One-time setup: in the repository's **Settings › Pages**, set **Source** to **GitHub Actions**.

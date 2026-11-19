@@ -23,7 +23,24 @@ export class ApiError extends Error {
   }
 }
 
+/** Static demo build (GitHub Pages): reads recorded API responses; nothing can be changed. */
+export const DEMO = import.meta.env.VITE_DEMO === 'true';
+export const BASE = import.meta.env.BASE_URL;
+
+/** File name of a recorded response; must match backend/src/cli/exportDemo.ts. */
+export const demoFile = (path: string) => path.replace(/^\//, '').replace(/[^A-Za-z0-9]+/g, '_') + '.json';
+
+export async function demoFetch(path: string): Promise<Response> {
+  return fetch(`${BASE}demo-data/${demoFile(path)}`);
+}
+
 export async function api<T>(path: string, init: RequestInit & { json?: unknown } = {}): Promise<T> {
+  if (DEMO) {
+    if ((init.method ?? 'GET') !== 'GET') throw new ApiError(403, 'This is a read-only demo with mock data — changes are not saved.');
+    const res = await demoFetch(path);
+    if (!res.ok) throw new ApiError(404, `Not available in the demo (${path})`);
+    return (await res.json()) as T;
+  }
   const headers: Record<string, string> = { 'X-Dev-User': devUser(), ...(init.headers as Record<string, string>) };
   let body = init.body;
   if (init.json !== undefined) {
@@ -50,7 +67,7 @@ export interface Me {
   role: 'floor' | 'lead' | 'viewer' | 'admin';
 }
 
-export const icon = (name?: string | null) => (name ? `/icons/${name}.svg` : undefined);
+export const icon = (name?: string | null) => (name ? `${import.meta.env.BASE_URL}icons/${name}.svg` : undefined);
 
 const SITE_TZ = 'America/Phoenix';
 export const fmtTime = (iso: string) =>
