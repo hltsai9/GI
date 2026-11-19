@@ -34,19 +34,13 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`, `ORA-02`) refe
 
 **Why**: one language end to end; one web app serves phones and laptops with nothing to install, choosing its layout by device type (§1.2); MariaDB InnoDB transactions with row locks keep deliveries and imported issues consistent (NFR-06/07). Oracle is read with `node-oracledb` in **thin mode** (pure JavaScript — no Oracle Instant Client to install on the server). MariaDB is fixed; the web/API layers can be swapped for an IT-standard stack without changing the data model or phases.
 
-### 1.1 Repository layout (monorepo, pnpm workspaces)
+### 1.1 Repository layout
 
 ```
-apps/
-  web/            React SPA
-  api/            Fastify service + scheduler (Oracle import, snapshots, alerts)
-packages/
-  domain/         shared types, stock key, status rules, days-of-cover calc
-  ui/             Broadsheet tokens + shared components (Segmented, Dropdown, Stepper, StatusCell, charts…)
+backend/          Fastify API + scheduler (Oracle import, sweep, alerts); db/migrations (plain SQL); mock-oracle/
+frontend/         React SPA (Vite); phone and laptop layouts
 design/mockups/   source mockups (reference only)
-docs/             URD, build plan, to-do list, ADRs
-.env.example      configuration template (no real values)
-infra/            docker-compose (dev: MariaDB + Oracle Free container), deployment manifests
+docs/             URD, build plan, to-do list
 ```
 
 ### 1.2 Layout by device type
@@ -79,6 +73,17 @@ All environment-specific values are set at installation in a `.env` file (or the
 | `ORACLE_INSERT_TIME_ZONE`, `ORACLE_RECTIME_ZONE` | Zones of the Oracle columns (defaults `Asia/Taipei`, `America/Phoenix`) |
 
 Table names cannot be bind variables, so the API validates them at start-up against `^[A-Za-z][A-Za-z0-9_$#]*(\.[A-Za-z][A-Za-z0-9_$#]*)?$` and refuses to start otherwise (ORA-11). An admin "Test connection" checks access and that the expected columns exist.
+
+### 1.4 Where the first build differs from this plan
+
+- Two folders, `backend/` and `frontend/`, each with its own `npm` project, instead of a pnpm monorepo with shared `packages/`.
+- Plain SQL migrations (`backend/db/migrations`) and `mysql2` instead of the Drizzle ORM: the schema is reviewed as real DDL.
+- Trends are computed directly from the ledger, deliveries and issues; `daily_snapshot` exists but is not filled until 90-day charts get slow.
+- Alerts go to one `admin_alert` table (time check, sweep found rows, stale or failed import) instead of a separate `time_check_alert`.
+- Issue polling pages on (`RECTIME`, `SUIT_BARCODE`), not `RECTIME` alone: many rows share a second, and a page ending inside such a group skipped the rest (found by the catch-up sweep during the first test run).
+- Classification order: an incomplete (GOWN / OTHER / OTHER) row only needs `SUIT_LEVEL` mapped; it is never held for its OTHER color or size.
+- Not built yet: SSO (a dev user picker stands in), email/Teams digest (ALR-02), late registration (DQ-08), estimated split (DQ-09), correction approval rules (HIS-07), CSV upload for the starting count.
+
 
 ## 2. Data model (MariaDB)
 

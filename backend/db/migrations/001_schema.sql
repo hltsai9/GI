@@ -1,0 +1,288 @@
+-- GI schema (MariaDB 10.11+ / 11.4 LTS). All DATETIME columns hold UTC unless noted.
+-- See docs/BUILD_PLAN.md §2 for the design.
+
+-- ---------------------------------------------------------------- reference data
+CREATE TABLE garment_type (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  code       VARCHAR(32)  NOT NULL UNIQUE,
+  name       VARCHAR(64)  NOT NULL,
+  plural     VARCHAR(64)  NOT NULL,
+  icon       VARCHAR(64)  NULL,
+  sort       INT          NOT NULL DEFAULT 0,
+  active     BOOLEAN      NOT NULL DEFAULT TRUE,
+  is_system  BOOLEAN      NOT NULL DEFAULT FALSE      -- the hidden "Unregistered" type (DQ-03)
+) ENGINE=InnoDB;
+
+CREATE TABLE color (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  name       VARCHAR(64)  NOT NULL UNIQUE,
+  sort       INT          NOT NULL DEFAULT 0,
+  active     BOOLEAN      NOT NULL DEFAULT TRUE,
+  is_system  BOOLEAN      NOT NULL DEFAULT FALSE
+) ENGINE=InnoDB;
+
+CREATE TABLE size (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  code       VARCHAR(32)  NOT NULL UNIQUE,
+  sort       INT          NOT NULL DEFAULT 0,
+  active     BOOLEAN      NOT NULL DEFAULT TRUE,
+  is_system  BOOLEAN      NOT NULL DEFAULT FALSE
+) ENGINE=InnoDB;
+
+CREATE TABLE location (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  code       VARCHAR(32)  NOT NULL UNIQUE,
+  name       VARCHAR(64)  NOT NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE app_user (
+  id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  sso_subject  VARCHAR(191) NOT NULL UNIQUE,
+  name         VARCHAR(128) NOT NULL,
+  role         ENUM('floor','lead','viewer','admin') NOT NULL,
+  active       BOOLEAN NOT NULL DEFAULT TRUE
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------- current balance
+CREATE TABLE stock_item (
+  id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  garment_type_id  BIGINT UNSIGNED NOT NULL,
+  color_id         BIGINT UNSIGNED NOT NULL,
+  size_id          BIGINT UNSIGNED NOT NULL,
+  location_id      BIGINT UNSIGNED NOT NULL,
+  on_hand          INT NOT NULL DEFAULT 0,              -- signed on purpose (URD rule 7.4)
+  min_qty          INT UNSIGNED NULL,                   -- NULL = not stocked
+  updated_at       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_stock_item (garment_type_id, color_id, size_id, location_id),
+  CONSTRAINT fk_si_type  FOREIGN KEY (garment_type_id) REFERENCES garment_type(id),
+  CONSTRAINT fk_si_color FOREIGN KEY (color_id)        REFERENCES color(id),
+  CONSTRAINT fk_si_size  FOREIGN KEY (size_id)         REFERENCES size(id),
+  CONSTRAINT fk_si_loc   FOREIGN KEY (location_id)     REFERENCES location(id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------- deliveries
+CREATE TABLE delivery (
+  id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  received_at      DATETIME(6) NOT NULL,                -- may be back-dated (RCV-08)
+  received_day     DATE NOT NULL,                       -- site-time day of received_at
+  created_at       DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  created_by       BIGINT UNSIGNED NOT NULL,
+  status           ENUM('posted','corrected','voided') NOT NULL DEFAULT 'posted',
+  note             VARCHAR(255) NULL,
+  idempotency_key  VARCHAR(64) NOT NULL UNIQUE,
+  KEY ix_delivery_day (received_day),
+  CONSTRAINT fk_del_user FOREIGN KEY (created_by) REFERENCES app_user(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE delivery_line (
+  id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  delivery_id    BIGINT UNSIGNED NOT NULL,
+  stock_item_id  BIGINT UNSIGNED NOT NULL,
+  qty_original   INT UNSIGNED NOT NULL,
+  qty_current    INT UNSIGNED NOT NULL,
+  CONSTRAINT ck_dl_qty CHECK (qty_original > 0),
+  CONSTRAINT fk_dl_delivery FOREIGN KEY (delivery_id)   REFERENCES delivery(id),
+  CONSTRAINT fk_dl_item     FOREIGN KEY (stock_item_id) REFERENCES stock_item(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE delivery_correction (
+  id           BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  delivery_id  BIGINT UNSIGNED NOT NULL,
+  user_id      BIGINT UNSIGNED NOT NULL,
+  at           DATETIME(6) NOT NULL,
+  is_void      BOOLEAN NOT NULL DEFAULT FALSE,
+  total_delta  INT NOT NULL,
+  note         VARCHAR(255) NULL,
+  CONSTRAINT fk_dc_delivery FOREIGN KEY (delivery_id) REFERENCES delivery(id),
+  CONSTRAINT fk_dc_user     FOREIGN KEY (user_id)     REFERENCES app_user(id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------- stock corrections / starting count
+CREATE TABLE starting_count (
+  location_id  BIGINT UNSIGNED PRIMARY KEY,
+  as_of        DATETIME(6) NOT NULL,
+  entered_by   BIGINT UNSIGNED NOT NULL,
+  entered_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  CONSTRAINT fk_sc_loc  FOREIGN KEY (location_id) REFERENCES location(id),
+  CONSTRAINT fk_sc_user FOREIGN KEY (entered_by)  REFERENCES app_user(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE stock_correction (
+  id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  stock_item_id  BIGINT UNSIGNED NOT NULL,
+  counted        INT NOT NULL,
+  system_qty     INT NOT NULL,
+  reason         ENUM('starting_count','spot_check','damaged','found','miscount_at_delivery','other') NOT NULL,
+  note           VARCHAR(255) NULL,
+  user_id        BIGINT UNSIGNED NOT NULL,
+  at             DATETIME(6) NOT NULL,
+  CONSTRAINT ck_sc_other_note CHECK (reason <> 'other' OR (note IS NOT NULL AND note <> '')),
+  CONSTRAINT fk_corr_item FOREIGN KEY (stock_item_id) REFERENCES stock_item(id),
+  CONSTRAINT fk_corr_user FOREIGN KEY (user_id)       REFERENCES app_user(id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------- Oracle issue import
+CREATE TABLE oracle_value_map (
+  id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  oracle_column    ENUM('SUIT_TYPE','SUIT_COLOR','SUIT_SIZE','SUIT_LEVEL') NOT NULL,
+  oracle_value     VARCHAR(64) NOT NULL,
+  garment_type_id  BIGINT UNSIGNED NULL,
+  color_id         BIGINT UNSIGNED NULL,
+  size_id          BIGINT UNSIGNED NULL,
+  location_id      BIGINT UNSIGNED NULL,
+  is_ignored       BOOLEAN NOT NULL DEFAULT FALSE,
+  row_count        INT UNSIGNED NOT NULL DEFAULT 0,
+  first_seen       DATETIME(6) NULL,
+  last_seen        DATETIME(6) NULL,
+  updated_by       BIGINT UNSIGNED NULL,
+  updated_at       DATETIME(6) NULL,
+  UNIQUE KEY uq_ovm (oracle_column, oracle_value),
+  -- at most the one FK matching oracle_column may be set; ignored rows set none
+  CONSTRAINT ck_ovm_target CHECK (
+    (garment_type_id IS NULL OR (oracle_column = 'SUIT_TYPE'  AND NOT is_ignored)) AND
+    (color_id        IS NULL OR (oracle_column = 'SUIT_COLOR' AND NOT is_ignored)) AND
+    (size_id         IS NULL OR (oracle_column = 'SUIT_SIZE'  AND NOT is_ignored)) AND
+    (location_id     IS NULL OR (oracle_column = 'SUIT_LEVEL' AND NOT is_ignored))
+  ),
+  CONSTRAINT fk_ovm_type  FOREIGN KEY (garment_type_id) REFERENCES garment_type(id),
+  CONSTRAINT fk_ovm_color FOREIGN KEY (color_id)        REFERENCES color(id),
+  CONSTRAINT fk_ovm_size  FOREIGN KEY (size_id)         REFERENCES size(id),
+  CONSTRAINT fk_ovm_loc   FOREIGN KEY (location_id)     REFERENCES location(id),
+  CONSTRAINT fk_ovm_user  FOREIGN KEY (updated_by)      REFERENCES app_user(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE dq_pattern (
+  id          BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  suit_type   VARCHAR(64) NOT NULL,
+  suit_color  VARCHAR(64) NOT NULL,
+  suit_size   VARCHAR(64) NOT NULL,
+  active      BOOLEAN NOT NULL DEFAULT TRUE,
+  UNIQUE KEY uq_dq (suit_type, suit_color, suit_size)
+) ENGINE=InnoDB;
+
+CREATE TABLE sync_watermark (
+  suit_level    VARCHAR(64) PRIMARY KEY,
+  last_rectime  DATETIME NOT NULL,                      -- raw RECTIME (Phoenix local time)
+  updated_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+) ENGINE=InnoDB;
+
+CREATE TABLE sync_run (
+  id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  kind                    ENUM('poll','sweep','backfill') NOT NULL,
+  started_at              DATETIME(6) NOT NULL,
+  finished_at             DATETIME(6) NULL,
+  rows_read               INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_new                INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_applied            INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_held               INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_ignored            INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_before_start       INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_incomplete         INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_time_check_failed  INT UNSIGNED NOT NULL DEFAULT 0,
+  first_issued_day        DATE NULL,
+  last_issued_day         DATE NULL,
+  status                  ENUM('running','ok','failed') NOT NULL DEFAULT 'running',
+  error                   TEXT NULL
+) ENGINE=InnoDB;
+
+CREATE TABLE issue_import (
+  id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  suit_barcode   VARCHAR(64) NOT NULL,
+  insert_time    DATETIME NOT NULL,                     -- raw Oracle DATE, Taipei local time
+  rectime        DATETIME NOT NULL,                     -- raw Oracle DATE, Phoenix local time
+  suit_type      VARCHAR(64) NOT NULL,
+  suit_color     VARCHAR(64) NOT NULL,
+  suit_size      VARCHAR(64) NOT NULL,
+  suit_level     VARCHAR(64) NOT NULL,
+  issued_at      DATETIME(6) NOT NULL,                  -- INSERT_TIME in UTC
+  recorded_at    DATETIME(6) NOT NULL,                  -- RECTIME in UTC
+  issued_day     DATE NOT NULL,                         -- site-time day of issued_at
+  location_id    BIGINT UNSIGNED NULL,
+  stock_item_id  BIGINT UNSIGNED NULL,
+  quality        ENUM('complete','incomplete','recovered') NOT NULL,
+  status         ENUM('applied','held_unmapped','before_start','ignored') NOT NULL,
+  sync_run_id    BIGINT UNSIGNED NULL,
+  imported_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_issue (suit_barcode, insert_time),
+  KEY ix_issue_day (issued_day),
+  KEY ix_issue_at (issued_at),
+  KEY ix_issue_status (status),
+  KEY ix_issue_barcode (suit_barcode),
+  CONSTRAINT fk_ii_loc  FOREIGN KEY (location_id)   REFERENCES location(id),
+  CONSTRAINT fk_ii_item FOREIGN KEY (stock_item_id) REFERENCES stock_item(id),
+  CONSTRAINT fk_ii_run  FOREIGN KEY (sync_run_id)   REFERENCES sync_run(id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------- stock history (append-only)
+CREATE TABLE ledger_entry (
+  id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  stock_item_id           BIGINT UNSIGNED NOT NULL,
+  at                      DATETIME(6) NOT NULL,         -- when the movement happened (UTC)
+  day                     DATE NOT NULL,                -- site-time day of `at`
+  kind                    ENUM('starting_count','delivery','delivery_correction','issue','issue_correction','stock_correction') NOT NULL,
+  delta                   INT NOT NULL,
+  qty_before              INT NOT NULL,
+  qty_after               INT NOT NULL,
+  source                  ENUM('user','oracle_import') NOT NULL,
+  user_id                 BIGINT UNSIGNED NULL,
+  delivery_line_id        BIGINT UNSIGNED NULL,
+  delivery_correction_id  BIGINT UNSIGNED NULL,
+  issue_import_id         BIGINT UNSIGNED NULL,
+  stock_correction_id     BIGINT UNSIGNED NULL,
+  written_at              DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  KEY ix_le_item_at (stock_item_id, at),
+  KEY ix_le_day (day),
+  CONSTRAINT ck_le_user CHECK ((source = 'user') = (user_id IS NOT NULL)),
+  CONSTRAINT ck_le_after CHECK (qty_after = qty_before + delta),
+  CONSTRAINT ck_le_cause CHECK (CASE kind
+      WHEN 'delivery'            THEN delivery_line_id IS NOT NULL AND delivery_correction_id IS NULL AND issue_import_id IS NULL AND stock_correction_id IS NULL
+      WHEN 'delivery_correction' THEN delivery_line_id IS NOT NULL AND delivery_correction_id IS NOT NULL AND issue_import_id IS NULL AND stock_correction_id IS NULL
+      WHEN 'issue'               THEN issue_import_id IS NOT NULL AND delivery_line_id IS NULL AND delivery_correction_id IS NULL AND stock_correction_id IS NULL
+      WHEN 'issue_correction'    THEN issue_import_id IS NOT NULL AND delivery_line_id IS NULL AND delivery_correction_id IS NULL AND stock_correction_id IS NULL
+      ELSE                            stock_correction_id IS NOT NULL AND delivery_line_id IS NULL AND delivery_correction_id IS NULL AND issue_import_id IS NULL
+    END),
+  CONSTRAINT fk_le_item FOREIGN KEY (stock_item_id)          REFERENCES stock_item(id),
+  CONSTRAINT fk_le_user FOREIGN KEY (user_id)                REFERENCES app_user(id),
+  CONSTRAINT fk_le_dl   FOREIGN KEY (delivery_line_id)       REFERENCES delivery_line(id),
+  CONSTRAINT fk_le_dc   FOREIGN KEY (delivery_correction_id) REFERENCES delivery_correction(id),
+  CONSTRAINT fk_le_ii   FOREIGN KEY (issue_import_id)        REFERENCES issue_import(id),
+  CONSTRAINT fk_le_sc   FOREIGN KEY (stock_correction_id)    REFERENCES stock_correction(id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------- audit and alerts
+CREATE TABLE audit_log (
+  id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  at         DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  user_id    BIGINT UNSIGNED NULL,
+  entity     VARCHAR(64) NOT NULL,
+  entity_id  VARCHAR(64) NULL,
+  action     ENUM('create','update','deactivate','restore','reclassify') NOT NULL,
+  before_json JSON NULL,
+  after_json  JSON NULL,
+  KEY ix_audit_entity (entity, entity_id),
+  CONSTRAINT fk_audit_user FOREIGN KEY (user_id) REFERENCES app_user(id)
+) ENGINE=InnoDB;
+
+CREATE TABLE admin_alert (
+  id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  at               DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  kind             ENUM('time_check','sweep_found_rows','import_stale','import_failed') NOT NULL,
+  message          VARCHAR(500) NOT NULL,
+  details          JSON NULL,
+  acknowledged_by  BIGINT UNSIGNED NULL,
+  acknowledged_at  DATETIME(6) NULL,
+  KEY ix_alert_open (acknowledged_at),
+  CONSTRAINT fk_alert_user FOREIGN KEY (acknowledged_by) REFERENCES app_user(id)
+) ENGINE=InnoDB;
+
+-- Trends cache. v1 computes trends from the tables above; this table is filled only
+-- if 90-day chart queries become slow (BUILD_PLAN §2.2).
+CREATE TABLE daily_snapshot (
+  day            DATE NOT NULL,
+  stock_item_id  BIGINT UNSIGNED NOT NULL,
+  on_hand        INT NULL,
+  delivered      INT NOT NULL DEFAULT 0,
+  issued         INT NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, stock_item_id),
+  CONSTRAINT fk_ds_item FOREIGN KEY (stock_item_id) REFERENCES stock_item(id)
+) ENGINE=InnoDB;
