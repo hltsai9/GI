@@ -69,7 +69,7 @@ All environment-specific values are set at installation in a `.env` file (or the
 | `ORACLE_CONNECT_STRING` | Oracle host / service (Easy Connect) |
 | `ORACLE_USER`, `ORACLE_PASSWORD` | Read-only account (password as a secret) |
 | `ORACLE_ISSUE_TABLE` | Issue table or view, `SCHEMA.TABLE` |
-| `ORACLE_SUIT_TABLE` | Optional suit master table for DQ-08; empty = not used |
+| `ORACLE_SUIT_TABLE` | Optional suit master table, only for late registration (DQ-08); empty = not used |
 | `ORACLE_POLL_SECONDS`, `ORACLE_OVERLAP_MINUTES`, `ORACLE_MAX_ROWS` | Import interval (300 s to 43,200 s = 12 h; default 300), overlap and batch size (defaults 10 / 5000). A run keeps reading batches until it has caught up. |
 | `MARIADB_URL` | GI database |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | SSO |
@@ -110,17 +110,15 @@ issue_import(id, suit_barcode, insert_time DATETIME(6), rectime DATETIME(6),   -
              suit_type, suit_color, suit_size, suit_level,
              issued_at DATETIME(6),                    -- from INSERT_TIME or RECTIME (configurable until confirmed)
              location_id NULL, stock_item_id NULL,     -- set when mapped
-             quality ENUM(complete,recovered,incomplete),               -- DQ-01..03
+             quality ENUM(complete,incomplete,recovered),               -- DQ-01/03; recovered only via DQ-08
              status ENUM(applied,held_unmapped,before_start,ignored,reversed),
              imported_at,
              UNIQUE(suit_barcode, insert_time),                         -- ORA-02 (no EMPLOYEE_ID / INSERT_USER)
              INDEX(issued_at), INDEX(status), INDEX(suit_barcode))
 dq_pattern(id, suit_type, suit_color, suit_size, active)                 -- e.g. GOWN / OTHER / OTHER
-barcode_profile(suit_barcode PK, garment_type_id, color_id, size_id,    -- color/size of this barcode (never changes),
-                source ENUM(issue_history,suit_master), last_seen)       -- for recovery (DQ-02/08)
 starting_count(location_id PK, as_of DATETIME(6), entered_by → app_user) -- URD rule 7.8
 sync_run(id, started_at, finished_at, from_watermark, to_watermark,
-         rows_read, rows_applied, rows_held, rows_incomplete, rows_recovered,
+         rows_read, rows_applied, rows_held, rows_incomplete,
          first_issued_day DATE NULL, last_issued_day DATE NULL,          -- days touched → snapshot rebuild (§2.2)
          status ENUM(ok,failed), error)
 
@@ -209,7 +207,7 @@ Only the server sets `status`; no screen edits it directly. One function, `class
    |---|---|---|
    | a | Any of the four values is mapped to Ignore (`is_ignored`) | `ignored` — no stock item |
    | b | Any of the four values is not mapped yet | `held_unmapped` — no stock item |
-   | c | Data quality (`dq_pattern`, today GOWN / OTHER / OTHER) | sets `quality` and the stock item: complete → real item, and upsert `barcode_profile`; incomplete → recover via `barcode_profile` or the suit master (DQ-02/08) → real item, `recovered`; else the type × location unknown bucket, `incomplete` |
+   | c | Data quality (`dq_pattern`, today GOWN / OTHER / OTHER = barcode not registered in the suit master) | sets `quality` and the stock item: complete → the real item; incomplete → the type × location unknown bucket |
    | d | The location has no starting count yet, or `issued_at` is before its `as_of` | `before_start` — Trends only |
    | e | Otherwise | `applied` |
 
@@ -231,14 +229,14 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 - **Why the starting-count step matters:** floor staff finish counting at, say, 14:00, but the counts may be entered at 16:00. Imports between 14:00 and 16:00 find no starting count and set `before_start` — including issues after 14:00 that should reduce stock. Saving the count (as-of 14:00) re-classifies those, so nothing is lost. The same covers Fab2 going live after Fab1: Fab2 rows stay `before_start` until Fab2's count is saved.
 - **Final states:** `applied` (unless reversed), `reversed`, and `before_start` rows earlier than the as-of time never change again. `ignored` rows stay ignored if the value is later un-ignored — changing an existing mapping applies only to new rows (MAP-03, TODO).
 - Each re-classification is a single transaction, recorded in `audit_log` with the number of rows changed.
-- **Optional late recovery** (TODO): when a barcode's first complete row arrives after earlier incomplete rows of the same barcode were booked to the unknown bucket, move them to the real item with a pair of new `issue_correction` entries (+1 unknown bucket, −1 real item) and set `quality = recovered`. Status stays `applied`.
+- **Late registration** (DQ-08, only if the TODO confirms barcodes get registered after being issued): each import run checks the unregistered barcodes against `ORACLE_SUIT_TABLE`; for each one now registered, its `applied` unknown-bucket rows move to the real item with a pair of new `issue_correction` entries (+1 unknown bucket, −1 real item) and `quality = recovered`. Status stays `applied`.
 
 ### 3.4 Other paths
 
 - **Reversals** (ORA-06, TODO with the lead): since Oracle rows are never edited or deleted, a reversal could only appear as a separate row (e.g. another `STATE`). If one exists, add it to the query and apply +1, marking the original `reversed`. Until then, handled by stock correction.
 - **Failure**: Oracle unreachable → run fails, watermark unchanged, next run catches up; no successful run for more than twice the poll interval → banner + admin alert (ORA-07).
-- **Backfill** (ORA-09): same code path from a start date in batches; everything before the cut-off lands as `before_start`, which also builds `barcode_profile` so recovery works from day one.
-- **Data quality report** (DQ-05): `issue_import` grouped by day, location, `quality`.
+- **Backfill** (ORA-09): same code path from a start date in batches; everything before the cut-off lands as `before_start`.
+- **Data quality report** (DQ-05): `issue_import` grouped by day, location, `quality`; unregistered-barcode list = distinct `suit_barcode` of `incomplete` rows with counts and first/last seen.
 - **Daily reconciliation**: count of issue rows per day in Oracle vs `issue_import`; mismatch → admin alert.
 
 ## 4. API sketch
@@ -269,7 +267,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 
 ### Phase 0 — Foundations + Oracle discovery (Sprint 1)
 - Work through the vendor / DBA items in [`TODO.md`](./TODO.md). **Gate:** meaning of `INSERT_TIME` vs `RECTIME`.
-- On site, with the configured table: run `SELECT DISTINCT` on `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL` and draft the initial value mapping (MAP-04); measure the share of GOWN / OTHER / OTHER rows, how many of their barcodes have earlier complete rows, and whether the suit master table has real color/size for them (DQ-08).
+- On site, with the configured table: run `SELECT DISTINCT` on `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL` and draft the initial value mapping (MAP-04); measure the share of GOWN / OTHER / OTHER rows and how many distinct unregistered barcodes there are.
 - Request the read-only Oracle account and firewall access from the GI server (long lead time — start day 1).
 - Monorepo, lint/typecheck, CI (GitHub Actions: build, unit, integration against MariaDB 11.4 + Oracle Free service containers, e2e).
 - Docker-compose dev env; `.env.example`; migrations; seed reproducing the mockup data plus synthetic Oracle issue and suit master tables with the real column names.
@@ -286,7 +284,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 
 ### Phase 2 — Oracle issue import + data quality (Sprints 4–5)
 - Import job (§3) with watermark, overlap, `(barcode, INSERT_TIME)` de-duplication, held-unmapped handling.
-- Data quality: known-bad patterns, barcode recovery, optional suit-master recovery, unknown bucket, data quality report (DQ-01..08).
+- Data quality: known-bad patterns, unknown bucket, data quality report with the unregistered-barcode list (DQ-01, 03–07); late registration (DQ-08) only if confirmed.
 - Oracle values screen (MAP-01..05) and sync status / admin screen (ORA-07/08); daily reconciliation.
 - Backfill of issue history (ORA-09).
 - Integration tests against an Oracle Free container with the real column layout and sample rows, including GOWN / OTHER / OTHER rows.
@@ -327,7 +325,7 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 ## 7. Testing strategy
 
 - **Unit** (`packages/domain`, ledger): status thresholds incl. negative, days of cover, delivery correction diff, void, line merge.
-- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER with and without barcode history, with and without the suit master configured; row before vs after the starting-count cut-off; a 12-hour import crossing midnight books issues to the right days and rebuilds both days' snapshots; Oracle outage then catch-up; watermark advances only on commit.
+- **Import** (MariaDB + Oracle Free containers, real column names): idempotent re-run; overlap window; two rows with the same `INSERT_TIME`; same barcode issued twice at different times (both counted); late-committed row; other `STATE` values ignored; unmapped value → held → mapped → applied; GOWN / OTHER / OTHER booked to the unknown bucket and listed as unregistered; late registration moving earlier rows (if DQ-08 is built); row before vs after the starting-count cut-off; a 12-hour import crossing midnight books issues to the right days and rebuilds both days' snapshots; Oracle outage then catch-up; watermark advances only on commit.
 - **Integration**: every write endpoint asserts the ledger invariant; delivery posted concurrently with an import run.
 - **Device detection** (unit): table of real phone, tablet and laptop user-agent strings and client hints → expected layout; manual override.
 - **E2E** (Playwright device profiles — e.g. iPhone 13 and Pixel 7 for phone, Desktop Chrome 1440×900 for laptop): URD §9 acceptance criteria in both layouts, plus a narrow laptop window still showing the laptop layout.
@@ -338,7 +336,7 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 | Risk | Impact | Mitigation |
 |---|---|---|
 | Oracle access / account approval slow | Blocks Phase 2 | Request in Sprint 1; build against an Oracle Free container with the real column layout |
-| GOWN / OTHER / OTHER rows persist (vendor fix late) | Per-size gown stock overstated | Barcode recovery, unknown bucket, notice on Stock, data quality report for the vendor, spot-check correction (DQ-*); type-level gown totals stay correct |
+| GOWN / OTHER / OTHER rows persist (vendor fix late) | Per-size gown stock overstated | Unknown bucket, notice on Stock, unregistered-barcode list for the vendor to register, spot-check correction (DQ-*); issued-per-day and location totals stay correct; per-type totals too if only gowns go unregistered (TODO) |
 | Reversals not recorded in Oracle | Stock drifts low | Clarify with the lead (TODO); spot checks + stock correction; watch drift in the pilot |
 | `INSERT_TIME` not indexed | Slow import, load on the issuing system | Ask the DBA for an index or view; smaller batches; longer interval |
 | `INSERT_TIME` / `RECTIME` meaning guessed wrong | Missed rows or wrong cut-off | Confirm before Phase 2 (TODO); both columns configurable |
