@@ -7,6 +7,30 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-19
 
+### Python backend and a web page without a build step
+- **Decision: no Node.js anywhere.** The company CI builds images from the company's Python base image, so:
+  - the backend was rewritten in Python (FastAPI);
+  - the web page is now plain HTML, CSS and JavaScript, with no React and no build step.
+  The API paths and JSON did not change, and the pages look and behave the same (checked screen by screen against the previous version).
+- **New `Dockerfile`**: a Python base image (build argument `PYTHON_IMAGE`; any Python 3.10+), then `pip install -r requirements.txt`, then the app.
+  - The package layer is rebuilt only when `requirements.txt` changes.
+  - Optional: a PyPI mirror (`PIP_INDEX_URL`), a proxy, and the company root certificate.
+  - The image is about 270 MB (was 350 MB). Tested on Python 3.10 and 3.12.
+- **Azure DevOps pipeline**: `Docker@2` ignores build arguments with `buildAndPush`, so the pipeline now builds and pushes in two steps and passes the company base image from the variable `pythonImage`.
+- **Mock Oracle data is generated in memory** by the server (the same rows on every replica for a given day). The mock-data volume and the start-up script are gone.
+- **Kubernetes**: the image runs as user 10001 (was 1000).
+- **Small fixes found along the way**:
+  - garment icons now show in the GitHub demo (a relative icon path was resolved against the stylesheet);
+  - posting a delivery also works on plain-HTTP sites (the random key needed HTTPS);
+  - health-check requests are no longer written to the access log.
+- **Tested here**:
+  - the 23 earlier tests ported to pytest, plus 2 new ones (25 pass);
+  - the device-detection tests;
+  - browser checks of every screen, laptop and phone: posting and correcting a delivery, stock grid and minimum, chart read-outs, settings, switching user and layout;
+  - Docker Compose;
+  - two read-only, non-root containers: migrations ran once, one imported, and the other took over after a clean stop.
+- Docs updated: README, [DEPLOYMENT_SOP.md](./DEPLOYMENT_SOP.md), [KUBERNETES_DEPLOYMENT.md](./KUBERNETES_DEPLOYMENT.md) §6, [BUILD_PLAN.md](./BUILD_PLAN.md) §1. The GitHub demo data was refreshed.
+
 ### Kubernetes with Azure DevOps
 - **Deployment target decided**: the company Kubernetes cluster, built and deployed by Azure DevOps, with the company's on-premise MariaDB. New guide: [KUBERNETES_DEPLOYMENT.md](./KUBERNETES_DEPLOYMENT.md); files in `deploy/k8s/` and `deploy/azure-pipelines.yml`.
 - **Passwords**: stored as a secret variable in Azure DevOps (optionally Azure Key Vault). The pipeline copies them into the Kubernetes Secret `gi-secrets`, which the pod reads as `MARIADB_PASSWORD`. They are never in git or the image.

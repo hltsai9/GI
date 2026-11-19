@@ -1,0 +1,23 @@
+from __future__ import annotations
+
+from ..config import config
+from .source import IssueSource
+
+_source: IssueSource | None = None
+
+
+def get_issue_source() -> IssueSource:
+    global _source
+    if _source is None:
+        if config.ISSUE_SOURCE == "oracle":
+            from .oracle_source import OracleIssueSource
+            _source = OracleIssueSource(config)
+        else:
+            from .mock_source import MockIssueSource
+            _source = MockIssueSource.from_dir()
+    return _source
+
+
+def set_issue_source(s: IssueSource | None) -> None:
+    global _source
+    _source = s

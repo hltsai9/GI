@@ -1,0 +1,8 @@
+# GI runtime packages (Python 3.10 or newer). The Dockerfile installs these on top of the Python base image.
+fastapi==0.115.14        # web framework (API + serving the web page)
+uvicorn==0.32.1          # web server
+pydantic==2.14.4         # request validation (also required by fastapi)
+SQLAlchemy==2.0.58       # MariaDB connection pool
+PyMySQL==1.1.3           # MariaDB driver (pure Python)
+oracledb==2.5.1          # Oracle driver, "thin" mode: no Oracle client needed
+tzdata==2026.6           # time zone data (Asia/Taipei, America/Phoenix) for slim images without it
