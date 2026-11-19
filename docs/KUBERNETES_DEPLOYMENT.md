@@ -4,7 +4,8 @@ How to run GI on the company Kubernetes cluster, built and deployed by an Azure 
 
 | File | What it is |
 |---|---|
-| `Dockerfile` (repository root) | Builds the one GI image: web page + API + issue import |
+| `Dockerfile` (repository root) | Builds the one GI image: a Python base image + `requirements.txt` + the app (web page, API, issue import) |
+| `requirements.txt` (repository root) | The Python packages installed into the image |
 | `deploy/k8s/configmap.yaml` | Non-secret settings (database host, `ISSUE_SOURCE`, time zones, …) |
 | `deploy/k8s/secret.example.yaml` | Shape of the Secret `gi-secrets`. An example only: the pipeline creates the real one. |
 | `deploy/k8s/deployment.yaml` | 2 replicas, rolling updates without downtime, health checks, hardened security |
@@ -41,7 +42,7 @@ Jobs that must run only once at a time are coordinated through MariaDB locks:
 | "Run import now" in Settings | Takes the same lock; if an import is already running, it says to try again in a minute. |
 | Database migrations at start-up | Run under a `migrate` lock: replicas starting together wait for each other. |
 
-With mock data, every replica generates its own copy, and the generator produces identical rows for any given day, so it does not matter which replica imports.
+With mock data, every replica generates the mock Oracle rows in memory, and the generator produces identical rows for any given day, so it does not matter which replica imports.
 
 Health checks:
 - **Readiness** (`/api/health`) fails while a pod cannot reach the database, so Kubernetes stops sending it traffic.
@@ -62,7 +63,7 @@ GRANT ALL ON gi.* TO 'gi'@'<same>';
 ### 3.2 Network
 - [ ] Pods can reach the MariaDB server on port 3306 (firewall rule from the cluster's egress addresses).
 - [ ] Users' phones and laptops can reach the Ingress host name (internal network only).
-- [ ] The build agent can reach Docker Hub and the npm registry, or company mirrors (§6).
+- [ ] The build agent can pull the Python base image and reach PyPI, or a company PyPI mirror (§6).
 
 ### 3.3 Azure DevOps
 - [ ] **Docker registry service connection** to the company registry (e.g. `company-registry`).
@@ -78,7 +79,7 @@ GRANT ALL ON gi.* TO 'gi'@'<same>';
 | `deploy/k8s/configmap.yaml` | `MARIADB_HOST`, and `MARIADB_USER` / `MARIADB_DATABASE` if different |
 | `deploy/k8s/deployment.yaml` | `image:` → `<your registry>/<repository>:latest` (the pipeline replaces the tag) |
 | `deploy/k8s/ingress.yaml` | `ingressClassName`, `host`, TLS if available |
-| `deploy/azure-pipelines.yml` | Service connection names, registry host, repository, namespace, agent pool |
+| `deploy/azure-pipelines.yml` | Service connection names, registry host, repository, namespace, agent pool, and `pythonImage` (the company's Python base image) |
 
 If your company already has a pipeline template, copy the two `KubernetesManifest@1` steps (create the Secret, deploy) into it; they are the important part.
 
@@ -100,7 +101,7 @@ First-time setup in the app (starting counts) is the same as on Docker: [DEPLOYM
 ```bash
 kubectl -n gi-test scale deploy/gi --replicas=0
 kubectl -n gi-test run gi-demo --rm -it --restart=Never --image=<registry>/cleanroom/gi:<tag> \
-  --overrides='{"spec":{"containers":[{"name":"gi-demo","image":"<registry>/cleanroom/gi:<tag>","command":["sh","-c","node dist/mock-oracle/generate.js --out /tmp/mock && MOCK_ORACLE_DIR=/tmp/mock node dist/src/cli/demo.js"],"envFrom":[{"configMapRef":{"name":"gi-config"}},{"secretRef":{"name":"gi-secrets"}}]}]}}'
+  --overrides='{"spec":{"containers":[{"name":"gi-demo","image":"<registry>/cleanroom/gi:<tag>","command":["python","-m","gi.cli.demo"],"envFrom":[{"configMapRef":{"name":"gi-config"}},{"secretRef":{"name":"gi-secrets"}}]}]}}'
 kubectl -n gi-test scale deploy/gi --replicas=2
 ```
 
@@ -121,14 +122,22 @@ kubectl -n gi-test scale deploy/gi --replicas=2
 
 ## 6. Building on a company network
 
-The pipeline's `Docker@2` step builds the root `Dockerfile`. If the build agent needs a proxy, an npm mirror or a mirrored base image, pass them as build arguments (see the comment in `deploy/azure-pipelines.yml`):
+The image is built in two layers on top of a Python base image:
+1. `pip install -r requirements.txt` (only rebuilt when `requirements.txt` changes);
+2. the app code: `backend/gi`, the database migrations `backend/db`, and the web page `frontend/` (plain HTML/CSS/JavaScript, no build step, no Node.js).
+
+The pipeline passes the company's base image as a build argument (variable `pythonImage` in `deploy/azure-pipelines.yml`). `Docker@2` ignores build arguments with `buildAndPush`, which is why the pipeline has separate **build** and **push** steps. Other build arguments go on the same `arguments:` line:
 
 | Need | Build argument |
 |---|---|
+| The company's Python base image (Python 3.10 or newer, with `pip`) | `PYTHON_IMAGE=registry.example.local/base/python:3.12` |
+| Internal PyPI mirror | `PIP_INDEX_URL=https://nexus.example.local/repository/pypi/simple` |
 | Proxy | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` |
-| Internal npm mirror | `NPM_REGISTRY=https://nexus.example.local/repository/npm/` |
-| Mirrored base image | `NODE_IMAGE=registry.example.local/library/node:22-alpine` |
-| TLS-inspecting proxy | a BuildKit secret `company_ca` with the company root certificate (`--secret id=company_ca,src=ca.pem`, needs `DOCKER_BUILDKIT=1`) |
+| TLS-inspecting proxy | a BuildKit secret `company_ca` with the company root certificate (`--secret id=company_ca,src=ca.pem`, needs BuildKit, the default in Docker 23+) |
+
+If the company base image already trusts the company certificate and its pip is set up for the internal mirror (common for approved base images), only `PYTHON_IMAGE` is needed.
+
+The image runs as user `10001` (non-root) and needs no writable files, so it works with `readOnlyRootFilesystem: true`.
 
 ## 7. Switching to the real Oracle later
 

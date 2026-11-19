@@ -9,7 +9,8 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`, `ORA-02`) refe
         │  HTTPS (intranet: garments.fab.local)
         ▼
  ┌──────────────────────────────┐
- │ Web app (SPA)                │  React + TypeScript + Vite
+ │ Web app (single page)        │  plain HTML, CSS, JavaScript modules
+ │  (no build step)             │
  │  - layout by device type:    │
  │    phone → top tabs,         │
  │    laptop → left sidebar     │
@@ -19,7 +20,7 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`, `ORA-02`) refe
                 │ JSON REST (OpenAPI)
  ┌──────────────▼───────────────┐            ┌───────────────────────────┐
  │ API service                  │            │ Oracle DB (issuing system)│
- │  Node.js + TS (Fastify), Zod │            │  read-only account        │
+ │  Python (FastAPI), pydantic  │            │  read-only account        │
  │  - auth (OIDC / SSO), RBAC   │            │  rows with STATE =        │
  │  - stock ledger service      │            │  'EMPLOYEE GOWN ISSUE'    │
  │                              │            │  (1 row = 1 garment)      │
@@ -29,16 +30,18 @@ Companion to the [URD](./URD.md). Requirement IDs (e.g. `RCV-01`, `ORA-02`) refe
  │     · daily snapshot, alerts │
  └──────────────┬───────────────┘
                 ▼
-   MariaDB 11.4 LTS, InnoDB, utf8mb4  (Drizzle ORM, mysql2 driver + migrations)
+   MariaDB 11.4 LTS, InnoDB, utf8mb4  (SQLAlchemy Core over PyMySQL; plain SQL migrations)
 ```
 
-**Why**: one language end to end; one web app serves phones and laptops with nothing to install, choosing its layout by device type (§1.2); MariaDB InnoDB transactions with row locks keep deliveries and imported issues consistent (NFR-06/07). Oracle is read with `node-oracledb` in **thin mode** (pure JavaScript — no Oracle Instant Client to install on the server). MariaDB is fixed; the web/API layers can be swapped for an IT-standard stack without changing the data model or phases.
+**Why**: the company CI builds images from its own Python base image, layered with `requirements.txt`, so the backend is Python and the web page needs no build step (no Node.js anywhere; decided 2026-11-19). One web app serves phones and laptops with nothing to install, choosing its layout by device type (§1.2); MariaDB InnoDB transactions with row locks keep deliveries and imported issues consistent (NFR-06/07). Oracle is read with `python-oracledb` in **thin mode** (pure Python — no Oracle Instant Client to install on the server). MariaDB is fixed; the web/API layers can be swapped for an IT-standard stack without changing the data model or phases.
 
 ### 1.1 Repository layout
 
 ```
-backend/          Fastify API + scheduler (Oracle import, sweep, alerts); db/migrations (plain SQL); mock-oracle/
-frontend/         React SPA (Vite); phone and laptop layouts
+backend/gi/       FastAPI app + scheduler (Oracle import, sweep, alerts), mock Oracle data generator
+backend/db/       migrations (plain SQL) and the development seed
+frontend/         web page: index.html, css/, js/ (ES modules, no build); phone and laptop layouts
+requirements.txt  Python packages for the image
 design/mockups/   source mockups (reference only)
 docs/             URD, build plan, to-do list
 ```
@@ -50,7 +53,7 @@ docs/             URD, build plan, to-do list
   2. `navigator.userAgentData.mobile` (User-Agent Client Hints), else
   3. the user-agent string (`iPhone`, `Android … Mobile`, `Mobile`).
   Phone → **phone layout**; anything else → **laptop layout**. **Tablets get the laptop layout** (decided) — they already report as non-mobile (iPadOS Safari identifies as a Mac; Android tablets omit `Mobile`), so no special case is needed; touch-size targets apply when `(pointer: coarse)`.
-- The result is stored in a React context (`DeviceContext`) and set as `data-device="phone|laptop"` on `<html>`. Each tab has a phone and a laptop **page component** sharing the same data hooks and domain logic; only composition differs (e.g. Stock: stacked cards on phone, grid + detail side by side on laptop).
+- The result is kept in the app state and set as `data-device="phone|laptop"` on `<html>`. The pages share their data and logic; the layout differs through CSS and a few `device` checks (e.g. Settings: segmented control on laptop, dropdown on phone).
 - Resizing or rotating never swaps layouts. Inside each layout, CSS still flexes (phone 320–480 px, both orientations; laptop ≥ 1024 px).
 - Device detection lives in one small module with unit tests over a table of real user-agent strings.
 
@@ -76,11 +79,13 @@ Table names cannot be bind variables, so the API validates them at start-up agai
 
 ### 1.4 Where the first build differs from this plan
 
-- Deployment: one Docker image (`Dockerfile` at the root) in which the backend also serves the built web page, plus MariaDB, with `deploy/docker-compose.yml`; steps in [DEPLOYMENT_SOP.md](./DEPLOYMENT_SOP.md).
+- Deployment: one Docker image (`Dockerfile` at the root: a Python base image + `requirements.txt` + the app) in which the backend also serves the web page, plus MariaDB, with `deploy/docker-compose.yml`; steps in [DEPLOYMENT_SOP.md](./DEPLOYMENT_SOP.md).
 - Kubernetes: `deploy/k8s/` and `deploy/azure-pipelines.yml`; replicas coordinate the import and migrations with MariaDB `GET_LOCK` ([KUBERNETES_DEPLOYMENT.md](./KUBERNETES_DEPLOYMENT.md)).
 
-- Two folders, `backend/` and `frontend/`, each with its own `npm` project, instead of a pnpm monorepo with shared `packages/`.
-- Plain SQL migrations (`backend/db/migrations`) and `mysql2` instead of the Drizzle ORM: the schema is reviewed as real DDL.
+- Python backend (FastAPI, SQLAlchemy Core, PyMySQL, python-oracledb) and a no-build web page (plain JavaScript modules with a ~150-line view helper, `frontend/js/dom.js`) instead of Node.js/TypeScript and React. The first build (2026-11-18) used Node.js and React; it was rewritten on 2026-11-19 because the company CI builds from a Python base image. The API paths and JSON did not change.
+- Two folders, `backend/` and `frontend/`, instead of a monorepo with shared `packages/`.
+- Plain SQL migrations (`backend/db/migrations`) instead of an ORM: the schema is reviewed as real DDL.
+- Mock Oracle data is generated in memory by the server (deterministic per day), so no files or volumes are needed.
 - Trends are computed directly from the ledger, deliveries and issues; `daily_snapshot` exists but is not filled until 90-day charts get slow.
 - Alerts go to one `admin_alert` table (time check, sweep found rows, stale or failed import) instead of a separate `time_check_alert`.
 - Issue polling pages on (`RECTIME`, `SUIT_BARCODE`), not `RECTIME` alone: many rows share a second, and a page ending inside such a group skipped the rest (found by the catch-up sweep during the first test run).
@@ -218,7 +223,7 @@ Plus, in the same run, a **discovery query** for locations GI has no watermark f
 - Watermarks are kept as raw `RECTIME` values (Phoenix local time), so the query compares like with like and no conversion happens inside Oracle.
 - The sweep is the safety net for anything the watermarks cannot see (an ordering quirk not yet known, a clock problem); it is cheap — about 3 days of rows, nearly all skipped.
 - Indexes on `(STATE, SUIT_LEVEL, RECTIME)` and `(STATE, INSERT_TIME)` are advisable — TODO with the DBA.
-- **Time zones** (ORA-12): `node-oracledb` returns the columns as plain local date-times. GI converts them explicitly — `INSERT_TIME` from `ORACLE_INSERT_TIME_ZONE` (Taipei, UTC+8) and `RECTIME` from `ORACLE_RECTIME_ZONE` (Phoenix, UTC−7) — to UTC `issued_at` / `recorded_at`, and derives `issued_day` in `SITE_TIMEZONE` (Phoenix). Example: `INSERT_TIME` 20 Nov 09:00 (Taipei) = 19 Nov 18:00 in Phoenix → counted on **19 Nov**. It never relies on the Oracle session or server time zone. Neither zone has daylight saving, so the offsets are fixed (Taipei is 15 hours ahead of Phoenix). If the columns turn out to be `TIMESTAMP WITH TIME ZONE`, the stored zone is used instead (check on site).
+- **Time zones** (ORA-12): Oracle `DATE` columns are read as plain local date-times (the query formats them with `TO_CHAR`). GI converts them explicitly — `INSERT_TIME` from `ORACLE_INSERT_TIME_ZONE` (Taipei, UTC+8) and `RECTIME` from `ORACLE_RECTIME_ZONE` (Phoenix, UTC−7) — to UTC `issued_at` / `recorded_at`, and derives `issued_day` in `SITE_TIMEZONE` (Phoenix). Example: `INSERT_TIME` 20 Nov 09:00 (Taipei) = 19 Nov 18:00 in Phoenix → counted on **19 Nov**. It never relies on the Oracle session or server time zone. Neither zone has daylight saving, so the offsets are fixed (Taipei is 15 hours ahead of Phoenix). If the columns turn out to be `TIMESTAMP WITH TIME ZONE`, the stored zone is used instead (check on site).
 
 ### 3.2 Processing each row (one MariaDB transaction per batch)
 

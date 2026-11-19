@@ -1,1 +1,0 @@
-[{"id":1,"kind":"backfill","started_at":"2026-11-19T21:49:20.475Z","finished_at":"2026-11-19T21:49:29.364Z","rows_read":26741,"rows_new":26741,"rows_applied":0,"rows_held":102,"rows_ignored":236,"rows_before_start":26403,"rows_incomplete":689,"rows_time_check_failed":1,"first_issued_day":"2026-10-05","last_issued_day":"2026-11-19","status":"ok","error":null}]

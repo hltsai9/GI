@@ -4,7 +4,7 @@
 |---|---|
 | Applies to | GI (Cleanroom Garment Inventory), test environment |
 | Files | `Dockerfile` (repository root), `deploy/docker-compose.yml`, `deploy/.env.example`, `deploy/backup.sh` |
-| Time needed | About 1 hour the first time (most of it is building the image) |
+| Time needed | About 30 minutes the first time |
 
 > Deploying to **Kubernetes with Azure DevOps** instead of a single Docker host? See [KUBERNETES_DEPLOYMENT.md](./KUBERNETES_DEPLOYMENT.md).
 
@@ -54,7 +54,7 @@ No Oracle access, account or network route is needed. Switching to the real Orac
 
 ### 2.2 Network
 - [ ] **Inbound:** users' phones and laptops can reach the host on the chosen port (`HTTP_PORT`, default 8080).
-- [ ] **Outbound, when building the image:** Docker Hub (base images) and the npm registry, or company mirrors of them (§5.2).
+- [ ] **Outbound, when building the image:** Docker Hub (base images) and PyPI (Python packages), or company mirrors of them (§5.2).
 - [ ] **Outbound, at run time:** nothing with mock data. With real Oracle data later: the host can reach the Oracle database (usually TCP 1521).
 
 ### 2.3 Information to collect
@@ -62,7 +62,7 @@ No Oracle access, account or network route is needed. Switching to the real Orac
 |---|---|---|
 | Host name and port for the site | always | `gi-test.example.local:8080` |
 | Two database passwords (app user, root) | using the MariaDB container | letters and digits, 16+ characters |
-| Proxy, npm mirror, company root certificate | if the build network needs them | see §5.2 |
+| Proxy, PyPI mirror, company Python base image, company root certificate | if the build network needs them | see §5.2 |
 | Oracle connect string, read-only account, issue table | only later, for `ISSUE_SOURCE=oracle` | `oradb.example.local:1521/ISSUEPDB`, `GI_READER`, `SCHEMA.ISSUE_TABLE` |
 
 ## 3. Get the code
@@ -101,21 +101,24 @@ Never commit `deploy/.env`; it is in `.gitignore`.
 ```bash
 cd /opt/gi/deploy
 docker compose build
-docker images gi                       # gi:<GI_VERSION>, about 350 MB
+docker images gi                       # gi:<GI_VERSION>, about 270 MB
 ```
 
 Without Compose, the same image can be built from the repository root: `docker build -t gi:2026-11-19 /opt/gi`.
+
+The image is a Python base image (`python:3.12-slim` by default; any Python 3.10 or newer) plus the packages in `requirements.txt`, the backend code and the web page. The web page is plain HTML, CSS and JavaScript, so there is no build step and no Node.js.
 
 ### 5.2 Company networks
 Set these in `deploy/.env` as needed, then run `docker compose build` again:
 
 | Problem | Setting |
 |---|---|
-| Downloads must go through a proxy | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`. Do **not** list `registry.npmjs.org` in `NO_PROXY` if it must go through the proxy. |
+| Downloads must go through a proxy | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`. Do **not** list `pypi.org` / `files.pythonhosted.org` in `NO_PROXY` if they must go through the proxy. |
 | The proxy runs on the build machine itself (`127.0.0.1` / `localhost`) | `BUILD_NETWORK=host` |
-| The proxy inspects HTTPS (errors such as `SELF_SIGNED_CERT_IN_CHAIN`, `unable to get local issuer certificate`) | `COMPANY_CA_FILE=/path/to/company-root-ca.pem` |
-| npm must use an internal mirror (Nexus, Artifactory) | `NPM_REGISTRY=https://nexus.example.local/repository/npm/` |
-| Docker Hub refuses (`429 Too Many Requests`) or is blocked | Use a mirror: `NODE_IMAGE=…/node:22-alpine`, `MARIADB_IMAGE=…/mariadb:11.4`, or `docker login` to raise the limit |
+| The proxy inspects HTTPS (errors such as `CERTIFICATE_VERIFY_FAILED`, `unable to get local issuer certificate`) | `COMPANY_CA_FILE=/path/to/company-root-ca.pem` |
+| pip must use an internal mirror (Nexus, Artifactory) | `PIP_INDEX_URL=https://nexus.example.local/repository/pypi/simple` |
+| The company provides its own Python base image | `PYTHON_IMAGE=registry.example.local/base/python:3.12` (Python 3.10 or newer, with `pip`) |
+| Docker Hub refuses (`429 Too Many Requests`) or is blocked | Use a mirror: `PYTHON_IMAGE=…/python:3.12-slim`, `MARIADB_IMAGE=…/mariadb:11.4`, or `docker login` to raise the limit |
 
 ### 5.3 Hosts without internet access
 Build on a machine that has access, then copy the images:
@@ -164,7 +167,7 @@ Mock issues are imported but do not change stock until each fab has a starting c
   ```bash
   cd /opt/gi/deploy
   docker compose stop app
-  docker compose run --rm --no-deps app node dist/src/cli/demo.js
+  docker compose run --rm --no-deps app python -m gi.cli.demo
   docker compose start app
   ```
 
@@ -180,7 +183,7 @@ Mock issues already imported would mix with real ones, so start with an empty da
 ```bash
 cd /opt/gi/deploy
 ./backup.sh                            # if anything in the test database should be kept
-docker compose down -v                 # -v DELETES the database and mock data volumes
+docker compose down -v                 # -v DELETES the database volume
 vi .env                                # ISSUE_SOURCE=oracle, ORACLE_CONNECT_STRING, ORACLE_USER,
                                        # ORACLE_PASSWORD, ORACLE_ISSUE_TABLE, ORACLE_BACKFILL_FROM
 docker compose up -d
@@ -219,7 +222,7 @@ Without Compose at all, the image runs on its own:
 ```bash
 docker run -d --name gi --restart unless-stopped -p 8080:3000 \
   -e MARIADB_URL='mysql://gi:<password>@<db-host>:3306/gi' -e ISSUE_SOURCE=mock -e DEV_AUTH=true \
-  -v gi-mock-data:/app/mock-oracle/data gi:<GI_VERSION>
+  gi:<GI_VERSION>
 ```
 
 ## 11. Backups
@@ -277,9 +280,10 @@ What to watch:
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Build: `429 Too Many Requests` from `registry-1.docker.io` | Docker Hub rate limit | Wait and retry, `docker login`, or use a mirror (`NODE_IMAGE`, `MARIADB_IMAGE`) |
-| Build: `npm error Exit handler never called` after about 70 s, or `ETIMEDOUT` | npm cannot reach the registry | Set the proxy (§5.2). Make sure `NO_PROXY` does not include the registry. Use `BUILD_NETWORK=host` if the proxy is on `127.0.0.1`. |
-| Build: certificate errors (`SELF_SIGNED_CERT_IN_CHAIN`) | The proxy inspects HTTPS | `COMPANY_CA_FILE=/path/to/root-ca.pem` |
+| Build: `429 Too Many Requests` from `registry-1.docker.io` | Docker Hub rate limit | Wait and retry, `docker login`, or use a mirror (`PYTHON_IMAGE`, `MARIADB_IMAGE`) |
+| Build: pip `Could not find a version that satisfies the requirement` or `Connection timed out` | pip cannot reach PyPI | Set the proxy or `PIP_INDEX_URL` (§5.2). Make sure `NO_PROXY` does not include PyPI. Use `BUILD_NETWORK=host` if the proxy is on `127.0.0.1`. |
+| Build: certificate errors (`CERTIFICATE_VERIFY_FAILED`) | The proxy inspects HTTPS | `COMPANY_CA_FILE=/path/to/root-ca.pem` |
+| Build: `the --mount option requires BuildKit` | Old Docker without BuildKit | Docker 23 or newer, or set `DOCKER_BUILDKIT=1` |
 | `app` stays unhealthy; log shows `ECONNREFUSED` or `Access denied` | Wrong database URL or password | Check `DB_PASSWORD` / `MARIADB_URL`. A password with special characters must be URL-encoded in `MARIADB_URL`. |
 | `app` restarts; log mentions `ORACLE_… is required` | `ISSUE_SOURCE=oracle` without the Oracle settings | Set `ISSUE_SOURCE=mock`, or fill in the `ORACLE_*` settings |
 | Page shows "unknown user" or "SSO sign-in is not configured" | `DEV_AUTH` is not `true` | Set `DEV_AUTH=true` and `docker compose up -d` |
@@ -304,7 +308,7 @@ What to watch:
 | `ORACLE_BACKFILL_FROM` | `2026-10-01 00:00:00` | First `RECTIME` (Phoenix time) read on a fresh install |
 | `DEV_AUTH` | `true` | Choose the user in the app (no SSO yet) |
 | `SITE_TIMEZONE`, `ORACLE_INSERT_TIME_ZONE`, `ORACLE_RECTIME_ZONE` | Phoenix, Taipei, Phoenix | Time zones (URD ORA-12) |
-| `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `BUILD_NETWORK`, `NPM_REGISTRY`, `COMPANY_CA_FILE`, `NODE_IMAGE`, `MARIADB_IMAGE` | — | Building on company networks (§5.2) |
+| `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `BUILD_NETWORK`, `PIP_INDEX_URL`, `COMPANY_CA_FILE`, `PYTHON_IMAGE`, `MARIADB_IMAGE` | — | Building on company networks (§5.2) |
 
 ### 15.2 Health endpoints
 - `GET /healthz`: the app is up.

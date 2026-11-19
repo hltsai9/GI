@@ -14,5 +14,10 @@ questions), add it to `docs/RELEASE_NOTES.md`:
 - Open questions live in `docs/TODO.md`; tick them off and record the answer in the URD / build plan.
 - Requirements are in `docs/URD.md`, design and data model in `docs/BUILD_PLAN.md`.
 - The UI must look like `design/mockups/Garment Inventory App.dc.html`: Broadsheet styles
-  (`frontend/src/styles/broadsheet.css`, unchanged copy) plus the mockup's layout.
-- After changing what the demo shows, refresh it: `cd backend && npm run demo && npm run export:demo`.
+  (`frontend/css/broadsheet.css`, unchanged copy) plus the mockup's layout.
+- After changing what the demo shows, refresh it: `cd backend && python -m gi.cli.demo && python -m gi.cli.export_demo`.
+- Stack: Python backend (`backend/gi`, FastAPI + SQLAlchemy Core over PyMySQL, packages in the root
+  `requirements.txt`), and a no-build web page (`frontend/`: plain HTML, CSS and JavaScript modules).
+  Do not add Node.js, npm or a frontend build step; the company CI builds the image from a Python base image.
+- Tests: `cd backend && python -m pytest` (needs the `gi_test` MariaDB database);
+  `node --test frontend/tests/device.test.mjs` is an optional check.

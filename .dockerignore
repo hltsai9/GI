@@ -1,13 +1,16 @@
-# Keep the build context small; only frontend/ and backend/ sources are needed.
-**/node_modules
-**/dist
+# Keep the build context small: only requirements.txt, backend/gi, backend/db and frontend/ are needed.
+**/__pycache__
+**/*.pyc
 **/*.log
 .git
 .github
+.venv
+.pytest_cache
 design
 docs
 deploy
 backend/.env
-backend/test
-backend/mock-oracle/data
-frontend/public/demo-data
+backend/tests
+backend/mock-oracle-data
+frontend/demo-data
+frontend/tests

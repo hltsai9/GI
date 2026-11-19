@@ -1,6 +1,7 @@
-# Publishes the read-only demo (frontend with recorded API responses) to GitHub Pages.
-# The recorded responses live in frontend/public/demo-data; refresh them with
-#   cd backend && npm run demo && npm run export:demo
+# Publishes the read-only demo (the web page with recorded API responses) to GitHub Pages.
+# The web page needs no build: the files in frontend/ are published as they are, with config.js
+# switched to demo mode. The recorded responses live in frontend/demo-data; refresh them with
+#   cd backend && python -m gi.cli.demo && python -m gi.cli.export_demo
 name: Demo on GitHub Pages
 
 on:
@@ -23,23 +24,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Build demo
-        working-directory: frontend
-        env:
-          VITE_DEMO: 'true'
-          VITE_BASE: /${{ github.event.repository.name }}/
+      - name: Check the device detection
+        run: node --test frontend/tests/device.test.mjs
+      - name: Prepare the demo site
         run: |
-          npm ci
-          npm test
-          npm run build
+          mkdir _site
+          cp -r frontend/index.html frontend/css frontend/fonts frontend/icons frontend/js frontend/demo-data _site/
+          echo 'window.GI_CONFIG = { demo: true };' > _site/config.js
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: frontend/dist
+          path: _site
 
   deploy:
     needs: build

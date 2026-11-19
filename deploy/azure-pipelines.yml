@@ -1,4 +1,5 @@
-# Example Azure DevOps pipeline: build the GI image from the Dockerfile and deploy it to Kubernetes.
+# Example Azure DevOps pipeline: build the GI image from the Dockerfile (on the company's Python base
+# image, packages from requirements.txt) and deploy it to Kubernetes.
 # Adapt the names marked "company" to your organisation. Full guide: docs/KUBERNETES_DEPLOYMENT.md
 #
 # Secrets: the database password is a SECRET variable "GI_DB_PASSWORD" in the variable group below
@@ -16,6 +17,8 @@ variables:
     value: registry.example.local
   - name: imageRepository
     value: cleanroom/gi
+  - name: pythonImage                      # company: the approved Python base image (3.10 or newer)
+    value: python:3.12-slim
   - name: imageTag
     value: $(Build.BuildId)
   - name: k8sServiceConnection             # company: Kubernetes service connection
@@ -29,10 +32,11 @@ stages:
       - job: build
         pool: { vmImage: ubuntu-latest }   # company: or your own agent pool
         steps:
+          # Docker@2 ignores "arguments" with buildAndPush, so build and push are separate steps.
           - task: Docker@2
-            displayName: Build and push the image
+            displayName: Build the image
             inputs:
-              command: buildAndPush
+              command: build
               containerRegistry: $(registryServiceConnection)
               repository: $(imageRepository)
               Dockerfile: Dockerfile
@@ -40,8 +44,18 @@ stages:
               tags: |
                 $(imageTag)
                 latest
-            # Company proxy / npm mirror / base-image mirror, if needed:
-            #   arguments: --build-arg HTTPS_PROXY=$(proxy) --build-arg NPM_REGISTRY=$(npmMirror) --build-arg NODE_IMAGE=$(nodeImage)
+              # The company's Python base image. Add a PyPI mirror or proxy here if the agent needs them:
+              #   --build-arg PIP_INDEX_URL=$(pipIndexUrl) --build-arg HTTPS_PROXY=$(proxy)
+              arguments: --build-arg PYTHON_IMAGE=$(pythonImage)
+          - task: Docker@2
+            displayName: Push the image
+            inputs:
+              command: push
+              containerRegistry: $(registryServiceConnection)
+              repository: $(imageRepository)
+              tags: |
+                $(imageTag)
+                latest
 
   - stage: Deploy
     dependsOn: Build
