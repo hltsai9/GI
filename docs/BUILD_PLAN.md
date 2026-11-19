@@ -200,18 +200,41 @@ SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
 
 ### 3.2 Processing each row (one MariaDB transaction per batch)
 
-1. **De-duplicate**: insert into `issue_import` keyed by `(suit_barcode, insert_time)`; rows already present are skipped (ORA-02).
-2. **Map values** through `oracle_value_map`. Any unmapped value → `held_unmapped`; any value with `is_ignored` → `ignored` (ORA-05, MAP-05). Set `issued_at` and `location_id`.
-3. **Data-quality check** against `dq_pattern` (today GOWN / OTHER / OTHER):
-   - complete → upsert `barcode_profile` (a barcode's color/size never change);
-   - incomplete → look up `barcode_profile`; if missing and `ORACLE_SUIT_TABLE` is configured, look the barcode up in the suit master (DQ-08, only if its color/size are not OTHER); if found → book to that color/size, `quality = recovered`; otherwise → book to the type × location **unknown bucket**, `quality = incomplete` (DQ-02/03).
-4. **Cut-off**: if the issue time is before the location's `starting_count.as_of` → `before_start` (Trends only, no stock change; URD rule 7.8).
-5. Otherwise `StockLedger.apply(issue, −1)` → `applied` (ledger entry with `source = oracle_import`, `issue_import_id` set).
-6. Advance the watermark only after commit; write `sync_run` with counts per outcome and the range of issue days touched; rebuild those days' snapshots (§2.2).
+Only the server sets `status`; no screen edits it directly. One function, `classifyIssue(row)`, decides `status`, `quality` and `stock_item_id`, and is used by the import **and** by every action that can change the answer later (§3.3), so a row is always classified by the same rules.
 
-### 3.3 Other paths
+1. **De-duplicate**: insert into `issue_import` keyed by `(suit_barcode, insert_time)`; rows already present are skipped (ORA-02). Set `issued_at`.
+2. **`classifyIssue`** — checks in this order; the first match wins:
 
-- **Mapping a new value** applies all its `held_unmapped` rows in one transaction (MAP-03).
+   | # | Check | Result |
+   |---|---|---|
+   | a | Any of the four values is mapped to Ignore (`is_ignored`) | `ignored` — no stock item |
+   | b | Any of the four values is not mapped yet | `held_unmapped` — no stock item |
+   | c | Data quality (`dq_pattern`, today GOWN / OTHER / OTHER) | sets `quality` and the stock item: complete → real item, and upsert `barcode_profile`; incomplete → recover via `barcode_profile` or the suit master (DQ-02/08) → real item, `recovered`; else the type × location unknown bucket, `incomplete` |
+   | d | The location has no starting count yet, or `issued_at` is before its `as_of` | `before_start` — Trends only |
+   | e | Otherwise | `applied` |
+
+   Ignore is checked before unmapped, so a row from an ignored location (e.g. a test area) is never held just because it also has a new size code.
+3. **Apply**: only `applied` writes to stock — `StockLedger.apply(issue, −1)` inserts one ledger entry (`source = oracle_import`, `issue_import_id` set). All other statuses touch no stock and no ledger.
+4. Advance the watermark only after commit; write `sync_run` with counts per status and the range of issue days touched; rebuild those days' snapshots (§2.2).
+
+`quality` and `status` are independent: an `incomplete` row can be `applied` (to the unknown bucket) or `before_start`.
+
+### 3.3 Status changes after import
+
+| From | To | Triggered by | Ledger |
+|---|---|---|---|
+| — (new row) | `ignored` / `held_unmapped` / `before_start` / `applied` | Import run, via `classifyIssue` | −1 entry only for `applied` |
+| `held_unmapped` | `ignored` / `before_start` / `applied` | Lead or admin maps the missing value (or sets it to Ignore) → all held rows using that value are re-classified in one transaction | −1 entry for each row that becomes `applied` |
+| `before_start` | `applied` | Starting count saved for that location → its `before_start` rows with `issued_at ≥ as_of` are re-classified | −1 entry for each |
+| `applied` | `reversed` | Only if reversals turn out to exist in Oracle (ORA-06, TODO) | new +1 entry (`issue_correction`); the −1 stays |
+
+- **Why the starting-count step matters:** floor staff finish counting at, say, 14:00, but the counts may be entered at 16:00. Imports between 14:00 and 16:00 find no starting count and set `before_start` — including issues after 14:00 that should reduce stock. Saving the count (as-of 14:00) re-classifies those, so nothing is lost. The same covers Fab2 going live after Fab1: Fab2 rows stay `before_start` until Fab2's count is saved.
+- **Final states:** `applied` (unless reversed), `reversed`, and `before_start` rows earlier than the as-of time never change again. `ignored` rows stay ignored if the value is later un-ignored — changing an existing mapping applies only to new rows (MAP-03, TODO).
+- Each re-classification is a single transaction, recorded in `audit_log` with the number of rows changed.
+- **Optional late recovery** (TODO): when a barcode's first complete row arrives after earlier incomplete rows of the same barcode were booked to the unknown bucket, move them to the real item with a pair of new `issue_correction` entries (+1 unknown bucket, −1 real item) and set `quality = recovered`. Status stays `applied`.
+
+### 3.4 Other paths
+
 - **Reversals** (ORA-06, TODO with the lead): since Oracle rows are never edited or deleted, a reversal could only appear as a separate row (e.g. another `STATE`). If one exists, add it to the query and apply +1, marking the original `reversed`. Until then, handled by stock correction.
 - **Failure**: Oracle unreachable → run fails, watermark unchanged, next run catches up; no successful run for more than twice the poll interval → banner + admin alert (ORA-07).
 - **Backfill** (ORA-09): same code path from a start date in batches; everything before the cut-off lands as `before_start`, which also builds `barcode_profile` so recovery works from day one.

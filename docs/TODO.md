@@ -36,3 +36,4 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 ## Technical decisions (developer)
 
 - [ ] Changing an existing value mapping: apply only to new rows, or re-apply to history? → MAP-03
+- [ ] Late recovery: when a barcode's first complete row arrives, move its earlier unknown-bucket issues to the real item? → BUILD_PLAN §3.3
