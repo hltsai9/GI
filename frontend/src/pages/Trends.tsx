@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { api, fmtDay, fmtNum } from '../api';
+import { api, fmtDay, fmtDayLong, fmtNum } from '../api';
+import { Guide, HoverArea } from '../components/hover';
 import { ErrorNote, PageHead, Seg, useLoad } from '../components/ui';
 
 interface Delivered { per: string; points: { bucket: string; total: number }[]; total: number }
@@ -9,7 +10,15 @@ interface Breakdown { bySize: { size: string; n: number }[]; byLocation: { locat
 
 // Line colors from the mockup: gowns cyan, hoods magenta, boots ink.
 const LINE: Record<string, string> = { Gown: 'var(--color-accent)', Hood: 'var(--color-accent-2)', Boots: 'var(--color-text)' };
-const PLURAL: Record<string, string> = { Gown: 'Gowns', Hood: 'Hoods', Boots: 'Boots' };
+const PLURAL: Record<string, string> = { Gown: 'Gowns', Hood: 'Hoods', Boots: 'Boots', Unregistered: 'Unregistered' };
+const TYPE_COLOR: Record<string, string> = { ...LINE, Unregistered: 'var(--color-neutral-500)' };
+
+function bucketTitle(bucket: string, per: 'day' | 'week' | 'month') {
+  if (per === 'day') return fmtDayLong(bucket);
+  if (per === 'week') return `Week of ${fmtDayLong(bucket)}`;
+  const [y, m] = bucket.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+}
 
 export function Trends() {
   const [view, setView] = useState<'time' | 'breakdown'>('time');
@@ -65,10 +74,29 @@ function OverTime({ days }: { days: number }) {
             ))}
           </div>
           {/* Mockup proportions (320 × 140) at phone width; fixed height and 2 px lines on wider screens. */}
-          <svg viewBox="0 0 320 140" preserveAspectRatio="none" style={{ width: '100%', height: 'clamp(140px, 40vw, 180px)', display: 'block', overflow: 'visible' }} role="img" aria-label="Stock on hand per garment">
-            <line x1="0" y1="130" x2="320" y2="130" stroke="var(--color-neutral-300)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
-            {s.series.map((k) => <path key={k} d={path(k)} fill="none" stroke={LINE[k] ?? 'var(--color-neutral-600)'} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />)}
-          </svg>
+          <HoverArea label="Stock on hand per garment" mode="line" count={s.points.length} height="clamp(140px, 40vw, 180px)"
+            title={(k) => fmtDayLong(s.points[k].day)}
+            rows={(k) => s.series.map((name) => ({ label: PLURAL[name] ?? name, color: LINE[name], value: s.points[k].values[name] === null ? '—' : fmtNum(s.points[k].values[name] ?? 0) }))}>
+            {(a) => (
+              <>
+                <svg viewBox="0 0 320 140" preserveAspectRatio="none" style={{ width: '100%', height: '100%', display: 'block', overflow: 'visible' }}>
+                  <line x1="0" y1="130" x2="320" y2="130" stroke="var(--color-neutral-300)" strokeWidth="1" vectorEffect="non-scaling-stroke" />
+                  {s.series.map((k) => <path key={k} d={path(k)} fill="none" stroke={LINE[k] ?? 'var(--color-neutral-600)'} strokeWidth="2" vectorEffect="non-scaling-stroke" strokeLinejoin="round" />)}
+                </svg>
+                {a !== null && (
+                  <>
+                    <Guide x={(a / Math.max(1, s.points.length - 1)) * 100} />
+                    {s.series.map((k) => {
+                      const v = s.points[a].values[k];
+                      if (v === null || v === undefined) return null;
+                      return <span key={k} style={{ position: 'absolute', width: 9, height: 9, borderRadius: '50%', background: LINE[k], border: '2px solid var(--color-bg)', transform: 'translate(-50%, -50%)', pointerEvents: 'none',
+                        left: `${(a / Math.max(1, s.points.length - 1)) * 100}%`, top: `${((130 - (Math.max(0, v) / mx) * 125) / 140) * 100}%` }} />;
+                    })}
+                  </>
+                )}
+              </>
+            )}
+          </HoverArea>
           <Axis start={s.points[0]?.day} />
           <div className="note" style={{ marginTop: 6 }}>Starts at each fab's starting count. Unregistered garments are not counted per type.</div>
         </div>
@@ -79,15 +107,25 @@ function OverTime({ days }: { days: number }) {
           <div style={{ fontSize: 13, color: 'var(--color-neutral-700)', marginBottom: 10 }}>
             Delivered <b style={{ color: 'var(--color-accent-700)' }}>{fmtNum(s.totals.delivered)}</b> · Issued <b style={{ color: 'var(--color-accent-2-700)' }}>{fmtNum(s.totals.issued)}</b> · Net <b style={{ color: 'var(--color-text)' }}>{s.totals.net >= 0 ? '+' : '−'}{fmtNum(Math.abs(s.totals.net))}</b>
           </div>
-          <div style={{ display: 'flex', gap: 2, height: 120, alignItems: 'stretch' }} role="img" aria-label="Delivered above the line, issued below">
-            {s.flows.map((f) => (
-              <div key={f.day} title={`${fmtDay(f.day)}: delivered ${f.delivered}, issued ${f.issued}`} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-                <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end' }}><div style={{ width: '100%', height: `${(f.delivered / bm) * 100}%`, background: 'var(--color-accent)' }} /></div>
-                <div style={{ height: 1, background: 'var(--color-text)' }} />
-                <div style={{ flex: 1 }}><div style={{ width: '100%', height: `${(f.issued / bm) * 100}%`, background: 'var(--color-accent-2-400)' }} /></div>
+          <HoverArea label="Delivered above the line, issued below" count={s.flows.length} height={120}
+            title={(k) => fmtDayLong(s.flows[k].day)}
+            rows={(k) => [
+              { label: 'Delivered', color: 'var(--color-accent)', value: fmtNum(s.flows[k].delivered) },
+              { label: 'Issued', color: 'var(--color-accent-2-400)', value: fmtNum(s.flows[k].issued) },
+              { label: 'Net', value: `${s.flows[k].delivered - s.flows[k].issued >= 0 ? '+' : '−'}${fmtNum(Math.abs(s.flows[k].delivered - s.flows[k].issued))}` },
+            ]}>
+            {(a) => (
+              <div style={{ display: 'flex', gap: 2, height: '100%', alignItems: 'stretch' }}>
+                {s.flows.map((f, k) => (
+                  <div key={f.day} style={{ flex: 1, display: 'flex', flexDirection: 'column', opacity: a === null || a === k ? 1 : 0.35 }}>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'flex-end' }}><div style={{ width: '100%', height: `${(f.delivered / bm) * 100}%`, background: 'var(--color-accent)' }} /></div>
+                    <div style={{ height: 1, background: 'var(--color-text)' }} />
+                    <div style={{ flex: 1 }}><div style={{ width: '100%', height: `${(f.issued / bm) * 100}%`, background: 'var(--color-accent-2-400)' }} /></div>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+          </HoverArea>
           <Axis start={s.flows[0]?.day} />
         </div>
       )}
@@ -102,9 +140,15 @@ function OverTime({ days }: { days: number }) {
             <span className="num" style={{ fontSize: 34, fontWeight: 600, lineHeight: 1 }}>{fmtNum(del.data.total)}</span>
             <span style={{ fontSize: 13, color: 'var(--color-neutral-700)' }}>items in the range, per {per}</span>
           </div>
-          <div style={{ display: 'flex', gap: 4, height: 110, alignItems: 'flex-end' }} role="img" aria-label={`Items delivered per ${per}`}>
-            {del.data.points.map((p) => <div key={p.bucket} title={`${p.bucket}: ${p.total}`} style={{ flex: 1, height: `${(p.total / dm) * 100}%`, background: 'var(--color-accent)' }} />)}
-          </div>
+          <HoverArea label={`Items delivered per ${per}`} count={del.data.points.length} height={110}
+            title={(k) => bucketTitle(del.data!.points[k].bucket, per)}
+            rows={(k) => [{ label: 'Delivered', color: 'var(--color-accent)', value: `${fmtNum(del.data!.points[k].total)} items` }]}>
+            {(a) => (
+              <div style={{ display: 'flex', gap: 4, height: '100%', alignItems: 'flex-end' }}>
+                {del.data!.points.map((p, k) => <div key={p.bucket} style={{ flex: 1, height: `${(p.total / dm) * 100}%`, background: a === k ? 'var(--color-accent-700)' : 'var(--color-accent)', opacity: a === null || a === k ? 1 : 0.35 }} />)}
+              </div>
+            )}
+          </HoverArea>
           <Axis start={per === 'month' ? undefined : del.data.points[0]?.bucket} end={per === 'day' ? 'Today' : `This ${per}`} />
         </div>
       )}
@@ -132,9 +176,22 @@ function BreakdownView({ days }: { days: number }) {
             <span className="num" style={{ fontSize: 34, fontWeight: 600, lineHeight: 1 }}>{fmtNum(i.weekdayAverage)}</span>
             <span style={{ fontSize: 13, color: 'var(--color-neutral-700)' }}>a weekday, on average</span>
           </div>
-          <div style={{ display: 'flex', gap: 4, height: 110, alignItems: 'flex-end' }} role="img" aria-label="Items issued per day">
-            {i.points.map((p, k) => <div key={p.day} title={`${fmtDay(p.day)}: ${p.total}`} style={{ flex: 1, height: `${(p.total / dmx) * 100}%`, background: k === i.points.length - 1 ? 'var(--color-accent-300)' : 'var(--color-accent)' }} />)}
-          </div>
+          <HoverArea label="Items issued per day" count={i.points.length} height={110}
+            title={(k) => `${fmtDayLong(i.points[k].day)}${k === i.points.length - 1 ? ' (so far)' : ''}`}
+            rows={(k) => [
+              ...i.series.filter((n) => (i.points[k].values[n] ?? 0) > 0 || n !== 'Unregistered')
+                .map((n) => ({ label: PLURAL[n] ?? n, color: TYPE_COLOR[n], value: fmtNum(i.points[k].values[n] ?? 0), strong: false })),
+              { label: 'Total issued', value: fmtNum(i.points[k].total) },
+            ]}>
+            {(a) => (
+              <div style={{ display: 'flex', gap: 4, height: '100%', alignItems: 'flex-end' }}>
+                {i.points.map((p, k) => (
+                  <div key={p.day} style={{ flex: 1, height: `${(p.total / dmx) * 100}%`, opacity: a === null || a === k ? 1 : 0.35,
+                    background: a === k ? 'var(--color-accent-700)' : k === i.points.length - 1 ? 'var(--color-accent-300)' : 'var(--color-accent)' }} />
+                ))}
+              </div>
+            )}
+          </HoverArea>
           <Axis start={i.points[0]?.day} end="Today (so far)" />
           {unreg > 0 && <div className="note" style={{ marginTop: 6 }}>Includes {fmtNum(unreg)} unregistered garments (type, size and color unknown).</div>}
         </div>

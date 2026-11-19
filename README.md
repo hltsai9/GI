@@ -5,6 +5,7 @@ Web app with phone and laptop layouts (chosen by device type) that replaces manu
 - [User Requirements Document](docs/URD.md)
 - [Build plan](docs/BUILD_PLAN.md)
 - [To-do: open questions](docs/TODO.md)
+- [Deployment SOP (Docker)](docs/DEPLOYMENT_SOP.md) — setting up a test environment
 - [Release notes](docs/RELEASE_NOTES.md) — what changed each day (Phoenix time)
 - [UI mockups](design/mockups/) — open the `.dc.html` files in a browser
 

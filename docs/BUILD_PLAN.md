@@ -76,6 +76,8 @@ Table names cannot be bind variables, so the API validates them at start-up agai
 
 ### 1.4 Where the first build differs from this plan
 
+- Deployment: Docker containers (frontend nginx, backend, MariaDB) with `deploy/docker-compose.yml`; steps in [DEPLOYMENT_SOP.md](./DEPLOYMENT_SOP.md).
+
 - Two folders, `backend/` and `frontend/`, each with its own `npm` project, instead of a pnpm monorepo with shared `packages/`.
 - Plain SQL migrations (`backend/db/migrations`) and `mysql2` instead of the Drizzle ORM: the schema is reviewed as real DDL.
 - Trends are computed directly from the ledger, deliveries and issues; `daily_snapshot` exists but is not filled until 90-day charts get slow.

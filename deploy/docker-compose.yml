@@ -1,0 +1,91 @@
+# GI on Docker: MariaDB + backend (API, Oracle import) + web front end (nginx).
+# Usage and settings: docs/DEPLOYMENT_SOP.md. Settings come from deploy/.env (copy of .env.example).
+name: gi
+
+services:
+  mariadb:
+    # Included when COMPOSE_PROFILES contains "db" (the default in .env.example).
+    # Leave it out to use an existing MariaDB server and set MARIADB_URL instead.
+    profiles: [db]
+    image: ${MARIADB_IMAGE:-mariadb:11.4}
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: gi
+      MARIADB_USER: gi
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci", "--default-time-zone=+00:00"]
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  backend:
+    build:
+      context: ../backend
+      network: ${BUILD_NETWORK:-default}
+      args: &build-args
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+        NPM_REGISTRY: ${NPM_REGISTRY:-https://registry.npmjs.org/}
+        NODE_IMAGE: ${NODE_IMAGE:-node:22-alpine}
+        NGINX_IMAGE: ${NGINX_IMAGE:-nginx:1.27-alpine}
+      secrets: [company_ca]
+    image: ${IMAGE_PREFIX:-gi}-backend:${GI_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+        required: false
+    environment:
+      MARIADB_URL: ${MARIADB_URL:-mysql://gi:${DB_PASSWORD}@mariadb:3306/gi}
+      ISSUE_SOURCE: ${ISSUE_SOURCE:-mock}
+      MOCK_ORACLE_DIR: /app/mock-oracle/data
+      ORACLE_CONNECT_STRING: ${ORACLE_CONNECT_STRING:-}
+      ORACLE_USER: ${ORACLE_USER:-}
+      ORACLE_PASSWORD: ${ORACLE_PASSWORD:-}
+      ORACLE_ISSUE_TABLE: ${ORACLE_ISSUE_TABLE:-}
+      ORACLE_SUIT_TABLE: ${ORACLE_SUIT_TABLE:-}
+      ORACLE_POLL_SECONDS: ${ORACLE_POLL_SECONDS:-300}
+      ORACLE_OVERLAP_MINUTES: ${ORACLE_OVERLAP_MINUTES:-10}
+      ORACLE_MAX_ROWS: ${ORACLE_MAX_ROWS:-5000}
+      ORACLE_SWEEP_DAYS: ${ORACLE_SWEEP_DAYS:-3}
+      ORACLE_TIME_TOLERANCE_MINUTES: ${ORACLE_TIME_TOLERANCE_MINUTES:-10}
+      ORACLE_BACKFILL_FROM: ${ORACLE_BACKFILL_FROM:-}
+      SITE_TIMEZONE: ${SITE_TIMEZONE:-America/Phoenix}
+      ORACLE_INSERT_TIME_ZONE: ${ORACLE_INSERT_TIME_ZONE:-Asia/Taipei}
+      ORACLE_RECTIME_ZONE: ${ORACLE_RECTIME_ZONE:-America/Phoenix}
+      DEV_AUTH: ${DEV_AUTH:-true}
+      PORT: "3000"
+    volumes:
+      - mock-oracle-data:/app/mock-oracle/data
+    # One backend only: it runs the import scheduler. Do not scale it.
+
+  frontend:
+    build:
+      context: ../frontend
+      network: ${BUILD_NETWORK:-default}
+      args: *build-args
+      secrets: [company_ca]
+    image: ${IMAGE_PREFIX:-gi}-frontend:${GI_VERSION:-latest}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${HTTP_PORT:-8080}:80"
+
+secrets:
+  # Company root certificate (PEM) for TLS-inspecting proxies; empty file = none.
+  company_ca:
+    file: ${COMPANY_CA_FILE:-./no-company-ca.pem}
+
+volumes:
+  mariadb-data:
+  mock-oracle-data:

@@ -73,6 +73,11 @@ const SITE_TZ = 'America/Phoenix';
 export const fmtTime = (iso: string) =>
   new Date(iso).toLocaleString('en-US', { timeZone: SITE_TZ, weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', hour12: false });
 export const fmtClock = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: SITE_TZ, hour: '2-digit', minute: '2-digit', hour12: false });
+/** "Thu 12 Nov" for a YYYY-MM-DD day. */
+export const fmtDayLong = (day: string) => {
+  const d = new Date(day + 'T12:00:00Z');
+  return `${d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })} ${d.getUTCDate()} ${d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}`;
+};
 export const fmtDay = (day: string) => new Date(day + 'T12:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 export const fmtNum = (n: number) => n.toLocaleString('en-US');
 /** "Thu 19 Nov" in site time, as in the mockup kickers. */

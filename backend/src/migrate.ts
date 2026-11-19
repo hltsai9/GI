@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { readdir, readFile } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -5,7 +6,9 @@ import mysql from 'mysql2/promise';
 import { config } from './config.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const migrationsDir = join(here, '..', 'db', 'migrations');
+// src/migrate.ts in development, dist/src/migrate.js when compiled: find the db/ folder either way.
+const dbDir = [join(here, '..', 'db'), join(here, '..', '..', 'db')].find((d) => existsSync(join(d, 'migrations'))) ?? join(here, '..', 'db');
+const migrationsDir = join(dbDir, 'migrations');
 
 /** Applies db/migrations/*.sql in order; optionally the dev seed. */
 export async function migrate(url = config.MARIADB_URL, { seedDev = false } = {}): Promise<string[]> {
@@ -23,8 +26,23 @@ export async function migrate(url = config.MARIADB_URL, { seedDev = false } = {}
       await conn.query('INSERT INTO schema_migration (name) VALUES (?)', [f]);
       ran.push(f);
     }
-    if (seedDev) await conn.query(await readFile(join(here, '..', 'db', 'seed-dev.sql'), 'utf8'));
+    if (seedDev) {
+      for (const f of ['seed/dev-users.sql', 'seed/mock-value-map.sql', 'seed-dev.sql']) await conn.query(await readFile(join(dbDir, f), 'utf8'));
+    }
     return ran;
+  } finally {
+    await conn.end();
+  }
+}
+
+/** Startup seeds for test installs: dev users (DEV_AUTH) and the mock data's value mapping (ISSUE_SOURCE=mock). */
+export async function applyStartupSeeds(url: string, opts: { devUsers: boolean; mockMapping: boolean }): Promise<string[]> {
+  const files = [...(opts.devUsers ? ['seed/dev-users.sql'] : []), ...(opts.mockMapping ? ['seed/mock-value-map.sql'] : [])];
+  if (!files.length) return [];
+  const conn = await mysql.createConnection({ uri: url, multipleStatements: true });
+  try {
+    for (const f of files) await conn.query(await readFile(join(dbDir, f), 'utf8'));
+    return files;
   } finally {
     await conn.end();
   }

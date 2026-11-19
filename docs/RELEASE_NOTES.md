@@ -7,6 +7,23 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-19
 
+### Ready for Docker (company test environment)
+- **Three containers**, started together with `deploy/docker-compose.yml`:
+  - `frontend` (nginx serving the web page and forwarding `/api`);
+  - `backend` (API plus the import scheduler);
+  - `mariadb` (optional, if an existing MariaDB server is used instead).
+- **Settings** go in `deploy/.env` (template: `deploy/.env.example`). The database is set up automatically on start.
+- **Company networks**: proxy, `127.0.0.1` proxies (`BUILD_NETWORK=host`), a company root certificate, an internal npm mirror and mirrored base images are all supported. Building and running were tested end to end here, including the backup and restore.
+- **Test installs work out of the box**:
+  - the four test users are created when `DEV_AUTH=true`;
+  - with mock data, its codes are mapped automatically;
+  - the demo history can be loaded inside the containers.
+- **The Source Serif font is now part of the app**, so pages look right on networks without Google Fonts.
+- **New SOP**: [DEPLOYMENT_SOP.md](./DEPLOYMENT_SOP.md) covers prerequisites, configuration, building (including company proxies and offline hosts), first-time setup with mock or real Oracle data, updates and rollback, backups (`deploy/backup.sh`), security and troubleshooting.
+
+### Trends charts
+- **Instant hover read-out**: hovering (or tapping on a phone) shows the date and that day's numbers right away. The hovered bar stays solid while the others dim, and the stock lines get a guide line with dots. This replaces the browser's slow, tiny tooltip.
+
 ### Look and feel
 - **Restyled to match the mockups** (`design/mockups`):
   - the app now uses the Broadsheet design system stylesheet unchanged, with the mockup's layout;

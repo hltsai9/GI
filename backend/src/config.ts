@@ -34,7 +34,8 @@ const schema = z.object({
 export type Config = z.infer<typeof schema>;
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
-  const cfg = schema.parse(env);
+  // Settings left blank (e.g. "ORACLE_BACKFILL_FROM=" in a .env file) mean "use the default".
+  const cfg = schema.parse(Object.fromEntries(Object.entries(env).filter(([, v]) => v !== '')));
   if (cfg.ISSUE_SOURCE === 'oracle') {
     for (const key of ['ORACLE_CONNECT_STRING', 'ORACLE_USER', 'ORACLE_PASSWORD', 'ORACLE_ISSUE_TABLE'] as const) {
       if (!cfg[key]) throw new Error(`${key} is required when ISSUE_SOURCE=oracle`);
