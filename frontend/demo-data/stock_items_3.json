@@ -1,1 +1,1 @@
-{"id":3,"on_hand":12,"min_qty":10,"garment":"Gown","color":"Blue","size":"SM","location":"Fab1","status":"close_to_min","issuedToday":2,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":5}}
+{"id":3,"on_hand":12,"min_qty":10,"garment":"Gown","color":"Blue","size":"SM","location":"P1","status":"close_to_min","issuedToday":2,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":5}}

@@ -79,7 +79,7 @@ def list_deliveries(conn: Connection, limit: int = 20) -> list[dict]:
         return []
     ids = [d["id"] for d in ds]
     lines = rows(conn, f"""SELECT dl.id, dl.delivery_id, dl.stock_item_id, dl.qty_original, dl.qty_current,
-                                  g.name AS garment, g.icon, c.name AS color, s.code AS size, l.code AS location
+                                  g.name AS garment, g.unit, g.icon, c.name AS color, s.code AS size, l.code AS location
                              FROM delivery_line dl JOIN stock_item si ON si.id = dl.stock_item_id
                              JOIN garment_type g ON g.id = si.garment_type_id JOIN color c ON c.id = si.color_id
                              JOIN size s ON s.id = si.size_id JOIN location l ON l.id = si.location_id

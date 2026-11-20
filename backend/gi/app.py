@@ -101,7 +101,7 @@ def _locked(fn):
 def build_app(static_dir: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="GI", docs_url=None, redoc_url=None, openapi_url=None)
     lead = Depends(require_role("lead"))
-    floor_or_lead = Depends(require_role("floor", "lead"))
+    floor_or_lead = Depends(require_role("floor", "lead"))  # floor staff, lead (and admin)
     admin = Depends(require_role("admin"))
     user = Depends(current_user)
 
@@ -192,7 +192,7 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
             return counts.starting_counts(c)
 
     @app.post("/api/starting-counts", status_code=201)
-    def post_starting_count(body: counts.StartingCountInput, u: User = lead):
+    def post_starting_count(body: counts.StartingCountInput, u: User = floor_or_lead):
         return counts.save_starting_count(body, u.id)
 
     @app.get("/api/corrections", dependencies=[user])
@@ -201,7 +201,7 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
             return counts.list_corrections(c)
 
     @app.post("/api/corrections", status_code=201)
-    def post_correction(body: counts.CorrectionInput, u: User = lead):
+    def post_correction(body: counts.CorrectionInput, u: User = floor_or_lead):
         return counts.save_correction(body, u.id)
 
     # ---- Trends
@@ -227,13 +227,13 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
 
     # ---- Settings
     for kind in ("color", "size"):
-        def add(body: ValueInput, u: User = lead, kind=kind):
+        def add(body: ValueInput, u: User = floor_or_lead, kind=kind):
             return JSONResponse(settings.add_value(kind, body.value, u.id), status_code=201)
 
-        def hide(item_id: int, u: User = lead, kind=kind):
+        def hide(item_id: int, u: User = floor_or_lead, kind=kind):
             return settings.set_active(kind, item_id, False, u.id)
 
-        def restore(item_id: int, u: User = lead, kind=kind):
+        def restore(item_id: int, u: User = floor_or_lead, kind=kind):
             return settings.set_active(kind, item_id, True, u.id)
 
         app.post(f"/api/{kind}s")(add)
@@ -241,7 +241,7 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
         app.post(f"/api/{kind}s/{{item_id}}/restore")(restore)
 
     @app.put("/api/sizes/order")
-    def order(body: OrderInput, u: User = lead):
+    def order(body: OrderInput, u: User = floor_or_lead):
         return settings.reorder_sizes(body.ids, u.id)
 
     @app.put("/api/data-quality/excluded")

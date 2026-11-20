@@ -7,6 +7,17 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### P1 and P2, boots in pairs, "Off truck", stock per location, floor staff settings
+- **Fab1 and Fab2 are now called P1 and P2** everywhere in the app. Only the names changed (migration `009`, automatic): stock, history and the Oracle mapping (`SUIT_LEVEL` FAB1 → P1, FAB2 → P2) are unchanged. Oracle's own values (FAB1, FAB2) are still shown as they are in Settings › Oracle values and Data quality.
+- **Boots are counted in pairs, and every quantity shows its unit.** Each garment type now has a unit: gowns and hoods in pieces, boots in pairs.
+  - Receive shows "Quantity (pairs)" when Boots is chosen, the unit next to each line, and totals per unit (e.g. "60 pieces · 12 pairs"), also in the confirmation and in History.
+  - Stock shows "Boots in pairs".
+  - The numbers themselves don't change: one boot issue in Oracle is one pair, as before.
+- **Receive: the page title is now "Off truck"** (was "Morning delivery").
+- **Stock › Summary shows P1 and P2 side by side** for each garment, with the total, days of cover and today's in/out under the name, and the unregistered count per location. On phones the two numbers sit under the garment name. The separate "By location" table was removed because the columns now show the same numbers.
+- **Settings › Sizes & colors, Correct stock and Full count are now open to floor staff too** (with the cleanroom lead and admin). The server allows them the same changes.
+- Tested here: 57 backend tests pass (1 new). Browser check on laptop and phone: a delivery with boots and gowns (footer, confirmation, History), Stock summary, and the floor staff's Settings tabs.
+
 ### Leave out unregistered barcodes one by one; Settings by role; Admin passcode
 - **Leave out, per barcode** (Settings › Data quality, lead or admin): each unregistered barcode has a **Leave out** button. This replaces the all-or-nothing switch added earlier today.
   - A left-out barcode's issues no longer count anywhere: Trends, the unregistered stock and the Stock warning. Future imports of that barcode are left out too.

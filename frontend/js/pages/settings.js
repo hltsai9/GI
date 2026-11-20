@@ -5,9 +5,9 @@ import { attempt, Dropdown, ErrorNote, errorOf, GIcon, Msg, PageHead, Seg, Warn 
 
 // Who can use each section; a section is hidden from everyone else (the server checks the same rules).
 const VIEWS = [
-  { value: 'values', label: 'Sizes & colors', kicker: 'Settings', title: 'Sizes and colors', roles: ['lead', 'admin'] },
-  { value: 'correct', label: 'Correct stock', kicker: 'Settings · stock correction', title: 'Correct a count', roles: ['lead', 'admin'] },
-  { value: 'count', label: 'Full count', kicker: 'Settings · full count', title: 'Count everything', roles: ['lead', 'admin'] },
+  { value: 'values', label: 'Sizes & colors', kicker: 'Settings', title: 'Sizes and colors', roles: ['floor', 'lead', 'admin'] },
+  { value: 'correct', label: 'Correct stock', kicker: 'Settings · stock correction', title: 'Correct a count', roles: ['floor', 'lead', 'admin'] },
+  { value: 'count', label: 'Full count', kicker: 'Settings · full count', title: 'Count everything', roles: ['floor', 'lead', 'admin'] },
   { value: 'oracle', label: 'Oracle values', kicker: 'Settings · issue import', title: 'Oracle values', roles: ['admin'] },
   { value: 'quality', label: 'Data quality', kicker: 'Settings · data quality', title: 'Unregistered garments', roles: ['lead', 'admin'] },
   { value: 'import', label: 'Import', kicker: 'Settings · issue import', title: 'Import status', roles: ['admin'] },
@@ -30,9 +30,9 @@ export function Settings(p) {
         ? Seg({ label: 'Settings section', value: view, onChange: setView, optStyle: { padding: '7px 4px' }, options: opts })
         : Dropdown({ label: 'Section', value: view, onChange: setView, options: opts })),
     h('div', { class: 'p-body', style: view === 'values' ? { gap: 'var(--space-6)' } : undefined },
-      view === 'values' && Values(p.meta, lead),
-      view === 'correct' && CorrectStock(p.meta, lead),
-      view === 'count' && FullCount(p.meta, lead),
+      view === 'values' && Values(p.meta, true), // only shown to roles that may change it
+      view === 'correct' && CorrectStock(p.meta, true),
+      view === 'count' && FullCount(p.meta, true),
       view === 'oracle' && OracleValues(p.meta, p.me.role === 'admin'),
       view === 'quality' && DataQuality(p.meta, lead),
       view === 'import' && ImportStatus(p.me.role === 'admin'),

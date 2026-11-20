@@ -40,7 +40,7 @@ def set_barcode_excluded(inp: ExcludeInput, user_id: int) -> dict:
 
 def meta(conn: Connection) -> dict:
     return {
-        "types": rows(conn, "SELECT id, code, name, plural, icon FROM garment_type WHERE active AND NOT is_system ORDER BY sort"),
+        "types": rows(conn, "SELECT id, code, name, plural, unit, icon FROM garment_type WHERE active AND NOT is_system ORDER BY sort"),
         "colors": rows(conn, "SELECT id, name, active FROM color WHERE NOT is_system ORDER BY sort"),
         "sizes": rows(conn, "SELECT id, code, active FROM size WHERE NOT is_system ORDER BY sort"),
         "locations": rows(conn, "SELECT id, code, name FROM location ORDER BY id"),

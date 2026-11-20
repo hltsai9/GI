@@ -23,10 +23,10 @@ def setup_rows():
     ids = ref_ids()
     with connect() as c:
         for col, val, fk, target in [("SUIT_TYPE", "GOWN", "garment_type_id", ids["type"]["GOWN"]), ("SUIT_COLOR", "WHITE", "color_id", ids["color"]["White"]),
-                                     ("SUIT_SIZE", "L", "size_id", ids["size"]["LG"]), ("SUIT_LEVEL", "FAB1", "location_id", ids["loc"]["Fab1"])]:
+                                     ("SUIT_SIZE", "L", "size_id", ids["size"]["LG"]), ("SUIT_LEVEL", "FAB1", "location_id", ids["loc"]["P1"])]:
             c.exec_driver_sql(f"INSERT INTO oracle_value_map (oracle_column, oracle_value, {fk}) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE {fk} = VALUES({fk})",
                               (col, val, target))
-    save_starting_count(StartingCountInput(locationId=ids["loc"]["Fab1"], asOf="2026-11-19T00:00:00Z", counts=[]), user_id())
+    save_starting_count(StartingCountInput(locationId=ids["loc"]["P1"], asOf="2026-11-19T00:00:00Z", counts=[]), user_id())
     # Two registered gowns and three unregistered rows (GOWN / OTHER / OTHER), scanned 20 Nov in Taipei = 19 Nov in Phoenix.
     data = (HEADER + csv_line("G-1", "2026-11-20 09:00:00") + csv_line("G-2", "2026-11-20 09:01:00")
             + csv_line("X  12", "2026-11-20 09:02:00", "OTHER", "OTHER") + csv_line("x  12", "2026-11-20 09:03:00", "OTHER", "OTHER")

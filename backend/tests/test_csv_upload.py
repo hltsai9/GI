@@ -55,11 +55,11 @@ def test_missing_columns_are_named():
 @pytest.mark.usefixtures("fresh_db")
 def test_rows_already_in_gi_are_not_imported_again():
     ids = ref_ids()
-    save_starting_count(StartingCountInput(locationId=ids["loc"]["Fab1"], asOf="2026-11-01T00:00:00Z", counts=[]), user_id())
+    save_starting_count(StartingCountInput(locationId=ids["loc"]["P1"], asOf="2026-11-01T00:00:00Z", counts=[]), user_id())
     first = HEADER + line("G-1", "2026-11-20 09:00:00", "2026-11-19 18:30:00") + line("G-2", "2026-11-20 10:00:00", "2026-11-19 19:30:00")
     r = import_csv(first.encode(), "export-1.csv")
     assert (r["new"], r["alreadyImported"]) == (2, 0)
-    assert on_hand("GOWN", "White", "LG", "Fab1") == -2
+    assert on_hand("GOWN", "White", "LG", "P1") == -2
     # The same file again: nothing new, stock unchanged.
     r = import_csv(first.encode(), "export-1.csv")
     assert (r["new"], r["alreadyImported"]) == (0, 2)
@@ -69,7 +69,7 @@ def test_rows_already_in_gi_are_not_imported_again():
     r = import_csv(second.encode(), "export-2.csv")
     assert (r["new"], r["alreadyImported"]) == (1, 2)
     assert count() == 3
-    assert on_hand("GOWN", "White", "LG", "Fab1") == -3
+    assert on_hand("GOWN", "White", "LG", "P1") == -3
     with connect() as c:
         runs = rows(c, "SELECT kind, note, rows_new FROM sync_run ORDER BY id")
         assert one(c, "SELECT COUNT(*) AS n FROM sync_watermark")["n"] == 0  # type: ignore[index]

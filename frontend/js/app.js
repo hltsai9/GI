@@ -29,6 +29,7 @@ function App() {
   const me = load('/me');
   const meta = load('/meta');
   const now = new Date();
+  const sites = meta.data ? meta.data.locations.map((l) => l.code).join(' + ') : '';
 
   const setTab = (t) => {
     history.replaceState(null, '', `#${t}`);
@@ -49,7 +50,7 @@ function App() {
   const page = !me.data || !meta.data ? h('div', { class: 'p-body' }, ErrorNote(me.error ?? meta.error))
     : tab === 'receive' ? Receive({ meta: meta.data, me: me.data })
       : tab === 'stock' ? Stock({ meta: meta.data, me: me.data })
-        : tab === 'trends' ? Trends()
+        : tab === 'trends' ? Trends({ meta: meta.data })
           : Settings({ meta: meta.data, me: me.data, device, onSwitchView: switchView, user, onChooseUser: chooseUser });
 
   const nav = (cls) => h('nav', { class: cls, 'aria-label': 'Main' },
@@ -62,12 +63,12 @@ function App() {
         h('div', { style: { fontSize: 24, fontWeight: 600, lineHeight: 1.2 } }, 'Garments')),
       nav('side-nav'),
       h('div', { style: { marginTop: 'auto', padding: '0 12px', fontSize: 13, color: 'var(--color-neutral-700)', lineHeight: 1.5 } },
-        'Fab1 + Fab2', h('br'), `${fmtToday(now)} · ${fmtClock(now.toISOString())}`)),
+        sites, h('br'), `${fmtToday(now)} · ${fmtClock(now.toISOString())}`)),
     h('div', { class: 'col' },
       device === 'phone' && [
         h('div', { class: 'ph-head' },
           h('span', { style: { fontSize: 18, fontWeight: 600 } }, 'Garments'),
-          h('span', { style: { fontSize: 12, color: 'var(--color-neutral-700)' } }, `Fab1 + Fab2 · ${fmtClock(now.toISOString())}`)),
+          h('span', { style: { fontSize: 12, color: 'var(--color-neutral-700)' } }, `${sites} · ${fmtClock(now.toISOString())}`)),
         nav('ph-tabs'),
       ],
       DEMO && h('div', { class: 'p-seg', style: { paddingTop: 10 } },

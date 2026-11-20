@@ -16,15 +16,15 @@ function bucketTitle(bucket, per) {
   return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 }
 
-export function Trends() {
+export function Trends({ meta }) {
   const [view, setView] = state('trends.view', 'time');
   const [days, setDays] = state('trends.days', 14);
   return [
-    PageHead({ kicker: view === 'time' ? 'Trends · Fab1 + Fab2' : `Trends · last ${days} days`, title: view === 'time' ? 'Over time' : 'Breakdown' }),
+    PageHead({ kicker: view === 'time' ? `Trends · ${meta.locations.map((l) => l.code).join(' + ')}` : `Trends · last ${days} days`, title: view === 'time' ? 'Over time' : 'Breakdown' }),
     h('div', { class: 'p-body' },
       Seg({ label: 'Trends view', value: view, onChange: setView, options: [{ value: 'time', label: 'Over time' }, { value: 'breakdown', label: 'Breakdown' }] }),
       Seg({ label: 'Range', value: days, onChange: setDays, options: [7, 14, 30, 90].map((d) => ({ value: d, label: `${d} days` })) }),
-      view === 'time' ? OverTime(days) : BreakdownView(days)),
+      view === 'time' ? OverTime(days) : BreakdownView(days, meta)),
   ];
 }
 
@@ -124,7 +124,7 @@ function OverTime(days) {
   ];
 }
 
-function BreakdownView(days) {
+function BreakdownView(days, meta) {
   const [metric, setMetric] = state('trends.metric', 'issued');
   const iss = load(`/trends/issued?days=${days}`, 'trends.issued');
   const brk = load(`/trends/breakdown?days=${days}&metric=${metric}`, 'trends.breakdown');
@@ -133,8 +133,9 @@ function BreakdownView(days) {
   const dmx = Math.max(1, ...(i?.points.map((p) => p.total) ?? [1]));
   const unreg = i ? i.points.reduce((s, p) => s + (p.values.Unregistered ?? 0), 0) : 0;
   const svm = Math.max(1, ...(b?.bySize.map((x) => x.n) ?? [1]));
-  const locA = b?.byLocation.find((l) => l.location === 'Fab1')?.n ?? 0;
-  const locB = b?.byLocation.find((l) => l.location === 'Fab2')?.n ?? 0;
+  const [codeA, codeB] = meta.locations.map((l) => l.code);
+  const locA = b?.byLocation.find((l) => l.location === codeA)?.n ?? 0;
+  const locB = b?.byLocation.find((l) => l.location === codeB)?.n ?? 0;
   return [
     ErrorNote(iss.error ?? brk.error),
     i && h('div', null,
@@ -170,7 +171,7 @@ function BreakdownView(days) {
           h('div', { style: { width: `${(locA / Math.max(1, locA + locB)) * 100}%`, background: 'var(--color-accent)' } }),
           h('div', { style: { flex: 1, background: 'var(--color-accent-300)' } })),
         h('div', { class: 'num', style: { display: 'flex', justifyContent: 'space-between', fontSize: 14, marginTop: 6 } },
-          h('span', null, h('b', null, 'Fab1'), ` ${fmtNum(locA)}`), h('span', null, h('b', null, 'Fab2'), ` ${fmtNum(locB)}`))),
+          h('span', null, h('b', null, codeA), ` ${fmtNum(locA)}`), h('span', null, h('b', null, codeB), ` ${fmtNum(locB)}`))),
     ],
   ];
 }

@@ -44,7 +44,7 @@ def _weekday_issue_rate(conn: Connection, now: datetime) -> dict[int, float]:
 def stock_summary(conn: Connection, now: datetime | None = None) -> dict:
     now = now or now_utc()
     day = site_day(now)
-    types = rows(conn, "SELECT id, name, plural, icon FROM garment_type WHERE NOT is_system AND active ORDER BY sort")
+    types = rows(conn, "SELECT id, name, plural, unit, icon FROM garment_type WHERE NOT is_system AND active ORDER BY sort")
     by_type_loc = rows(conn, """SELECT si.garment_type_id AS type_id, l.code AS location, SUM(si.on_hand) AS on_hand
                                   FROM stock_item si JOIN location l ON l.id = si.location_id GROUP BY si.garment_type_id, l.code""")
     locations = rows(conn, "SELECT id, code FROM location ORDER BY id")
@@ -61,7 +61,7 @@ def stock_summary(conn: Connection, now: datetime | None = None) -> dict:
                    for l in locations}
         total = sum(per_loc.values())
         r = rate.get(t["id"], 0)
-        totals.append({"garmentTypeId": t["id"], "name": t["name"], "plural": t["plural"], "icon": t["icon"], "onHand": total,
+        totals.append({"garmentTypeId": t["id"], "name": t["name"], "plural": t["plural"], "unit": t["unit"], "icon": t["icon"], "onHand": total,
                        "byLocation": per_loc, "daysOfCover": round(total / r, 1) if r > 0 else None,
                        "deliveredToday": delivered.get(t["id"], 0), "issuedToday": issued.get(t["id"], 0)})
     unregistered = rows(conn, """SELECT l.code AS location, si.on_hand FROM stock_item si JOIN garment_type g ON g.id = si.garment_type_id

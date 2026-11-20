@@ -20,7 +20,7 @@ def ids():
     return ref_ids()
 
 
-def line(ids, qty, size="LG", loc="Fab1"):
+def line(ids, qty, size="LG", loc="P1"):
     return DeliveryLine(garmentTypeId=ids["type"]["GOWN"], colorId=ids["color"]["White"], sizeId=ids["size"][size],
                         locationId=ids["loc"][loc], qty=qty)
 
@@ -35,7 +35,7 @@ def test_post_merges_lines_and_ignores_a_retry(ids):
     r = post_delivery(DeliveryInput(lines=[line(ids, 30), line(ids, 10), line(ids, 5, "MED")]), "key-1", u, NOW)
     assert (r["duplicate"], r["total"], r["lines"]) == (False, 45, 2)
     assert post_delivery(DeliveryInput(lines=[line(ids, 30)]), "key-1", u, NOW)["duplicate"] is True
-    assert on_hand("GOWN", "White", "LG", "Fab1") == 40
+    assert on_hand("GOWN", "White", "LG", "P1") == 40
 
 
 def test_correction_applies_the_difference_and_void_reverses(ids):
@@ -44,10 +44,10 @@ def test_correction_applies_the_difference_and_void_reverses(ids):
     with connect() as c:
         lg, med = [r["id"] for r in rows(c, "SELECT id FROM delivery_line WHERE delivery_id = ? ORDER BY id", [d["id"]])]
     assert correct_delivery(d["id"], DCorrection(lines=[{"lineId": lg, "qty": 50}]), u, NOW)["totalDelta"] == -10
-    assert on_hand("GOWN", "White", "LG", "Fab1") == 50
+    assert on_hand("GOWN", "White", "LG", "P1") == 50
     v = correct_delivery(d["id"], DCorrection(void=True, lines=[]), u, NOW)
     assert (v["voided"], v["totalDelta"]) == (True, -90)
-    assert on_hand("GOWN", "White", "MED", "Fab1") == 0
+    assert on_hand("GOWN", "White", "MED", "P1") == 0
     assert med > 0
     assert violations() == []
 
@@ -55,15 +55,15 @@ def test_correction_applies_the_difference_and_void_reverses(ids):
 def test_starting_count_keeps_later_deliveries(ids):
     # Delivery 07:00 Phoenix; the count was finished at 06:00 but entered later.
     post_delivery(DeliveryInput(receivedAt="2026-11-20T14:00:00Z", lines=[line(ids, 30)]), "d1", user_id("dev-floor"), NOW)
-    save_starting_count(StartingCountInput(locationId=ids["loc"]["Fab1"], asOf="2026-11-20T13:00:00Z", counts=[
+    save_starting_count(StartingCountInput(locationId=ids["loc"]["P1"], asOf="2026-11-20T13:00:00Z", counts=[
         CountLine(garmentTypeId=ids["type"]["GOWN"], colorId=ids["color"]["White"], sizeId=ids["size"]["LG"], qty=42)]), user_id(), NOW)
-    assert on_hand("GOWN", "White", "LG", "Fab1") == 72
+    assert on_hand("GOWN", "White", "LG", "P1") == 72
     assert violations() == []
 
 
 def test_refuses_to_correct_a_delivery_the_count_includes(ids):
     d = post_delivery(DeliveryInput(receivedAt="2026-11-20T12:00:00Z", lines=[line(ids, 30)]), "d1", user_id("dev-floor"), NOW)
-    save_starting_count(StartingCountInput(locationId=ids["loc"]["Fab1"], asOf="2026-11-20T13:00:00Z", counts=[]), user_id(), NOW)
+    save_starting_count(StartingCountInput(locationId=ids["loc"]["P1"], asOf="2026-11-20T13:00:00Z", counts=[]), user_id(), NOW)
     with connect() as c:
         dl = one(c, "SELECT id FROM delivery_line WHERE delivery_id = ?", [d["id"]])
     with pytest.raises(HttpError, match="starting count"):
@@ -71,10 +71,10 @@ def test_refuses_to_correct_a_delivery_the_count_includes(ids):
 
 
 def test_spot_check_clears_the_unregistered_bucket(ids):
-    r = save_correction(CorrectionInput(reason="spot_check", locationId=ids["loc"]["Fab1"], clearUnregistered=True, items=[
+    r = save_correction(CorrectionInput(reason="spot_check", locationId=ids["loc"]["P1"], clearUnregistered=True, items=[
         CountLine(garmentTypeId=ids["type"]["GOWN"], colorId=ids["color"]["White"], sizeId=ids["size"]["LG"], qty=12)]), user_id(), NOW)
     assert len(r["changed"]) == 1  # bucket was already 0
-    assert on_hand("GOWN", "White", "LG", "Fab1") == 12
+    assert on_hand("GOWN", "White", "LG", "P1") == 12
 
 
 def test_reorder_list(ids):

@@ -9,30 +9,51 @@ export function Stock({ meta, me }) {
   const summary = load('/stock/summary');
   const t = meta.types.find((x) => x.id === typeId) ?? meta.types[0];
   const head = view === 'summary'
-    ? { kicker: `Stock · Fab1 + Fab2 · as of ${summary.data ? fmtClock(summary.data.asOf) : ''}`, title: 'On hand' }
+    ? { kicker: `Stock · ${meta.locations.map((l) => l.code).join(' + ')} · as of ${summary.data ? fmtClock(summary.data.asOf) : ''}`, title: 'On hand' }
     : { kicker: 'Stock · grid', title: `${t.plural} · ${meta.locations.find((l) => l.id === locId)?.code}` };
   return [
     PageHead(head),
     h('div', { class: 'p-body' },
       Seg({ label: 'Stock view', value: view, onChange: setView, options: [{ value: 'summary', label: 'Summary' }, { value: 'grid', label: 'Grid' }] }),
       ErrorNote(summary.error),
-      view === 'summary' ? summary.data && SummaryView(summary.data) : GridView({ meta, me })),
+      view === 'summary' ? summary.data && SummaryView(summary.data, meta) : GridView({ meta, me })),
   ];
 }
 
-function SummaryView(s) {
+function SummaryView(s, meta) {
   const unreg = s.unregistered.reduce((a, u) => a + u.sinceLastCheck, 0);
-  const right = { textAlign: 'right' };
+  const locs = meta.locations.map((l) => l.code);
+  // One row per garment type: name and totals on the left, each location's stock side by side on the right.
+  const cols = `minmax(0, 1fr) repeat(${locs.length}, minmax(64px, 132px))`;
+  const big = { fontSize: 'clamp(30px, 8vw, 50px)', lineHeight: 1, fontWeight: 600, letterSpacing: '-.02em', textAlign: 'right' };
+  const muted = { fontSize: 13, color: 'var(--color-neutral-700)' };
+  const phone = document.documentElement.dataset.device === 'phone';
+  const nameBlock = (t) => h('div', { style: { display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 } },
+    GIcon({ name: t.icon, size: 34, color: 'var(--color-accent-700)' }),
+    h('div', { style: { minWidth: 0 } },
+      h('div', { style: { fontSize: 20, fontWeight: 600 } }, t.plural, h('span', { style: { ...muted, fontWeight: 400, marginLeft: 6 } }, `in ${t.unit}`)),
+      h('div', { class: 'num', style: muted }, `Total ${fmtNum(t.onHand)} · ${t.daysOfCover !== null ? `about ${t.daysOfCover} days` : 'no recent issues'}`),
+      h('div', { class: 'num', style: muted }, `Today +${fmtNum(t.deliveredToday)} in · −${fmtNum(t.issuedToday)} out`)));
+  // Phone: the name on its own line, the locations side by side under it.
+  const phoneView = h('div', { style: { display: 'flex', flexDirection: 'column', gap: 22 } },
+    s.totals.map((t) => h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+      nameBlock(t),
+      h('div', { style: { display: 'grid', gridTemplateColumns: `repeat(${locs.length}, minmax(0, 1fr))`, gap: 12, paddingLeft: 46 } },
+        locs.map((l) => h('div', null,
+          h('div', { class: 'kicker' }, l),
+          h('div', { class: 'num', style: { fontSize: 40, lineHeight: 1.05, fontWeight: 600, letterSpacing: '-.02em' }, 'aria-label': `${t.plural} at ${l}` }, fmtNum(t.byLocation[l] ?? 0))))))),
+    h('div', { style: { display: 'grid', gridTemplateColumns: `repeat(${locs.length}, minmax(0, 1fr))`, gap: 12, paddingLeft: 46, ...muted } },
+      locs.map((l) => h('div', { class: 'num' }, `Unregistered ${l}: ${fmtNum(s.unregistered.find((u) => u.location === l)?.onHand ?? 0)}`))));
   return [
     s.sync.stale && Warn('The issue import has not run for a while, so stock may be too high.'),
-    h('div', { style: { display: 'flex', flexDirection: 'column', gap: 18 } },
-      s.totals.map((t) => h('div', { style: { display: 'flex', alignItems: 'center', gap: 14 } },
-        GIcon({ name: t.icon, size: 34, color: 'var(--color-accent-700)' }),
-        h('div', { class: 'num', style: { fontSize: 52, lineHeight: 1, fontWeight: 600, letterSpacing: '-.02em', minWidth: 118 } }, fmtNum(t.onHand)),
-        h('div', null,
-          h('div', { style: { fontSize: 20, fontWeight: 600 } }, t.plural),
-          h('div', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, t.daysOfCover !== null ? `About ${t.daysOfCover} days at the usual rate` : 'No recent issues'),
-          h('div', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, `Today +${fmtNum(t.deliveredToday)} in · −${fmtNum(t.issuedToday)} out`))))),
+    phone ? phoneView : h('div', { style: { display: 'grid', gridTemplateColumns: cols, columnGap: 12, rowGap: 20, alignItems: 'center' } },
+      h('span'), locs.map((l) => h('span', { class: 'kicker', style: { textAlign: 'right', fontSize: 12 } }, l)),
+      s.totals.map((t) => [
+        nameBlock(t),
+        locs.map((l) => h('div', { class: 'num', style: big, 'aria-label': `${t.plural} at ${l}` }, fmtNum(t.byLocation[l] ?? 0))),
+      ]),
+      h('div', { style: { ...muted, paddingLeft: 46 } }, 'Unregistered'),
+      locs.map((l) => h('div', { class: 'num', style: { ...muted, textAlign: 'right', fontSize: 15 } }, fmtNum(s.unregistered.find((u) => u.location === l)?.onHand ?? 0)))),
     unreg > 0 && Warn(`${fmtNum(unreg)} garments issued since the last full check were not registered (${s.unregistered.map((u) => `${u.location} ${u.sinceLastCheck}`).join(', ')}). Stock per type, size and color may be too high by up to ${fmtNum(unreg)} in total.`),
     h('div', null,
       h('h4', { class: 'sec' }, 'Reorder ', h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } },
@@ -41,12 +62,6 @@ function SummaryView(s) {
         h('span', { style: { display: 'flex', alignItems: 'center', gap: 8 } }, GIcon({ name: r.icon, size: 18, color: 'var(--color-neutral-700)' }), `${r.garment} · ${r.color} · ${r.size} · ${r.location}`),
         h('span', { class: 'num' }, h('b', { style: { color: 'var(--color-accent-2-700)' } }, r.on_hand), ' ', h('span', { style: { color: 'var(--color-neutral-700)' } }, `/ ${r.min_qty}`)))),
       !s.reorder.length && h('div', { class: 'note' }, 'Nothing below its minimum.')),
-    h('table', { class: 'table num' },
-      h('thead', null, h('tr', null, h('th', null, 'By location'), h('th', { style: right }, 'Fab1'), h('th', { style: right }, 'Fab2'))),
-      h('tbody', null,
-        s.totals.map((t) => h('tr', null, h('td', null, t.plural), h('td', { style: right }, fmtNum(t.byLocation.Fab1 ?? 0)), h('td', { style: right }, fmtNum(t.byLocation.Fab2 ?? 0)))),
-        h('tr', null, h('td', { class: 'muted' }, 'Unregistered'),
-          ['Fab1', 'Fab2'].map((l) => h('td', { class: 'muted', style: right }, s.unregistered.find((u) => u.location === l)?.onHand ?? 0))))),
   ];
 }
 
