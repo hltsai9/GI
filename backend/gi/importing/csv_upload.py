@@ -17,7 +17,7 @@ from typing import Callable
 from ..db import connect, execute
 from ..timeutil import now_utc
 from .importer import _Counters, _exclusive, _finish_run, _import_batch, _start_run
-from .source import ISSUE_STATE, OracleIssueRow
+from .source import ISSUE_STATE, OracleIssueRow, clean_barcode
 
 REQUIRED = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL", "INSERT_TIME", "RECTIME")
 MAX_ERRORS = 20
@@ -93,10 +93,10 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
             empty = [c for c in REQUIRED if not get(c)]
             if empty:
                 raise ValueError(f"empty {', '.join(empty)}")
-            barcode = rec[cols["SUIT_BARCODE"]] if cols["SUIT_BARCODE"] < len(rec) else ""
+            barcode = clean_barcode(rec[cols["SUIT_BARCODE"]] if cols["SUIT_BARCODE"] < len(rec) else "")
             if len(barcode) > 255:
                 raise ValueError(f"SUIT_BARCODE is longer than 255 characters ({barcode[:40]!r}…)")
-            # The barcode is kept exactly as exported (spaces included), like the live Oracle import does.
+            # Trailing padding removed; leading and inner spaces kept, the same as the live Oracle import.
             out.append({"SUIT_BARCODE": barcode, "SUIT_TYPE": get("SUIT_TYPE"), "SUIT_COLOR": get("SUIT_COLOR"),
                         "SUIT_SIZE": get("SUIT_SIZE"), "SUIT_LEVEL": get("SUIT_LEVEL"),
                         "INSERT_TIME": parse_time(get("INSERT_TIME")), "RECTIME": parse_time(get("RECTIME"))})

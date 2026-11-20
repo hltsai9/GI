@@ -117,4 +117,12 @@ def test_barcodes_with_quotes_commas_and_spaces_survive_the_csv():
     text = HEADER + "".join(f"{f},GOWN,OTHER,OTHER,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:0{i},U1,2026-11-19 18:30:00\n"
                             for i, f in enumerate(['"Q""7 7"', '"X-1, BAD"', '  0000  ', 'AB   1203', '"tab\there"']))
     got, _ = parse(text.encode())
-    assert [r["SUIT_BARCODE"] for r in got] == ['Q"7 7', "X-1, BAD", "  0000  ", "AB   1203", "tab\there"]
+    assert [r["SUIT_BARCODE"] for r in got] == ['Q"7 7', "X-1, BAD", "  0000", "AB   1203", "tab\there"]
+
+
+def test_trailing_padding_is_removed_from_barcodes():
+    # Oracle CHAR columns and aligned exports pad barcodes with spaces up to the column width.
+    text = HEADER + "".join(f"{b},GOWN,WHITE,L,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:0{i},U1,2026-11-19 18:30:00\n"
+                            for i, b in enumerate(['"ABC123    "', '"ABC1234567"', '"ABC123"      ', '"  LEAD  IN    "']))
+    got, _ = parse(text.encode())
+    assert [r["SUIT_BARCODE"] for r in got] == ["ABC123", "ABC1234567", "ABC123", "  LEAD  IN"]

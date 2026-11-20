@@ -46,8 +46,8 @@ def test_barcodes_are_kept_exactly():
     setup_rows()
     with connect() as c:
         dq = settings.unregistered_barcodes(c)
-    # Case, inner and outer spaces are kept, so these are three different barcodes.
-    assert sorted(b["barcode"] for b in dq) == [" X  12 ", "X  12", "x  12"]
+    # Case, leading and inner spaces are kept, so these are three different barcodes (trailing padding is removed).
+    assert sorted(b["barcode"] for b in dq) == [" X  12", "X  12", "x  12"]
     b = next(b for b in dq if b["barcode"] == "X  12")
     assert b["last_insert_time"] == "2026-11-20 09:02:00"   # as in Oracle (Taipei)
     assert b["last_seen"] == "2026-11-20T01:02:00.000Z"    # the same moment in UTC (18:02 on 19 Nov in Phoenix)
@@ -85,7 +85,7 @@ def test_unregistered_csv_download_quotes_barcodes():
     setup_rows()
     from gi.app import build_app
     text = TestClient(build_app()).get("/api/data-quality/unregistered.csv", headers={"x-dev-user": "dev-lead"}).text
-    assert '" X  12 "' in text and text.splitlines()[0].startswith('"barcode","times_issued"')
+    assert '" X  12"' in text and text.splitlines()[0].startswith('"barcode","times_issued"')
 
 
 def test_barcodes_with_conflicting_values():
