@@ -193,7 +193,7 @@ function FullCount(meta, canEdit) {
 
 function OracleValues(meta, canEdit) {
   const { data, error } = load('/oracle-values');
-  const [saved, setSaved] = flash('oracle.saved');
+  const [rowMsg, setRowMsg] = flash('oracle.row'); // shown under the value that was changed
   const options = (col) => {
     const list = col === 'SUIT_TYPE' ? meta.types.map((t) => ({ value: String(t.id), label: t.name }))
       : col === 'SUIT_COLOR' ? meta.colors.map((c) => ({ value: String(c.id), label: c.name }))
@@ -201,9 +201,13 @@ function OracleValues(meta, canEdit) {
           : meta.locations.map((l) => ({ value: String(l.id), label: l.code }));
     return [{ value: '', label: 'Not mapped' }, ...list, { value: 'ignore', label: 'Ignore' }];
   };
-  const change = (v, choice) => {
-    if (!choice) return;
-    attempt('oracle', async () => {
+  const change = async (v, choice) => {
+    if (!choice) {
+      // Mappings are never removed (issues already counted keep their mapping); say so instead of doing nothing.
+      if (v.mapped) setRowMsg({ id: v.id, error: 'A mapped value cannot be set back to "Not mapped". Choose another GI value, or Ignore.' });
+      return;
+    }
+    try {
       const r = await api(`/oracle-values/${v.id}`, { method: 'PUT', json: choice === 'ignore' ? { ignore: true } : { targetId: Number(choice) } });
       const st = r.byStatus ?? {};
       const parts = [`${v.oracle_column} ${v.oracle_value} mapped`];
@@ -214,35 +218,41 @@ function OracleValues(meta, canEdit) {
       }
       if (r.stillHeld) parts.push(`${fmtNum(r.stillHeld)} rows with this value still wait for their other values to be mapped`);
       else if (!r.reclassified) parts.push('no rows were waiting for it');
-      setSaved(parts.join(' · '));
+      setRowMsg({ id: v.id, text: parts.join(' · ') });
       reload('/oracle-values', '/stock', '/trends', '/data-quality');
-    });
+    } catch (e) {
+      setRowMsg({ id: v.id, error: e.message });
+    }
   };
   return [
     h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first. An issue row is held until all four of its values (type, color, size, level) are mapped; it then counts against stock from the fab\'s starting count on.'),
-    saved && Msg({ tag: 'Saved', text: saved }),
-    ErrorNote(error ?? errorOf('oracle')),
+    ErrorNote(error),
     h('div', { style: { display: 'flex', flexDirection: 'column' } },
-      (data ?? []).map((v) => h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 10, alignItems: 'center', padding: '6px 0' } },
+      (data ?? []).flatMap((v) => [h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 10, alignItems: 'center', padding: '6px 0' } },
         h('div', null,
           h('div', { style: { fontWeight: 600, fontSize: 15 } }, `${v.oracle_value} `, !v.mapped && h('span', { class: 'tag tag-accent-2' }, 'New')),
           h('div', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, `${v.oracle_column} · ${fmtNum(v.row_count)} rows${v.heldRows ? ` · ${v.heldRows} held` : ''}`)),
         canEdit
           ? Dropdown({ id: v.id, label: 'GI value', value: v.is_ignored ? 'ignore' : v.gi_id === null ? '' : String(v.gi_id), onChange: (c) => change(v, c), options: options(v.oracle_column) })
-          : h('span', null, v.is_ignored ? 'Ignore' : options(v.oracle_column).find((o) => o.value === String(v.gi_id))?.label ?? 'Not mapped')))),
+          : h('span', null, v.is_ignored ? 'Ignore' : options(v.oracle_column).find((o) => o.value === String(v.gi_id))?.label ?? 'Not mapped')),
+        rowMsg && rowMsg.id === v.id && h('div', { role: 'status', style: { padding: '0 0 8px' } }, rowMsg.error ? Warn(rowMsg.error) : Msg({ tag: 'Saved', text: rowMsg.text }))])),
   ];
 }
 
 function DataQuality(meta, canEdit) {
   const { data, error } = load('/data-quality?days=30');
   const [find, setFind] = state('quality.find', '');
-  const [saved, setSaved] = flash('quality.saved');
-  const toggle = (b) => attempt('quality', async () => {
-    const r = await api('/data-quality/excluded', { method: 'PUT', json: { barcode: b.barcode, excluded: !b.excluded } });
-    setSaved([h('span', { style: { whiteSpace: 'pre' } }, JSON.stringify(b.barcode)),
-      ` ${r.excluded ? 'left out' : 'counted again'} · ${fmtNum(r.changed)} issues ${r.excluded ? 'no longer count' : 'count again'}`]);
-    reload('/data-quality', '/stock', '/trends');
-  });
+  // The result is shown right under the row that was clicked (the top of the page may be scrolled away).
+  const [rowMsg, setRowMsg] = flash('quality.row');
+  const toggle = async (b) => {
+    try {
+      const r = await api('/data-quality/excluded', { method: 'PUT', json: { barcode: b.barcode, excluded: !b.excluded } });
+      setRowMsg({ barcode: b.barcode, text: `${r.excluded ? 'Left out' : 'Counted again'} · ${fmtNum(r.changed)} issues ${r.excluded ? 'no longer count' : 'count again'} in Trends and Stock` });
+      reload('/data-quality', '/stock', '/trends');
+    } catch (e) {
+      setRowMsg({ barcode: b.barcode, error: e.message });
+    }
+  };
   const all = data?.unregisteredBarcodes ?? [];
   const leftOut = all.filter((b) => b.excluded).length;
   const shown = all.filter((b) => !find || b.barcode.toLowerCase().includes(find.toLowerCase())).slice(0, 50);
@@ -261,8 +271,7 @@ function DataQuality(meta, canEdit) {
   const combo = (k) => `${k.type} / ${k.color} / ${k.size}`;
   return [
     h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color, but they count as issued. A barcode that is only dirty data can be left out of the issued numbers below (Leave out); its issues then no longer count anywhere, now and in future imports, until you count it again.'),
-    saved && Msg({ tag: 'Saved', text: saved }),
-    ErrorNote(error ?? errorOf('quality')),
+    ErrorNote(error),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Day'), h('th', { style: right }, 'Unregistered'), h('th', { style: right }, 'All issues'), h('th', { style: right }, '%'))),
       h('tbody', null, days.map(([d, v]) => h('tr', null, h('td', null, d), h('td', { style: right }, v.incomplete), h('td', { style: right }, fmtNum(v.total)),
@@ -277,12 +286,14 @@ function DataQuality(meta, canEdit) {
         h('th', { title: 'INSERT_TIME of the latest scan exactly as in Oracle (Taipei time): search for this in an Oracle export' }, 'INSERT_TIME (Oracle)'),
         h('th', null, 'Where'), h('th', { style: right }, 'Issued count'))),
       // white-space: pre keeps runs of spaces in barcodes visible exactly as stored (HTML would merge them).
-      h('tbody', null, shown.map((b) => h('tr', { style: b.excluded ? { color: 'var(--color-neutral-600)' } : null },
+      h('tbody', null, shown.flatMap((b) => [h('tr', { style: b.excluded ? { color: 'var(--color-neutral-600)' } : null },
         h('td', { style: { whiteSpace: 'pre', textDecoration: b.excluded ? 'line-through' : null }, title: JSON.stringify(b.barcode) }, b.barcode), h('td', { style: right }, b.times),
         h('td', null, fmtWhen(b.last_seen)), h('td', null, b.last_insert_time ?? ''), h('td', null, b.locations),
         h('td', { style: { ...right, whiteSpace: 'nowrap' } },
           b.excluded && h('span', { class: 'tag tag-neutral', style: { marginRight: 6 } }, 'left out'),
-          canEdit && h('button', { class: 'btn btn-ghost', onClick: () => toggle(b), style: { minHeight: 36, padding: '0 6px' } }, b.excluded ? 'Count again' : 'Leave out')))))),
+          canEdit && h('button', { class: 'btn btn-ghost', onClick: () => toggle(b), style: { minHeight: 36, padding: '0 6px' } }, b.excluded ? 'Count again' : 'Leave out'))),
+        rowMsg && rowMsg.barcode === b.barcode && h('tr', null, h('td', { colspan: 6, role: 'status' },
+          rowMsg.error ? Warn(rowMsg.error) : Msg({ tag: 'Saved', text: rowMsg.text })))]))),
     find && !shown.length && h('div', { class: 'note' }, 'No unregistered barcode contains that text.'),
     all.length > 50 && !find && h('div', { class: 'note' }, `Showing the 50 barcodes issued most often; find a barcode to see any of the ${fmtNum(all.length)}.`),
     h('div', { class: 'note' }, 'Last scan is shown in Phoenix time. INSERT_TIME is the same moment as stored in Oracle (Taipei time, 15 hours ahead), to search for in your export. Hover a barcode to see it with its exact spaces.'),

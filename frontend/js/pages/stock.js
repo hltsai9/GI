@@ -72,14 +72,6 @@ function SummaryView(s, meta) {
             h('td', { style: { ...right, fontWeight: 600, color: 'var(--color-accent-2-700)' } }, r.on_hand),
             h('td', { style: right }, r.min_qty)))))
         : h('div', { class: 'note' }, 'Nothing below its minimum.')),
-    h('table', { class: 'table num' },
-      h('thead', null, h('tr', null, h('th', null, 'By location'), locs.map((l) => h('th', { style: right }, l)), h('th', { style: right }, 'Total'))),
-      h('tbody', null,
-        s.totals.map((t) => h('tr', null, h('td', null, `${t.plural} (${t.unit})`),
-          locs.map((l) => h('td', { style: right }, fmtNum(t.byLocation[l] ?? 0))), h('td', { style: { ...right, fontWeight: 600 } }, fmtNum(t.onHand)))),
-        h('tr', null, h('td', { class: 'muted' }, 'Unregistered'),
-          locs.map((l) => h('td', { class: 'muted', style: right }, fmtNum(s.unregistered.find((u) => u.location === l)?.onHand ?? 0))),
-          h('td', { class: 'muted', style: right }, fmtNum(s.unregistered.reduce((a, u) => a + u.onHand, 0)))))),
   ];
 }
 

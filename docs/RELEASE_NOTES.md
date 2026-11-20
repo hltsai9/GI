@@ -7,6 +7,13 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### "Leave out" seemed to do nothing; By location table removed again
+- **Question answered: clicking "Leave out" seemed to do nothing.** It did work, but its message appeared at the top of the page, scrolled out of sight. On the GitHub demo that message is "read-only demo" (the demo cannot change anything); on the test site it was the confirmation.
+  - **Now the result appears directly under the row you clicked**, in Settings › Data quality ("Left out · N issues no longer count…" or the error) and in Settings › Oracle values (the mapping result).
+  - Choosing "Not mapped" for a value that is already mapped now explains that it cannot be undone (choose another value or Ignore). Before, the click was silently ignored.
+- **Stock › Summary: the "By location" table is removed again**, because it repeated the P1 / P2 numbers shown at the top.
+- Tested here: in the demo and on a test server, on rows far down the list. The message is visible next to the row each time.
+
 ### Fix: Admin passcode could not be typed; Stock summary tables
 - **Bug fixed: typing the Admin passcode showed nothing**, on the GitHub demo and on the real site alike. The passcode field has an Enter-key check that answered "no" for every other key, and the browser took that as "ignore this key press". The page's view helper now never lets an event handler's answer cancel a key press or click. Tested on laptop and phone by typing the passcode key by key, the way a person does (the earlier test pasted it, which hid the bug).
 - **Stock › Summary:**
