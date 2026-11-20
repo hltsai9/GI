@@ -23,7 +23,7 @@ def main() -> None:
         locations = rows(c, "SELECT id FROM location")
         items = rows(c, "SELECT id FROM stock_item")
     paths = ["/me", "/meta", "/deliveries?limit=30", "/stock/summary", "/starting-counts", "/corrections", "/oracle-values",
-             "/data-quality?days=30", "/data-quality/unregistered.csv", "/sync/status", "/sync/runs", "/alerts",
+             "/data-quality?days=30", "/data-quality/unregistered.csv", "/data-quality/conflicts.csv", "/sync/status", "/sync/runs", "/alerts",
              *(f"/stock/grid?garmentTypeId={t['id']}&locationId={l['id']}" for t in types for l in locations),
              *(f"/stock/items/{i['id']}" for i in items)]
     # Must match the requests in frontend/js/pages/trends.js.

@@ -268,6 +268,20 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
         return Response(out.getvalue(), media_type="text/csv",
                         headers={"content-disposition": 'attachment; filename="unregistered-barcodes.csv"'})
 
+    @app.get("/api/data-quality/conflicts.csv", dependencies=[user])
+    def conflicts_csv():
+        with connect() as c:
+            lst = settings.conflicting_barcodes(c)
+        out = io.StringIO()
+        w = csv.writer(out, lineterminator="\n", quoting=csv.QUOTE_ALL)
+        w.writerow(["barcode", "suit_type", "suit_color", "suit_size", "times_issued", "first_insert_time_oracle",
+                    "last_insert_time_oracle", "locations"])
+        for b in lst:
+            for k in b["combinations"]:
+                w.writerow([b["barcode"], k["type"], k["color"], k["size"], k["times"], k["first_insert_time"], k["last_insert_time"], k["locations"]])
+        return Response(out.getvalue(), media_type="text/csv",
+                        headers={"content-disposition": 'attachment; filename="barcodes-with-conflicting-values.csv"'})
+
     # ---- Import status and admin
     @app.get("/api/sync/status", dependencies=[user])
     def status():

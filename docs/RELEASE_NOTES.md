@@ -19,6 +19,14 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - 18 new tests (44 in total pass): date formats, a bad row rejecting the whole file, re-uploads and overlapping files;
   - in the browser, on an empty database with `ISSUE_SOURCE=csv`: two overlapping exports in different date formats, then the first one again. 2,471 distinct issues were stored, with nothing counted twice.
 
+### Barcodes with conflicting values
+- **New report in Settings › Data quality: barcodes issued with more than one type / color / size combination.** One barcode is one garment, so these point to suit master problems, e.g. a re-used or re-labelled barcode.
+  - Each combination is listed with how often it was seen, its first and last `INSERT_TIME` as in Oracle, and the locations.
+  - "unregistered" marks GOWN / OTHER / OTHER rows. A barcode that is unregistered first and complete later was registered in between.
+  - Values are compared exactly, so `WHITE` and `white` count as different.
+  - **Download CSV** lists all of them; the page shows the 50 with the most issues.
+- Tested here: 52 backend tests pass (1 new); checked in the browser.
+
 ### New sizes and color, leaving out unregistered garments, exact barcodes
 - **New color Grey and sizes XSM, 5XLG, 6XLG, 7XLG, UNI**, for every installation (migration `005`, automatic).
   - Size order: XSM, SM, MED, LG, XLG, 2XLG–7XLG, UNI, Other.

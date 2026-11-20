@@ -171,10 +171,38 @@ def unregistered_barcodes(conn: Connection) -> list[dict]:
              "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S") if r["last_insert_time"] else None} for r in rs]
 
 
+def conflicting_barcodes(conn: Connection) -> list[dict]:
+    """Barcodes issued with more than one SUIT_TYPE / SUIT_COLOR / SUIT_SIZE combination. A barcode means
+    one garment, so these show suit master problems (a barcode re-used or re-labelled). Unregistered rows
+    (GOWN / OTHER / OTHER) are included: a barcode that is sometimes unregistered and sometimes not
+    shows a registration that came later. Values are compared exactly (case and spaces)."""
+    rs = rows(conn, """SELECT ii.suit_barcode AS barcode, ii.suit_type, ii.suit_color, ii.suit_size, ii.quality,
+                              COUNT(*) AS times, MIN(ii.insert_time) AS first_insert_time, MAX(ii.insert_time) AS last_insert_time,
+                              MIN(ii.issued_at) AS first_seen, MAX(ii.issued_at) AS last_seen,
+                              GROUP_CONCAT(DISTINCT ii.suit_level ORDER BY ii.suit_level) AS locations
+                         FROM issue_import ii
+                         JOIN (SELECT suit_barcode FROM issue_import GROUP BY suit_barcode
+                                HAVING COUNT(DISTINCT BINARY suit_type, BINARY suit_color, BINARY suit_size) > 1) x
+                           ON x.suit_barcode = ii.suit_barcode
+                        GROUP BY ii.suit_barcode, BINARY ii.suit_type, BINARY ii.suit_color, BINARY ii.suit_size
+                        ORDER BY ii.suit_barcode, last_insert_time""")
+    out: dict[str, dict] = {}
+    for r in rs:
+        b = out.setdefault(r["barcode"], {"barcode": r["barcode"], "times": 0, "combinations": []})
+        b["times"] += r["times"]
+        b["combinations"].append({
+            "type": r["suit_type"], "color": r["suit_color"], "size": r["suit_size"], "unregistered": r["quality"] == "incomplete",
+            "times": r["times"], "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
+            "first_insert_time": r["first_insert_time"].strftime("%Y-%m-%d %H:%M:%S"),
+            "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S"), "locations": r["locations"]})
+    return sorted(out.values(), key=lambda b: (-b["times"], b["barcode"]))
+
+
 def data_quality(conn: Connection, days: int) -> dict:
     per_day = rows(conn, """SELECT issued_day AS day, l.code AS location, SUM(quality = 'incomplete') AS incomplete, COUNT(*) AS total
                               FROM issue_import ii LEFT JOIN location l ON l.id = ii.location_id
                              WHERE issued_day >= CURDATE() - INTERVAL ? DAY AND status <> 'ignored'
                              GROUP BY issued_day, l.code ORDER BY issued_day""", [days])
     return {"perDay": [{**r, "day": r["day"].isoformat()} for r in per_day], "unregisteredBarcodes": unregistered_barcodes(conn),
+            "conflictingBarcodes": conflicting_barcodes(conn),
             "patterns": rows(conn, "SELECT id, suit_type, suit_color, suit_size, active FROM dq_pattern ORDER BY id")}

@@ -243,11 +243,13 @@ function DataQuality(meta, canEdit) {
     m.set(r.day, { incomplete: x.incomplete + Number(r.incomplete), total: x.total + Number(r.total) });
   }
   const days = [...m].slice(-14).reverse();
-  const download = async () => {
-    const res = DEMO ? await demoFetch('/data-quality/unregistered.csv') : await fetch('api/data-quality/unregistered.csv', { headers: { 'X-Dev-User': devUser() } });
+  const download = async (path, name) => {
+    const res = DEMO ? await demoFetch(path) : await fetch(`api${path}`, { headers: { 'X-Dev-User': devUser() } });
     const url = URL.createObjectURL(await res.blob());
-    Object.assign(document.createElement('a'), { href: url, download: 'unregistered-barcodes.csv' }).click();
+    Object.assign(document.createElement('a'), { href: url, download: name }).click();
   };
+  const conflicts = data?.conflictingBarcodes ?? [];
+  const combo = (k) => `${k.type} / ${k.color} / ${k.size}`;
   return [
     h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color. If they are mostly dirty data, leave them out of the issued numbers too:'),
     Seg({ label: 'Unregistered garments in issued numbers', value: counted, onChange: (v) => canEdit && setCounted(v),
@@ -263,7 +265,7 @@ function DataQuality(meta, canEdit) {
         h('td', { style: right }, v.total ? ((v.incomplete / v.total) * 100).toFixed(1) : '0'))))),
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 } },
       h('h4', { style: { margin: 0 } }, 'Unregistered barcodes ', h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${data?.unregisteredBarcodes.length ?? 0} for the vendor to register`)),
-      h('button', { class: 'btn btn-secondary', onClick: download, style: { minHeight: 44 } }, 'Download CSV')),
+      h('button', { class: 'btn btn-secondary', onClick: () => download('/data-quality/unregistered.csv', 'unregistered-barcodes.csv'), style: { minHeight: 44 } }, 'Download CSV')),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', { style: right }, 'Times'),
         h('th', { title: 'Time of the latest scan, in Phoenix time' }, 'Last scan (Phoenix)'),
@@ -274,6 +276,24 @@ function DataQuality(meta, canEdit) {
         h('td', { style: { whiteSpace: 'pre' }, title: JSON.stringify(b.barcode) }, b.barcode), h('td', { style: right }, b.times),
         h('td', null, fmtWhen(b.last_seen)), h('td', null, b.last_insert_time ?? ''), h('td', null, b.locations))))),
     h('div', { class: 'note' }, 'Last scan is shown in Phoenix time. INSERT_TIME is the same moment as stored in Oracle (Taipei time, 15 hours ahead), to search for in your export. Hover a barcode to see it with its exact spaces.'),
+    // One barcode is one garment, so its type, color and size should never change.
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginTop: 8 } },
+      h('h4', { style: { margin: 0 } }, 'Barcodes with conflicting values ',
+        h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(conflicts.length)} barcodes`)),
+      h('button', { class: 'btn btn-secondary', disabled: !conflicts.length, onClick: () => download('/data-quality/conflicts.csv', 'barcodes-with-conflicting-values.csv'), style: { minHeight: 44 } }, 'Download CSV')),
+    h('div', { class: 'note' }, 'The same barcode was issued with different type, color or size. Each combination is listed with how often and when it was seen. "unregistered" marks GOWN / OTHER / OTHER rows; a barcode that is unregistered first and complete later was registered in between.'),
+    conflicts.length
+      ? h('table', { class: 'table num' },
+        h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', null, 'Type / color / size'), h('th', { style: right }, 'Times'),
+          h('th', { title: 'First and last INSERT_TIME exactly as in Oracle (Taipei time)' }, 'INSERT_TIME (Oracle)'), h('th', null, 'Where'))),
+        h('tbody', null, conflicts.slice(0, 50).flatMap((b) => b.combinations.map((k, i) => h('tr', null,
+          h('td', { style: { whiteSpace: 'pre', fontWeight: 600, borderBottomColor: i < b.combinations.length - 1 ? 'transparent' : null }, title: JSON.stringify(b.barcode) }, i === 0 ? b.barcode : ''),
+          h('td', { style: { whiteSpace: 'pre' } }, combo(k), k.unregistered && h('span', { class: 'tag tag-neutral', style: { marginLeft: 6 } }, 'unregistered')),
+          h('td', { style: right }, k.times),
+          h('td', null, k.first_insert_time === k.last_insert_time ? k.last_insert_time : `${k.first_insert_time} – ${k.last_insert_time}`),
+          h('td', null, k.locations))))))
+      : h('div', { class: 'note' }, data ? 'None found: every barcode always came with the same type, color and size.' : ''),
+    conflicts.length > 50 && h('div', { class: 'note' }, `Showing the 50 barcodes with the most issues; Download CSV has all ${fmtNum(conflicts.length)}.`),
   ];
 }
 

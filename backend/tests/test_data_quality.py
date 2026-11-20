@@ -86,3 +86,22 @@ def test_unregistered_csv_download_quotes_barcodes():
     from gi.app import build_app
     text = TestClient(build_app()).get("/api/data-quality/unregistered.csv", headers={"x-dev-user": "dev-lead"}).text
     assert '" X  12 "' in text and text.splitlines()[0].startswith('"barcode","times_issued"')
+
+
+def test_barcodes_with_conflicting_values():
+    data = (HEADER + csv_line("G-1", "2026-11-20 09:00:00") + csv_line("G-1", "2026-11-20 10:00:00")
+            + csv_line("G-1", "2026-11-21 09:00:00", "BLUE")              # same barcode, other color
+            + csv_line("G-2", "2026-11-20 09:00:00") + csv_line("G-2", "2026-11-21 09:00:00")   # consistent
+            + csv_line("G-3", "2026-11-20 09:00:00", "OTHER", "OTHER") + csv_line("G-3", "2026-11-21 09:00:00", size="XL")
+            + csv_line("G-4", "2026-11-20 09:00:00", "white") + csv_line("G-4", "2026-11-21 09:00:00"))   # case differs
+    import_csv(data.encode())
+    with connect() as c:
+        got = {b["barcode"]: b for b in settings.conflicting_barcodes(c)}
+    assert sorted(got) == ["G-1", "G-3", "G-4"]
+    g1 = got["G-1"]
+    assert g1["times"] == 3 and [(k["color"], k["times"]) for k in g1["combinations"]] == [("WHITE", 2), ("BLUE", 1)]
+    assert g1["combinations"][0]["last_insert_time"] == "2026-11-20 10:00:00"
+    assert [k["unregistered"] for k in got["G-3"]["combinations"]] == [True, False]   # registered later
+    from gi.app import build_app
+    text = TestClient(build_app()).get("/api/data-quality/conflicts.csv", headers={"x-dev-user": "dev-lead"}).text
+    assert text.count("\n") == 1 + 6 and '"G-1","GOWN","BLUE","L","1"' in text
