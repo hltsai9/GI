@@ -51,10 +51,8 @@ const GroupBars = (points, locs, get, colors, max, active) => h('div', { style: 
     locs.map((l, i) => h('div', { style: { flex: 1, height: `${(get(p, l) / max) * 100}%`, background: colors[i] } })))));
 
 function OverTime(days) {
-  const [per, setPer] = state('trends.per', 'day');
-  const stk = load(`/trends/stock?days=${days}`, 'trends.stock');
   // Paths must match backend/gi/cli/export_demo.py.
-  const del = load(`/trends/delivered?days=${per === 'day' ? days : Math.max(days, per === 'week' ? 56 : 180)}&per=${per}`, 'trends.delivered');
+  const stk = load(`/trends/stock?days=${days}`, 'trends.stock');
   const s = stk.data;
   const locs = s?.locations ?? [];
   const at = (p, l, k) => p.byLocation?.[l]?.[k];
@@ -82,12 +80,9 @@ function OverTime(days) {
       left: `${xOf(j) * 100}%`, top: `${(yOf(v) / 140) * 100}%` } });
   };
   const flowMax = Math.max(1, ...(s?.flows.flatMap((f) => locs.flatMap((l) => [f.byLocation[l].delivered, f.byLocation[l].issued])) ?? [1]));
-  const dl = del.data;
-  const dlocs = dl?.locations ?? [];
-  const dm = Math.max(1, ...(dl?.points.flatMap((p) => dlocs.map((l) => p.byLocation[l])) ?? [1]));
   const last = s?.points[s.points.length - 1];
   return [
-    ErrorNote(stk.error ?? del.error),
+    ErrorNote(stk.error),
     s && h('div', null,
       h('h4', { class: 'sec' }, 'Stock on hand'),
       // Legend as a small table: garment | today's stock per location (with that location's line style).
@@ -139,28 +134,18 @@ function OverTime(days) {
               locs.map((l, i) => h('div', { style: { flex: 1, height: `${(f.byLocation[l].issued / flowMax) * 100}%`, background: ISSUED[i] } })))))),
       }),
       Axis(s.flows[0]?.day)),
-    dl && h('div', null,
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 } },
-        h('h4', { style: { margin: 0 } }, 'Delivered'),
-        Seg({ label: 'Delivered per', value: per, onChange: setPer, optStyle: { flex: 'none', minHeight: 32, padding: '4px 10px' },
-          options: [{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }] })),
-      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 } },
-        h('span', { class: 'num', style: { fontSize: 34, fontWeight: 600, lineHeight: 1 } }, fmtNum(dl.total)),
-        h('span', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, `items in the range, per ${dl.per}`)),
-      h('div', { style: { marginBottom: 8 } }, LocKey(dlocs, DELIVERED)),
-      HoverArea({
-        id: 'delivered', label: `Items delivered per ${dl.per}, per location`, count: dl.points.length, height: 110,
-        title: (k) => bucketTitle(dl.points[k].bucket, dl.per),
-        rows: (k) => [...dlocs.map((l, i) => ({ label: l, color: DELIVERED[i], value: `${fmtNum(dl.points[k].byLocation[l])} items` })),
-          { label: 'Total', value: `${fmtNum(dl.points[k].total)} items` }],
-        body: (a) => GroupBars(dl.points, dlocs, (p, l) => p.byLocation[l], DELIVERED, dm, a),
-      }),
-      Axis(dl.per === 'month' ? undefined : dl.points[0]?.bucket, dl.per === 'day' ? 'Today' : `This ${dl.per}`)),
   ];
 }
 
 function BreakdownView(days, meta) {
   const [metric, setMetric] = state('trends.metric', 'issued');
+  const [per, setPer] = state('trends.per', 'day');
+  // Paths must match backend/gi/cli/export_demo.py.
+  const del = load(`/trends/delivered?days=${per === 'day' ? days : Math.max(days, per === 'week' ? 56 : 180)}&per=${per}`, 'trends.delivered');
+  const dl = del.data;
+  const dlocs = dl?.locations ?? [];
+  const dm = Math.max(1, ...(dl?.points.flatMap((p) => dlocs.map((l) => p.byLocation[l])) ?? [1]));
+  const perWord = { day: 'day', week: 'week', month: 'month' }[dl?.per ?? per];
   const iss = load(`/trends/issued?days=${days}`, 'trends.issued');
   const brk = load(`/trends/breakdown?days=${days}&metric=${metric}`, 'trends.breakdown');
   const i = iss.data;
@@ -175,23 +160,43 @@ function BreakdownView(days, meta) {
   const locB = b?.byLocation.find((l) => l.location === codeB)?.n ?? 0;
   const colors = metric === 'issued' ? ISSUED : DELIVERED;
   return [
-    ErrorNote(iss.error ?? brk.error),
+    ErrorNote(del.error ?? iss.error ?? brk.error),
+    dl && h('div', null,
+      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 } },
+        h('h4', { style: { margin: 0 } }, `Delivered per ${perWord}`),
+        Seg({ label: 'Delivered per', value: per, onChange: setPer, optStyle: { flex: 'none', minHeight: 32, padding: '4px 10px' },
+          options: [{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }] })),
+      h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 } },
+        h('span', { class: 'num', style: { fontSize: 34, fontWeight: 600, lineHeight: 1 } }, fmtNum(dl.total)),
+        h('span', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, `delivered in the range (both locations)`)),
+      h('div', { style: { marginBottom: 8 } }, LocKey(dlocs, DELIVERED)),
+      HoverArea({
+        id: 'delivered', label: `Items delivered per ${perWord}, per location`, count: dl.points.length, height: 110,
+        title: (k) => bucketTitle(dl.points[k].bucket, dl.per),
+        rows: (k) => [
+          ...dlocs.map((l, j) => ({ label: `Delivered ${l}`, color: DELIVERED[j], value: fmtNum(dl.points[k].byLocation[l]) })),
+          ...dl.series.map((n) => ({ label: PLURAL[n] ?? n, color: TYPE_COLOR[n], value: fmtNum(dl.points[k].values[n] ?? 0), strong: false })),
+          { label: 'Total delivered', value: fmtNum(dl.points[k].total) },
+        ],
+        body: (a) => GroupBars(dl.points, dlocs, (p, l) => p.byLocation[l], DELIVERED, dm, a),
+      }),
+      Axis(dl.per === 'month' ? undefined : dl.points[0]?.bucket, dl.per === 'day' ? 'Today' : `This ${dl.per}`)),
     i && h('div', null,
       h('h4', { class: 'sec' }, 'Issued per day'),
       h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 } },
         h('span', { class: 'num', style: { fontSize: 34, fontWeight: 600, lineHeight: 1 } }, fmtNum(i.weekdayAverage)),
         h('span', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, 'a weekday, on average (both locations)')),
-      h('div', { style: { marginBottom: 8 } }, LocKey(ilocs, DELIVERED)),
+      h('div', { style: { marginBottom: 8 } }, LocKey(ilocs, ISSUED)),
       HoverArea({
         id: 'issued', label: 'Items issued per day, per location', count: i.points.length, height: 110,
         title: (k) => `${fmtDayLong(i.points[k].day)}${k === i.points.length - 1 ? ' (so far)' : ''}`,
         rows: (k) => [
-          ...ilocs.map((l, j) => ({ label: `Issued ${l}`, color: DELIVERED[j], value: fmtNum(i.points[k].byLocation[l]) })),
+          ...ilocs.map((l, j) => ({ label: `Issued ${l}`, color: ISSUED[j], value: fmtNum(i.points[k].byLocation[l]) })),
           ...i.series.filter((n) => (i.points[k].values[n] ?? 0) > 0 || n !== 'Unregistered')
             .map((n) => ({ label: PLURAL[n] ?? n, color: TYPE_COLOR[n], value: ilocs.map((l) => fmtNum(i.points[k].byLocationValues[l][n] ?? 0)).join(' / '), strong: false })),
           { label: 'Total issued', value: fmtNum(i.points[k].total) },
         ],
-        body: (a) => GroupBars(i.points, ilocs, (p, l) => p.byLocation[l], DELIVERED, dmx, a),
+        body: (a) => GroupBars(i.points, ilocs, (p, l) => p.byLocation[l], ISSUED, dmx, a),
       }),
       Axis(i.points[0]?.day, 'Today (so far)'),
       h('div', { class: 'note', style: { marginTop: 6 } }, `Per garment type the read-out shows ${ilocs.join(' / ')}.`,

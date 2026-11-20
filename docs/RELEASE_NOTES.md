@@ -7,6 +7,11 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### Trends: Delivered moved to Breakdown; issued charts in pink
+- **Decision: the "Delivered" chart was removed from Trends › Over time**, because its daily bars repeated the top half of "Deliveries vs issues". Its one extra feature, totals per week and per month (TRD-01), moved with it to Breakdown.
+- **Trends › Breakdown now starts with "Delivered per day"**, with a Day / Week / Month switch, the range total, P1 / P2 bars, and the same hover read-out as the other charts (per location, per garment, total). "Issued per day" follows below.
+- **"Issued per day" is now pink**, like issued bars everywhere else; deliveries stay blue.
+
 ### Trends per location; same spacing on every page
 - **Every Trends chart now shows P1 and P2 separately, in the same chart:**
   - **Stock on hand:** a line per garment and location, with a dot on every day (up to 31 days). The color is the garment; P1 is a solid line with filled dots, P2 a dashed line with hollow dots. The legend is a small table of today's stock per location.
