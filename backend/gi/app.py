@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+from urllib.parse import unquote
 from pathlib import Path
 from typing import Literal
 
@@ -10,12 +11,14 @@ from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, Response
 from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .auth import HttpError, User, current_user, require_role
 from .config import config
 from .db import connect, db_reachable, execute, rows, with_named_lock
 from .importing import get_issue_source
+from .importing.csv_upload import CsvError, import_csv
 from .importing.importer import poll, sweep, sync_status
 from .ledger import invariant_violations
 from .services import counts, deliveries, settings, stock, trends
@@ -46,6 +49,14 @@ class ValueInput(BaseModel):
 
 class OrderInput(BaseModel):
     ids: list[int]
+
+
+MAX_UPLOAD_BYTES = 50_000_000
+
+
+def _automatic_source() -> None:
+    if config.ISSUE_SOURCE == "csv":
+        raise HttpError(409, "There is no automatic import (ISSUE_SOURCE=csv). Upload a CSV file instead.")
 
 
 def _locked(fn):
@@ -231,11 +242,24 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/sync/run", dependencies=[admin])
     def run_now():
+        _automatic_source()
         return _locked(lambda: poll(get_issue_source()))
 
     @app.post("/api/sync/sweep", dependencies=[admin])
     def sweep_now():
+        _automatic_source()
         return _locked(lambda: sweep(get_issue_source()))
+
+    @app.post("/api/sync/upload", dependencies=[admin])
+    async def upload(request: Request, x_file_name: str | None = Header(None)):
+        """CSV export of the Oracle issue table, sent as the request body. Rows already in GI are skipped."""
+        data = await request.body()
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HttpError(413, f"The file is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB; split it into smaller files.")
+        try:
+            return await run_in_threadpool(_locked, lambda: import_csv(data, unquote(x_file_name or "")))
+        except CsvError as e:
+            return JSONResponse({"error": str(e), "problems": e.problems}, status_code=400)
 
     @app.get("/api/alerts", dependencies=[user])
     def alerts():

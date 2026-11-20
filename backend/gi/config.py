@@ -43,7 +43,7 @@ class Config:
     MARIADB_USER: str = "gi"
     MARIADB_PASSWORD: str | None = None
     MARIADB_DATABASE: str = "gi"
-    ISSUE_SOURCE: str = "mock"  # "mock" or "oracle"
+    ISSUE_SOURCE: str = "mock"  # "mock", "oracle", or "csv" (no automatic import; CSV uploads only)
     MOCK_ORACLE_DIR: str = "./mock-oracle-data"
     ORACLE_CONNECT_STRING: str | None = None
     ORACLE_USER: str | None = None
@@ -93,8 +93,8 @@ def load_config() -> Config:
         STATIC_DIR=_env("STATIC_DIR"),
         DEV_AUTH=(_env("DEV_AUTH", "false") or "false").lower() == "true",
     )
-    if c.ISSUE_SOURCE not in ("mock", "oracle"):
-        raise ValueError("ISSUE_SOURCE must be mock or oracle")
+    if c.ISSUE_SOURCE not in ("mock", "oracle", "csv"):
+        raise ValueError("ISSUE_SOURCE must be mock, oracle or csv")
     if c.ISSUE_SOURCE == "oracle":
         for key in ("ORACLE_CONNECT_STRING", "ORACLE_USER", "ORACLE_PASSWORD", "ORACLE_ISSUE_TABLE"):
             if not getattr(c, key):

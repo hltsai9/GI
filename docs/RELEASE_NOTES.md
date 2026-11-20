@@ -7,6 +7,25 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### Import issues from a CSV export of Oracle
+- **New: Settings › Import › Upload an Oracle export** (admin). The test site cannot reach Oracle yet, so issue rows can be exported from Oracle to a CSV file and uploaded.
+- **Nothing is counted twice:** rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`, the rule from ORA-02) are skipped. Uploading the same file again, or files with overlapping dates, only adds the new rows. A later switch to the live Oracle connection also skips the rows already uploaded.
+- **The file is checked first:** if any row can't be read (missing column, a date without time or seconds), nothing is imported and the problem lines are listed. Only `STATE = 'EMPLOYEE GOWN ISSUE'` rows are used.
+- **Times must include seconds**, because the duplicate check compares `INSERT_TIME` to the second. The recommended export query writes `YYYY-MM-DD HH24:MI:SS`; Oracle's default style (`20-NOV-26 09.15.30 AM`) also works. Don't open and save the file in Excel, which drops the seconds.
+- **New setting `ISSUE_SOURCE=csv`:** no automatic import and no "import stale" warning; issues come only from uploads. Uploaded rows are classified like imported ones: map the values in Settings › Oracle values, and enter the starting counts.
+- Steps and the export query: [KUBERNETES_DEPLOYMENT.md §7](./KUBERNETES_DEPLOYMENT.md) and [DEPLOYMENT_SOP.md §8.4](./DEPLOYMENT_SOP.md).
+- **Database change** (migration `003`, applied automatically): the import history records uploads and their file names.
+- Tested here:
+  - 18 new tests (44 in total pass): date formats, a bad row rejecting the whole file, re-uploads and overlapping files;
+  - in the browser, on an empty database with `ISSUE_SOURCE=csv`: two overlapping exports in different date formats, then the first one again. 2,471 distinct issues were stored, with nothing counted twice.
+
+### Demo and upload screen
+- **The GitHub demo now lets you choose the user** (Settings › This device), so you can see what floor staff, the lead, an admin or a viewer can do, e.g. the CSV upload as Admin. The data stays the same and nothing is saved; an upload in the demo says it is read-only.
+- **The "Choose file" button** for the CSV upload now looks like the other buttons, with the chosen file's name and size next to it.
+- Release notes: the port 8000 / user 1000 change and the start-up without MariaDB were moved to 2026-11-19, the day they were done.
+
+## 2026-11-19
+
 ### Port 8000 and user 1000 (company Kubernetes)
 - **First deployment problem found:** with Istio in the cluster, both health checks returned 500. The company deployment checks port **8000**, but GI listened on 3000, so nothing answered and the Istio sidecar reported 500.
 - **GI now listens on port 8000 by default** (image, `PORT` setting, `deploy/k8s/deployment.yaml`, Compose, docs). `PORT` can still change it.
@@ -22,8 +41,6 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - once MariaDB answers, GI creates its tables, starts the issue import and becomes ready by itself.
 - Users still cannot use the site while MariaDB is unreachable: GI has nothing to show without its data. What changed is that the cause is clear and recovery needs no restart.
 - Tested here: a container started with MariaDB stopped stayed up and reported the reason; it became ready about 10 s after MariaDB was started. 26 backend tests pass (1 new).
-
-## 2026-11-19
 
 ### Python backend and a web page without a build step
 - **Decision: no Node.js anywhere.** The company CI builds images from the company's Python base image, so:

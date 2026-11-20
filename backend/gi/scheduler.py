@@ -40,6 +40,9 @@ def _stale_alert() -> None:
 
 
 def tick() -> None:
+    if config.ISSUE_SOURCE == "csv":
+        return  # no automatic import: issues arrive by CSV upload
+
     def work() -> None:
         source = get_issue_source()
         run = poll(source)

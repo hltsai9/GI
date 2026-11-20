@@ -11,8 +11,8 @@ data:
   MARIADB_PORT: "3306"
   MARIADB_USER: "gi"
   MARIADB_DATABASE: "gi"
-  # "mock" = generated test data, no Oracle connection. "oracle" later (then also ORACLE_* below and
-  # ORACLE_PASSWORD in the Secret).
+  # "mock" = generated test data, no Oracle connection. "csv" = no automatic import: upload CSV exports of
+  # the Oracle table in Settings › Import. "oracle" later (then also ORACLE_* below and ORACLE_PASSWORD in the Secret).
   ISSUE_SOURCE: "mock"
   # ORACLE_CONNECT_STRING: "oradb.example.local:1521/ISSUEPDB"
   # ORACLE_USER: "GI_READER"

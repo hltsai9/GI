@@ -78,9 +78,9 @@ def _import_batch(batch: list[OracleIssueRow], run_id: int, c: _Counters, now: d
     with_tx(work)
 
 
-def _start_run(kind: str) -> int:
+def _start_run(kind: str, note: str | None = None) -> int:
     with connect() as conn:
-        return execute(conn, "INSERT INTO sync_run (kind, started_at) VALUES (?, ?)", [kind, to_db(now_utc())]).lastrowid
+        return execute(conn, "INSERT INTO sync_run (kind, note, started_at) VALUES (?, ?, ?)", [kind, note, to_db(now_utc())]).lastrowid
 
 
 def alert(kind: str, message: str, details: object) -> None:
@@ -101,8 +101,8 @@ def _finish_run(run_id: int, kind: str, c: _Counters, error: BaseException | Non
         alert("import_failed", f"Issue import ({kind}) failed: {error}", {"runId": run_id})
     elif c.time_alerts:
         # One alert per run listing every row (ORA-13); the history load only summarises.
-        if kind == "backfill":
-            alert("time_check", f"History load: {len(c.time_alerts)} rows have RECTIME before the scan or a scan in the future",
+        if kind in ("backfill", "upload"):
+            alert("time_check", f"{'History load' if kind == 'backfill' else 'CSV upload'}: {len(c.time_alerts)} rows have RECTIME before the scan or a scan in the future",
                   {"runId": run_id, "count": len(c.time_alerts), "examples": c.time_alerts[:20]})
         else:
             alert("time_check", f"{len(c.time_alerts)} issue rows have RECTIME before the scan or a scan in the future",
@@ -244,7 +244,9 @@ def sync_status(now: datetime | None = None) -> dict:
     return {
         "lastSuccessfulImport": iso(last_ok),
         "issuesUpTo": iso(latest["at"]) if latest and latest["at"] else None,
-        "stale": last_ok is None or now - last_ok > stale_after,
+        # With ISSUE_SOURCE=csv nothing imports automatically, so "stale" does not apply.
+        "stale": config.ISSUE_SOURCE != "csv" and (last_ok is None or now - last_ok > stale_after),
+        "source": config.ISSUE_SOURCE,
         "pollSeconds": config.ORACLE_POLL_SECONDS,
         "nowPhoenix": utc_to_local(now, config.ORACLE_RECTIME_ZONE),
     }

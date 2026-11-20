@@ -1,1 +1,1 @@
-{"id":252,"on_hand":3,"min_qty":2,"garment":"Boots","color":"Black","size":"3XLG","location":"Fab1","status":"plenty","issuedToday":1,"lastDelivery":{"at":"2026-11-16T13:40:00.000Z","qty":5}}
+{"id":252,"on_hand":2,"min_qty":2,"garment":"Boots","color":"Blue","size":"4XLG","location":"Fab1","status":"close_to_min","issuedToday":0,"lastDelivery":{"at":"2026-11-13T13:40:00.000Z","qty":5}}
