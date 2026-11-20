@@ -7,14 +7,14 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
-### Fix: barcodes got longer after import (trailing spaces)
-- **Problem reported:** after an upload, barcodes in the database were 4, 6 or 8 characters longer than in the file.
-- **Cause:** the barcode column is padded with spaces up to its width, because it is a fixed-width Oracle `CHAR` column or the export lines up its columns. Earlier today's "exact barcodes" change kept every character, so this padding was stored too. The spaces are invisible in a spreadsheet or text editor, so the file looked shorter.
-- **Fix:** trailing spaces are now removed from barcodes, both in the CSV upload and in the live Oracle import, so both store the same value. Spaces at the start or inside a barcode are still kept exactly.
-- **Existing rows are trimmed automatically** on start-up (migration `006`).
-  - If a scan is already in the database both with and without padding (the same file uploaded before and after the earlier change), that is the same issue counted twice. The migration leaves those rows unchanged. List them with `SELECT suit_barcode, insert_time FROM issue_import WHERE suit_barcode <> RTRIM(suit_barcode);`.
-  - If that query returns rows, the cleanest fix while testing is to drop and re-create the `gi` database and upload the files again.
-- Tested here: 53 backend tests pass (1 new). The migration was checked on padded test data, including a duplicate pair.
+### Barcodes looked different from the file: Excel's 15-digit limit
+- **Question answered:** after an upload, barcodes such as `2399600002641084` looked different from the file, which showed `2399600002641080`.
+  - **Cause:** the file was viewed in Excel. Excel keeps only 15 significant digits of a number, so the 16th digit of these barcodes is shown as 0. GI reads the file as text and stores the barcode exactly; the database value is the correct one.
+  - To check a barcode in the export, open the file in a text editor, or import the column into Excel as Text.
+- **Never save an export from Excel before uploading it:** the barcodes in the file would really be changed. The upload now refuses barcodes in scientific notation (e.g. `2.39960000264108E+15`), which Excel writes when it saves long numbers. The upload screen and the guides say so.
+- **Also changed (safeguard, found while investigating):** trailing spaces are now removed from barcodes in both the CSV upload and the live Oracle import, so both store the same value. These spaces are padding added by fixed-width Oracle `CHAR` columns or exports that line up their columns. Leading and inner spaces are still kept. Rows already stored with such padding are trimmed automatically (migration `006`).
+  - If the same scan is in the database both with and without padding, it was counted twice, and the migration leaves both rows unchanged. List them with `SELECT suit_barcode, insert_time FROM issue_import WHERE suit_barcode <> RTRIM(suit_barcode);`.
+- Tested here: 54 backend tests pass (2 new). The migration was checked on padded test data, including a duplicate pair.
 
 ### Import issues from a CSV export of Oracle
 - **New: Settings › Import › Upload an Oracle export** (admin). The test site cannot reach Oracle yet, so issue rows can be exported from Oracle to a CSV file and uploaded.

@@ -31,6 +31,8 @@ _FORMATS = (
     "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p",
 )
 # "09.00.00" (Oracle NLS) → "09:00:00"; drops fractional seconds ("09:00:00.000000").
+# A long numeric barcode after a spreadsheet saved the file: "2.39960000264108E+15" (digits lost).
+_SCIENTIFIC = re.compile(r"^\s*\d+(\.\d+)?[eE][+-]?\d+\s*$")
 _TIME = re.compile(r"(?<!\d)(\d{1,2})[.:](\d{2})[.:](\d{2})(?:[.,]\d+)?(?!\d)")
 
 
@@ -94,6 +96,9 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
             if empty:
                 raise ValueError(f"empty {', '.join(empty)}")
             barcode = clean_barcode(rec[cols["SUIT_BARCODE"]] if cols["SUIT_BARCODE"] < len(rec) else "")
+            if _SCIENTIFIC.match(barcode):
+                raise ValueError(f"SUIT_BARCODE {barcode!r} is in scientific notation: the file was saved by Excel, which "
+                                 "keeps only 15 digits. Upload the original export instead")
             if len(barcode) > 255:
                 raise ValueError(f"SUIT_BARCODE is longer than 255 characters ({barcode[:40]!r}…)")
             # Trailing padding removed; leading and inner spaces kept, the same as the live Oracle import.

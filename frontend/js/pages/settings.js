@@ -339,7 +339,7 @@ function CsvUpload(isAdmin) {
     h('h4', { class: 'sec', style: { margin: 0 } }, 'Upload an Oracle export'),
     h('div', { class: 'note' }, 'A CSV file of the Oracle issue table, with the column names in the first line (',
       h('code', null, 'SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL, STATE, INSERT_TIME, RECTIME'),
-      '). Only rows with STATE = EMPLOYEE GOWN ISSUE are used. Rows already in GI (same barcode and INSERT_TIME) are skipped, so uploading the same or an overlapping file again is safe. Times need seconds: do not open and save the file in Excel.'),
+      '). Only rows with STATE = EMPLOYEE GOWN ISSUE are used. Rows already in GI (same barcode and INSERT_TIME) are skipped, so uploading the same or an overlapping file again is safe. Do not open and save the file in Excel: it drops the seconds from times and changes barcodes longer than 15 digits (2399600002641084 becomes 2399600002641080). To look at an export, use a text editor.'),
     isAdmin
       ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
         h('label', { class: 'btn btn-secondary', style: { position: 'relative', minHeight: 44, cursor: 'pointer' } },

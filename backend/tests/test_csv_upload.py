@@ -126,3 +126,12 @@ def test_trailing_padding_is_removed_from_barcodes():
                             for i, b in enumerate(['"ABC123    "', '"ABC1234567"', '"ABC123"      ', '"  LEAD  IN    "']))
     got, _ = parse(text.encode())
     assert [r["SUIT_BARCODE"] for r in got] == ["ABC123", "ABC1234567", "ABC123", "  LEAD  IN"]
+
+
+def test_long_numeric_barcodes_are_kept_and_excel_damage_is_refused():
+    ok = HEADER + "2399600002641084,GOWN,WHITE,L,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:00,U1,2026-11-19 18:30:00\n"
+    assert parse(ok.encode())[0][0]["SUIT_BARCODE"] == "2399600002641084"
+    bad = HEADER + "2.39960000264108E+15,GOWN,WHITE,L,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:00,U1,2026-11-19 18:30:00\n"
+    with pytest.raises(CsvError) as e:
+        parse(bad.encode())
+    assert "scientific notation" in e.value.problems[0]
