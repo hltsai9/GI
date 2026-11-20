@@ -7,6 +7,13 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### Fix: Admin passcode could not be typed; Stock summary tables
+- **Bug fixed: typing the Admin passcode showed nothing**, on the GitHub demo and on the real site alike. The passcode field has an Enter-key check that answered "no" for every other key, and the browser took that as "ignore this key press". The page's view helper now never lets an event handler's answer cancel a key press or click. Tested on laptop and phone by typing the passcode key by key, the way a person does (the earlier test pasted it, which hid the bug).
+- **Stock › Summary:**
+  - The P1 / P2 labels above the numbers are larger.
+  - **Reorder** is now a table with column titles: garment · color · size, location, on hand and minimum, most urgent first. On phones the location goes with the item, so the table fits.
+  - The **By location** table is back under Reorder, with P1, P2 and a total per garment (with its unit) and the unregistered count.
+
 ### P1 and P2, boots in pairs, "Off truck", stock per location, floor staff settings
 - **Fab1 and Fab2 are now called P1 and P2** everywhere in the app. Only the names changed (migration `009`, automatic): stock, history and the Oracle mapping (`SUIT_LEVEL` FAB1 → P1, FAB2 → P2) are unchanged. Oracle's own values (FAB1, FAB2) are still shown as they are in Settings › Oracle values and Data quality.
 - **Boots are counted in pairs, and every quantity shows its unit.** Each garment type now has a unit: gowns and hoods in pieces, boots in pairs.

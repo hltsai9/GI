@@ -43,7 +43,9 @@ function setProps(el, props, old) {
   }
   for (const [k, v] of Object.entries(props)) {
     if (k === 'key') continue;
-    if (k.startsWith('on')) el[k.toLowerCase()] = v;
+    // Handlers are wrapped so their return value is ignored: a DOM handler returning false would cancel the
+    // browser's default action (e.g. typing a character when an onKeyDown check returns false).
+    if (k.startsWith('on')) el[k.toLowerCase()] = v ? (e) => { v(e); } : null;
     else if (k === 'style') {
       const css = styleText(v);
       if (el._css !== css) { el.style.cssText = css; el._css = css; }
