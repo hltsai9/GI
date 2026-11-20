@@ -28,8 +28,7 @@ def main() -> None:
              *(f"/stock/items/{i['id']}" for i in items)]
     # Must match the requests in frontend/js/pages/trends.js.
     for days in (7, 14, 30, 90):
-        paths += [f"/trends/delivered?days={days}&per=day", f"/trends/delivered?days={max(days, 56)}&per=week",
-                  f"/trends/delivered?days={max(days, 180)}&per=month", f"/trends/issued?days={days}", f"/trends/stock?days={days}",
+        paths += [f"/trends/delivered?days={days}&per=day", f"/trends/issued?days={days}", f"/trends/stock?days={days}",
                   f"/trends/breakdown?days={days}&metric=issued", f"/trends/breakdown?days={days}&metric=delivered"]
     shutil.rmtree(OUT, ignore_errors=True)
     OUT.mkdir(parents=True)

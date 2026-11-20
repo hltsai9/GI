@@ -14,13 +14,6 @@ const DASH = [null, '5 4'];
 const dim = (a, k) => (a === null || a === k ? 1 : 0.35);
 const sign = (n) => `${n >= 0 ? '+' : '−'}${fmtNum(Math.abs(n))}`;
 
-function bucketTitle(bucket, per) {
-  if (per === 'day') return fmtDayLong(bucket);
-  if (per === 'week') return `Week of ${fmtDayLong(bucket)}`;
-  const [y, m] = bucket.split('-').map(Number);
-  return new Date(Date.UTC(y, m - 1, 15)).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
-}
-
 export function Trends({ meta }) {
   const [view, setView] = state('trends.view', 'time');
   const [days, setDays] = state('trends.days', 14);
@@ -139,13 +132,11 @@ function OverTime(days) {
 
 function BreakdownView(days, meta) {
   const [metric, setMetric] = state('trends.metric', 'issued');
-  const [per, setPer] = state('trends.per', 'day');
-  // Paths must match backend/gi/cli/export_demo.py.
-  const del = load(`/trends/delivered?days=${per === 'day' ? days : Math.max(days, per === 'week' ? 56 : 180)}&per=${per}`, 'trends.delivered');
+  // Same range as Issued per day (the days switch at the top). Paths must match backend/gi/cli/export_demo.py.
+  const del = load(`/trends/delivered?days=${days}&per=day`, 'trends.delivered');
   const dl = del.data;
   const dlocs = dl?.locations ?? [];
   const dm = Math.max(1, ...(dl?.points.flatMap((p) => dlocs.map((l) => p.byLocation[l])) ?? [1]));
-  const perWord = { day: 'day', week: 'week', month: 'month' }[dl?.per ?? per];
   const iss = load(`/trends/issued?days=${days}`, 'trends.issued');
   const brk = load(`/trends/breakdown?days=${days}&metric=${metric}`, 'trends.breakdown');
   const i = iss.data;
@@ -162,17 +153,14 @@ function BreakdownView(days, meta) {
   return [
     ErrorNote(del.error ?? iss.error ?? brk.error),
     dl && h('div', null,
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 6 } },
-        h('h4', { style: { margin: 0 } }, `Delivered per ${perWord}`),
-        Seg({ label: 'Delivered per', value: per, onChange: setPer, optStyle: { flex: 'none', minHeight: 32, padding: '4px 10px' },
-          options: [{ value: 'day', label: 'Day' }, { value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }] })),
+      h('h4', { class: 'sec' }, 'Delivered per day'),
       h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 } },
         h('span', { class: 'num', style: { fontSize: 34, fontWeight: 600, lineHeight: 1 } }, fmtNum(dl.total)),
         h('span', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, `delivered in the range (both locations)`)),
       h('div', { style: { marginBottom: 8 } }, LocKey(dlocs, DELIVERED)),
       HoverArea({
-        id: 'delivered', label: `Items delivered per ${perWord}, per location`, count: dl.points.length, height: 110,
-        title: (k) => bucketTitle(dl.points[k].bucket, dl.per),
+        id: 'delivered', label: 'Items delivered per day, per location', count: dl.points.length, height: 110,
+        title: (k) => `${fmtDayLong(dl.points[k].bucket)}${k === dl.points.length - 1 ? ' (so far)' : ''}`,
         rows: (k) => [
           ...dlocs.map((l, j) => ({ label: `Delivered ${l}`, color: DELIVERED[j], value: fmtNum(dl.points[k].byLocation[l]) })),
           ...dl.series.map((n) => ({ label: PLURAL[n] ?? n, color: TYPE_COLOR[n], value: fmtNum(dl.points[k].values[n] ?? 0), strong: false })),
@@ -180,7 +168,7 @@ function BreakdownView(days, meta) {
         ],
         body: (a) => GroupBars(dl.points, dlocs, (p, l) => p.byLocation[l], DELIVERED, dm, a),
       }),
-      Axis(dl.per === 'month' ? undefined : dl.points[0]?.bucket, dl.per === 'day' ? 'Today' : `This ${dl.per}`)),
+      Axis(dl.points[0]?.bucket, 'Today (so far)')),
     i && h('div', null,
       h('h4', { class: 'sec' }, 'Issued per day'),
       h('div', { style: { display: 'flex', alignItems: 'baseline', gap: 8, marginBottom: 6 } },
