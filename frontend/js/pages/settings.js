@@ -1,5 +1,5 @@
 import { h, state, flash, load, reload } from '../dom.js';
-import { api, DEMO, demoFetch, devUser, fmtNum, fmtWhen } from '../api.js';
+import { api, DEMO, DEV_USERS, demoFetch, devUser, fmtNum, fmtWhen } from '../api.js';
 import { attempt, Dropdown, ErrorNote, errorOf, GIcon, Msg, PageHead, Seg, Warn } from '../ui.js';
 
 const VIEWS = [
@@ -280,9 +280,14 @@ function CsvUpload(isAdmin) {
       '). Only rows with STATE = EMPLOYEE GOWN ISSUE are used. Rows already in GI (same barcode and INSERT_TIME) are skipped, so uploading the same or an overlapping file again is safe. Times need seconds: do not open and save the file in Excel.'),
     isAdmin
       ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
-        h('input', { id: 'csvfile', type: 'file', accept: '.csv,text/csv,text/plain', onChange: (e) => { setFile(e.target.files[0] ?? null); setResult(null); setFailure(null); }, style: { flex: '1 1 220px', fontSize: 14 } }),
+        h('label', { class: 'btn btn-secondary', style: { position: 'relative', minHeight: 44, cursor: 'pointer' } },
+          'Choose file',
+          h('input', { id: 'csvfile', type: 'file', accept: '.csv,text/csv,text/plain', onChange: (e) => { setFile(e.target.files[0] ?? null); setResult(null); setFailure(null); },
+            style: { position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden', pointerEvents: 'none' } })),
+        h('span', { class: 'num', style: { flex: '1 1 160px', minWidth: 0, fontSize: 14, color: file ? 'var(--color-text)' : 'var(--color-neutral-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+          file ? `${file.name} · ${fmtNum(Math.ceil(file.size / 1024))} KB` : 'No file chosen'),
         h('button', { class: 'btn btn-primary', disabled: !file || busy, onClick: send, style: { minHeight: 44 } }, busy ? 'Importing…' : 'Upload and import'))
-      : h('div', { class: 'note' }, 'Only an admin can upload files.'),
+      : h('div', { class: 'note' }, 'Only an admin can upload files (Settings › This device to switch user while there is no SSO).'),
     result && Msg({ tag: 'Imported', text: `${result.fileRows !== undefined ? fmtNum(result.fileRows) + ' rows in the file · ' : ''}${fmtNum(result.new)} new issues (${fmtNum(st.applied ?? 0)} applied, ${fmtNum(st.held_unmapped ?? 0)} held, ${fmtNum(st.before_start ?? 0)} before the starting count, ${fmtNum(st.ignored ?? 0)} ignored) · ${fmtNum(result.alreadyImported)} already in GI${result.otherState ? ` · ${fmtNum(result.otherState)} other STATE` : ''}` }),
     failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
 }
@@ -326,20 +331,13 @@ function ImportStatus(isAdmin) {
   ];
 }
 
-const DEV_USERS = [
-  { value: 'dev-floor', label: 'Floor staff' }, { value: 'dev-lead', label: 'Cleanroom lead' },
-  { value: 'dev-admin', label: 'Admin' }, { value: 'dev-viewer', label: 'Viewer' },
-];
-
 function ThisDevice({ device, onSwitchView, user, onChooseUser, me }) {
   return [
     h('div', { class: 'note' }, 'The layout is chosen from the type of device. Change it here if this device got the wrong one; the choice is remembered on this device.'),
     Seg({ label: 'Layout', value: device, onChange: onSwitchView, options: [{ value: 'phone', label: 'Phone layout' }, { value: 'laptop', label: 'Laptop layout' }] }),
-    DEMO
-      ? h('div', { class: 'note' }, `Demo: signed in as ${me.name}.`)
-      : [
-        h('div', { class: 'note' }, 'Company sign-in (SSO) is not connected yet. For development, choose who you are:'),
-        Dropdown({ label: 'Signed in as (dev)', value: user, onChange: onChooseUser, options: DEV_USERS }),
-      ],
+    h('div', { class: 'note' }, DEMO
+      ? `Demo: signed in as ${me.name}. Choose another user to see what each role can do; the data stays the same and nothing is saved.`
+      : 'Company sign-in (SSO) is not connected yet. For development, choose who you are:'),
+    Dropdown({ label: DEMO ? 'Signed in as (demo)' : 'Signed in as (dev)', value: user, onChange: onChooseUser, options: DEV_USERS }),
   ];
 }

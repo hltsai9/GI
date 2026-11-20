@@ -19,6 +19,13 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - 18 new tests (44 in total pass): date formats, a bad row rejecting the whole file, re-uploads and overlapping files;
   - in the browser, on an empty database with `ISSUE_SOURCE=csv`: two overlapping exports in different date formats, then the first one again. 2,471 distinct issues were stored, with nothing counted twice.
 
+### Demo and upload screen
+- **The GitHub demo now lets you choose the user** (Settings › This device), so you can see what floor staff, the lead, an admin or a viewer can do, e.g. the CSV upload as Admin. The data stays the same and nothing is saved; an upload in the demo says it is read-only.
+- **The "Choose file" button** for the CSV upload now looks like the other buttons, with the chosen file's name and size next to it.
+- Release notes: the port 8000 / user 1000 change and the start-up without MariaDB were moved to 2026-11-19, the day they were done.
+
+## 2026-11-19
+
 ### Port 8000 and user 1000 (company Kubernetes)
 - **First deployment problem found:** with Istio in the cluster, both health checks returned 500. The company deployment checks port **8000**, but GI listened on 3000, so nothing answered and the Istio sidecar reported 500.
 - **GI now listens on port 8000 by default** (image, `PORT` setting, `deploy/k8s/deployment.yaml`, Compose, docs). `PORT` can still change it.
@@ -34,8 +41,6 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - once MariaDB answers, GI creates its tables, starts the issue import and becomes ready by itself.
 - Users still cannot use the site while MariaDB is unreachable: GI has nothing to show without its data. What changed is that the cause is clear and recovery needs no restart.
 - Tested here: a container started with MariaDB stopped stayed up and reported the reason; it became ready about 10 s after MariaDB was started. 26 backend tests pass (1 new).
-
-## 2026-11-19
 
 ### Python backend and a web page without a build step
 - **Decision: no Node.js anywhere.** The company CI builds images from the company's Python base image, so:

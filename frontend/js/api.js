@@ -36,9 +36,18 @@ export class ApiError extends Error {
   }
 }
 
+/** The test users (backend/db/seed/dev-users.sql). In the demo, choosing one only changes what the screens allow. */
+export const DEV_USERS = [
+  { value: 'dev-floor', label: 'Floor staff', user: { id: 1, name: 'Dana (floor staff)', role: 'floor' } },
+  { value: 'dev-lead', label: 'Cleanroom lead', user: { id: 2, name: 'Lee (cleanroom lead)', role: 'lead' } },
+  { value: 'dev-admin', label: 'Admin', user: { id: 3, name: 'Avery (admin)', role: 'admin' } },
+  { value: 'dev-viewer', label: 'Viewer', user: { id: 4, name: 'Vic (viewer)', role: 'viewer' } },
+];
+
 export async function api(path, init = {}) {
   if (DEMO) {
     if ((init.method ?? 'GET') !== 'GET') throw new ApiError(403, 'This is a read-only demo with mock data — changes are not saved.');
+    if (path === '/me') return (DEV_USERS.find((u) => u.value === devUser()) ?? DEV_USERS[1]).user;
     const res = await demoFetch(path);
     if (!res.ok) throw new ApiError(404, `Not available in the demo (${path})`);
     return res.json();
