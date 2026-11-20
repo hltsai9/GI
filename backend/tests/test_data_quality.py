@@ -151,3 +151,20 @@ def test_same_scan_with_other_values_is_recorded_not_lost():
     assert (r["new"], r["conflicts"]) == (0, 1)
     with connect() as c:
         assert rows(c, "SELECT times FROM issue_import_conflict") == [{"times": 2}]
+
+
+def test_trends_split_by_location():
+    setup_rows()
+    with connect() as c:
+        iss = trends.issued(c, 7, NOW)
+        day = next(p for p in iss["points"] if p["day"] == "2026-11-19")
+        assert iss["locations"] == ["P1", "P2"] and day["byLocation"] == {"P1": 5, "P2": 0}
+        assert day["byLocationValues"]["P1"]["Unregistered"] == 3
+        st = trends.stock_over_time(c, 7, NOW)
+        p = next(p for p in st["points"] if p["day"] == "2026-11-19")
+        assert p["byLocation"]["P2"]["Gown"] is None            # no starting count at P2
+        assert p["byLocation"]["P1"]["Gown"] == p["values"]["Gown"]
+        f = next(f for f in st["flows"] if f["day"] == "2026-11-19")
+        assert f["byLocation"]["P1"]["issued"] == 5 and f["issued"] == 5
+        b = trends.breakdown(c, 7, "issued", NOW)
+        assert sum(x["byLocation"]["P1"] for x in b["bySize"]) == 5

@@ -13,8 +13,10 @@ export function Stock({ meta, me }) {
     : { kicker: 'Stock · grid', title: `${t.plural} · ${meta.locations.find((l) => l.id === locId)?.code}` };
   return [
     PageHead(head),
+    // The switcher sits in the same band under the title on every page (Receive, Stock, Trends, Settings).
+    h('div', { class: 'p-seg' },
+      Seg({ label: 'Stock view', value: view, onChange: setView, options: [{ value: 'summary', label: 'Summary' }, { value: 'grid', label: 'Grid' }] })),
     h('div', { class: 'p-body' },
-      Seg({ label: 'Stock view', value: view, onChange: setView, options: [{ value: 'summary', label: 'Summary' }, { value: 'grid', label: 'Grid' }] }),
       ErrorNote(summary.error),
       view === 'summary' ? summary.data && SummaryView(summary.data, meta) : GridView({ meta, me })),
   ];

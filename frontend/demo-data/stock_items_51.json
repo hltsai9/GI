@@ -1,1 +1,1 @@
-{"id":51,"on_hand":32,"min_qty":10,"garment":"Boots","color":"Blue","size":"LG","location":"P1","status":"plenty","issuedToday":5,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":10}}
+{"id":51,"on_hand":30,"min_qty":10,"garment":"Boots","color":"Blue","size":"LG","location":"P1","status":"plenty","issuedToday":7,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":10}}

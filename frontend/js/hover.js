@@ -7,7 +7,7 @@ import { h, state } from './dom.js';
  * until the next tap (browsers fire "leave" right after every touch).
  * `count` points spread across the width. `mode` "bars": point i covers the i-th slice;
  * "line": points sit at i / (count − 1), the nearest one wins.
- * title(i) and rows(i) → [{ label, value, color?, strong? }]; body(active) draws the chart.
+ * title(i) and rows(i) → [{ label, value, color?, hollow?, strong? }]; body(active) draws the chart.
  */
 export function HoverArea({ id, count, mode = 'bars', height, title, rows, body, label }) {
   const [stored, setActive] = state(`hover:${id}`, null);
@@ -36,7 +36,8 @@ export function HoverArea({ id, count, mode = 'bars', height, title, rows, body,
   },
   h('div', { style: { fontWeight: 600, marginBottom: 4 } }, title(active)),
   rows(active).map((r) => h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
-    r.color && h('span', { style: { width: 10, height: 10, borderRadius: 2, background: r.color, flex: 'none' } }),
+    r.color && h('span', { style: { width: 10, height: 10, borderRadius: 2, flex: 'none', boxSizing: 'border-box',
+      ...(r.hollow ? { border: `2px solid ${r.color}` } : { background: r.color }) } }),
     h('span', { style: { flex: 1, color: 'var(--color-neutral-700)' } }, r.label),
     h('span', { class: 'num', style: { fontWeight: r.strong === false ? 400 : 600 } }, r.value)))));
 }

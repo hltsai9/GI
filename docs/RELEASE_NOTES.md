@@ -7,6 +7,16 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### Trends per location; same spacing on every page
+- **Every Trends chart now shows P1 and P2 separately, in the same chart:**
+  - **Stock on hand:** a line per garment and location, with a dot on every day (up to 31 days). The color is the garment; P1 is a solid line with filled dots, P2 a dashed line with hollow dots. The legend is a small table of today's stock per location.
+  - **Deliveries vs issues, Delivered, Issued per day:** a pair of bars for each day (or week / month), P1 in the full color and P2 in a lighter shade.
+  - **By size:** each bar is split into P1 and P2, with both numbers.
+  - The hover read-out lists P1 and P2 separately (and per garment as P1 / P2 for issues).
+  - The API also returns these per-location numbers (`byLocation`), and the old totals are unchanged.
+- **The gap between the page title and the switcher is now the same on Receive, Stock, Trends and Settings.** Stock and Trends put their switcher inside the page body, while Receive and Settings had it in a band under the title; now all four use the band. Measured: 12 px on laptop, 8 px on phone, on all four pages.
+- Tested here: 58 backend tests pass (1 new); screenshots on laptop and phone.
+
 ### "Leave out" seemed to do nothing; By location table removed again
 - **Question answered: clicking "Leave out" seemed to do nothing.** It did work, but its message appeared at the top of the page, scrolled out of sight. On the GitHub demo that message is "read-only demo" (the demo cannot change anything); on the test site it was the confirmation.
   - **Now the result appears directly under the row you clicked**, in Settings › Data quality ("Left out · N issues no longer count…" or the error) and in Settings › Oracle values (the mapping result).
