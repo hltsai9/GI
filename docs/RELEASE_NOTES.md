@@ -5,6 +5,24 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ---
 
+## 2026-11-20
+
+### Port 8000 and user 1000 (company Kubernetes)
+- **First deployment problem found:** with Istio in the cluster, both health checks returned 500. The company deployment checks port **8000**, but GI listened on 3000, so nothing answered and the Istio sidecar reported 500.
+- **GI now listens on port 8000 by default** (image, `PORT` setting, `deploy/k8s/deployment.yaml`, Compose, docs). `PORT` can still change it.
+- **The image runs as user 1000** (was 10001), as the company setup expects; `runAsUser`/`runAsGroup` in `deployment.yaml` match.
+- Explained (no change): `backend/.env` is only read when running the app locally; `deploy/.env` is only for Docker Compose; neither is in the image. Without Compose, the database settings (`MARIADB_HOST`, `MARIADB_USER`, `MARIADB_PASSWORD`, `MARIADB_DATABASE`) are passed as environment variables: `docker run --env-file`, or in Kubernetes the ConfigMap plus the Secret `gi-secrets`.
+- Tested here: the image on port 8000 as user 1000 with a read-only filesystem (healthy), and the 25 backend tests.
+
+### Starts even when MariaDB cannot be reached
+- **Before:** GI set up the database before starting the web server. If MariaDB could not be reached, the app exited and the pod restarted over and over, with no clear message.
+- **Now:** the web server starts at once and the database setup retries in the background (after 5 s, then up to every 60 s):
+  - liveness (`/healthz`) stays OK, so the pod is not restarted;
+  - readiness (`/api/health`) returns 503 with the reason, e.g. "database not reachable or not set up (… Can't connect to MySQL server …)", which is also logged;
+  - once MariaDB answers, GI creates its tables, starts the issue import and becomes ready by itself.
+- Users still cannot use the site while MariaDB is unreachable: GI has nothing to show without its data. What changed is that the cause is clear and recovery needs no restart.
+- Tested here: a container started with MariaDB stopped stayed up and reported the reason; it became ready about 10 s after MariaDB was started. 26 backend tests pass (1 new).
+
 ## 2026-11-19
 
 ### Python backend and a web page without a build step

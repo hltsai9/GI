@@ -16,7 +16,7 @@
 
 ```
  Phones / laptops ──HTTP──▶ ┌──────────────────────────────────────┐
-                            │ app  (image "gi", port 3000)         │──▶ Oracle (read-only)
+                            │ app  (image "gi", port 8000)         │──▶ Oracle (read-only)
                             │ web page + API + import scheduler    │     or mock data (no Oracle)
                             └──────────────────┬───────────────────┘
                               published as HTTP_PORT                 ▼
@@ -220,7 +220,7 @@ docker compose ps
 
 Without Compose at all, the image runs on its own:
 ```bash
-docker run -d --name gi --restart unless-stopped -p 8080:3000 \
+docker run -d --name gi --restart unless-stopped -p 8080:8000 \
   -e MARIADB_URL='mysql://gi:<password>@<db-host>:3306/gi' -e ISSUE_SOURCE=mock -e DEV_AUTH=true \
   gi:<GI_VERSION>
 ```
@@ -284,7 +284,7 @@ What to watch:
 | Build: pip `Could not find a version that satisfies the requirement` or `Connection timed out` | pip cannot reach PyPI | Set the proxy or `PIP_INDEX_URL` (§5.2). Make sure `NO_PROXY` does not include PyPI. Use `BUILD_NETWORK=host` if the proxy is on `127.0.0.1`. |
 | Build: certificate errors (`CERTIFICATE_VERIFY_FAILED`) | The proxy inspects HTTPS | `COMPANY_CA_FILE=/path/to/root-ca.pem` |
 | Build: `the --mount option requires BuildKit` | Old Docker without BuildKit | Docker 23 or newer, or set `DOCKER_BUILDKIT=1` |
-| `app` stays unhealthy; log shows `ECONNREFUSED` or `Access denied` | Wrong database URL or password | Check `DB_PASSWORD` / `MARIADB_URL`. A password with special characters must be URL-encoded in `MARIADB_URL`. |
+| `app` stays unhealthy; log repeats `database not reachable or not set up (… Can't connect …` or `… Access denied …)` | Wrong database host, URL or password, or the database is down. GI keeps retrying and recovers by itself once the database answers. | Check `DB_PASSWORD` / `MARIADB_URL`. A password with special characters must be URL-encoded in `MARIADB_URL`. |
 | `app` restarts; log mentions `ORACLE_… is required` | `ISSUE_SOURCE=oracle` without the Oracle settings | Set `ISSUE_SOURCE=mock`, or fill in the `ORACLE_*` settings |
 | Page shows "unknown user" or "SSO sign-in is not configured" | `DEV_AUTH` is not `true` | Set `DEV_AUTH=true` and `docker compose up -d` |
 | Stock does not change although issues are imported | No starting count yet for that fab | §8.1 |
@@ -299,7 +299,7 @@ What to watch:
 |---|---|---|
 | `COMPOSE_PROFILES` | `db` | `db` runs the MariaDB container |
 | `IMAGE_PREFIX`, `GI_VERSION` | `gi`, `latest` | Image name `<prefix>:<version>` |
-| `HTTP_PORT` | `8080` | Host port for the site (the container listens on 3000) |
+| `HTTP_PORT` | `8080` | Host port for the site (the container listens on 8000) |
 | `DB_PASSWORD`, `DB_ROOT_PASSWORD` | — | MariaDB container passwords |
 | `MARIADB_URL` | built from `DB_PASSWORD` | Database URL, e.g. for an existing server |
 | `ISSUE_SOURCE` | `mock` | `mock` (no Oracle) or `oracle` |

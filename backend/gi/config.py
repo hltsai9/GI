@@ -59,7 +59,7 @@ class Config:
     SITE_TIMEZONE: str = "America/Phoenix"
     ORACLE_INSERT_TIME_ZONE: str = "Asia/Taipei"
     ORACLE_RECTIME_ZONE: str = "America/Phoenix"
-    PORT: int = 3000
+    PORT: int = 8000
     STATIC_DIR: str | None = None  # the web page to serve; default: ../frontend next to this package
     DEV_AUTH: bool = False
 
@@ -89,7 +89,7 @@ def load_config() -> Config:
         SITE_TIMEZONE=_env("SITE_TIMEZONE", "America/Phoenix"),  # type: ignore[arg-type]
         ORACLE_INSERT_TIME_ZONE=_env("ORACLE_INSERT_TIME_ZONE", "Asia/Taipei"),  # type: ignore[arg-type]
         ORACLE_RECTIME_ZONE=_env("ORACLE_RECTIME_ZONE", "America/Phoenix"),  # type: ignore[arg-type]
-        PORT=_int("PORT", 3000),
+        PORT=_int("PORT", 8000),
         STATIC_DIR=_env("STATIC_DIR"),
         DEV_AUTH=(_env("DEV_AUTH", "false") or "false").lower() == "true",
     )

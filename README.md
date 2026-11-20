@@ -46,7 +46,7 @@ pip install -r requirements-dev.txt
 cd backend
 cp .env.example .env              # defaults use the mock Oracle data
 python -m gi.cli.demo             # resets the dev DB, imports, starting counts, daily deliveries
-python -m gi.server               # web page and API on http://localhost:3000, import every 5 min
+python -m gi.server               # web page and API on http://localhost:8000, import every 5 min
 ```
 
 The backend serves the web page from `frontend/`, so there is nothing else to start. Edit a file in `frontend/` and reload the page.

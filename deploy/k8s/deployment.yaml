@@ -20,8 +20,8 @@ spec:
       terminationGracePeriodSeconds: 30                  # the app finishes requests on SIGTERM
       securityContext:
         runAsNonRoot: true
-        runAsUser: 10001                                 # the image's non-root user
-        runAsGroup: 10001
+        runAsUser: 1000                                  # the image's non-root user
+        runAsGroup: 1000
         seccompProfile: { type: RuntimeDefault }
       affinity:
         podAntiAffinity:                                 # spread replicas over nodes where possible
@@ -38,7 +38,7 @@ spec:
           image: registry.example.local/cleanroom/gi:latest
           imagePullPolicy: IfNotPresent
           ports:
-            - { name: http, containerPort: 3000 }
+            - { name: http, containerPort: 8000 }
           envFrom:
             - configMapRef: { name: gi-config }
             - secretRef: { name: gi-secrets }            # MARIADB_PASSWORD (and ORACLE_PASSWORD later)

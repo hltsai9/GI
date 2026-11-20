@@ -58,3 +58,38 @@ def test_api_basics(tmp_path):
     page = c.get("/trends")
     assert page.status_code == 200 and "GI" in page.text and page.headers["cache-control"] == "no-cache"
     assert c.get("/missing.js").status_code == 404
+
+
+def test_server_starts_without_the_database_and_reports_it(monkeypatch):
+    import threading
+    import time
+
+    from gi import server
+    from gi.app import Startup
+
+    calls = {"n": 0}
+
+    def failing_migrate():
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise OSError("Can't connect to MySQL server on 'db' (timed out)")
+        return []
+
+    monkeypatch.setattr(server, "migrate", failing_migrate)
+    monkeypatch.setattr(server, "apply_startup_seeds", lambda **kw: [])
+    monkeypatch.setenv("NO_SCHEDULER", "true")
+    sleeps = []
+    stop = threading.Event()
+    monkeypatch.setattr(stop, "wait", lambda d: sleeps.append(d))
+    Startup.ready = False
+    try:
+        c = TestClient(server.build_app())
+        r = c.get("/api/health")
+        assert r.status_code == 503 and "starting" in r.json()["error"]
+        assert c.get("/healthz").status_code == 200
+        assert server._set_up_database(stop) is True
+        assert calls["n"] == 3 and sleeps == [5, 10]
+        assert Startup.ready and c.get("/api/health").status_code == 200
+    finally:
+        Startup.ready = True
+        Startup.error = None
