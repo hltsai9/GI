@@ -72,6 +72,29 @@ export async function api(path, init = {}) {
 
 setFetcher((path) => api(path));
 
+/** Sends a file as the request body and reports upload progress (0–1); fetch() cannot report it, XMLHttpRequest can. */
+export function apiUpload(path, file, headers, onProgress) {
+  if (DEMO) return Promise.reject(new ApiError(403, 'This is a read-only demo with mock data — changes are not saved.'));
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `api${path}`);
+    for (const [k, v] of Object.entries({ 'X-Dev-User': devUser(), ...headers })) xhr.setRequestHeader(k, v);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
+    xhr.onload = () => {
+      let data = null;
+      try {
+        data = xhr.responseText ? JSON.parse(xhr.responseText) : null;
+      } catch {
+        /* not JSON */
+      }
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new ApiError(xhr.status, data?.error ?? xhr.statusText, data));
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'The upload failed: the connection was interrupted.'));
+    xhr.send(file);
+  });
+}
+
 /** A random key for Idempotency-Key; crypto.randomUUID needs HTTPS, so fall back on plain HTTP. */
 export const newKey = () =>
   (window.crypto && crypto.randomUUID ? crypto.randomUUID() : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);

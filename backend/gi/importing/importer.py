@@ -209,8 +209,9 @@ def sweep(source: IssueSource, now: datetime | None = None) -> dict:
     return _exclusive(run)
 
 
-def reclassify(conn: Connection, where: str, params: list, user_id: int | None, reason: str) -> int:
-    """Re-classifies rows whose answer may have changed (BUILD_PLAN §3.3); applies new −1 entries."""
+def reclassify(conn: Connection, where: str, params: list, user_id: int | None, reason: str, tally: dict[str, int] | None = None) -> int:
+    """Re-classifies rows whose answer may have changed (BUILD_PLAN §3.3); applies new −1 entries.
+    Returns how many rows changed status; `tally` (if given) counts them by their new status."""
     ctx = ClassifyContext.load(conn)
     candidates = rows(conn, f"""SELECT id, suit_type, suit_color, suit_size, suit_level, issued_at, status
                                   FROM issue_import WHERE {where} FOR UPDATE""", params)
@@ -225,6 +226,8 @@ def reclassify(conn: Connection, where: str, params: list, user_id: int | None, 
                 [cls.status, cls.quality, cls.location_id, cls.stock_item_id, r["id"]])
         if cls.status == "applied":
             movements.append(Movement(cls.stock_item_id, -1, issued_at, "issue", issue_import_id=r["id"]))  # type: ignore[arg-type]
+        if tally is not None:
+            tally[cls.status] = tally.get(cls.status, 0) + 1
         changed += 1
     apply_movements(conn, movements)
     if changed:

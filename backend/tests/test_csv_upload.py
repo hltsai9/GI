@@ -76,21 +76,38 @@ def test_rows_already_in_gi_are_not_imported_again():
     assert runs[-1] == {"kind": "upload", "note": "export-2.csv", "rows_new": 1}
 
 
+def _finished(c, run_id, h):
+    import time
+    for _ in range(100):
+        r = c.get(f"/api/sync/runs/{run_id}", headers=h).json()
+        if r["status"] != "running":
+            return r
+        time.sleep(0.05)
+    raise AssertionError("upload did not finish")
+
+
 @pytest.mark.usefixtures("fresh_db")
 def test_upload_endpoint(monkeypatch):
     from gi.app import build_app
+    import gi.importing.csv_upload as cu
     monkeypatch.setattr(config, "ISSUE_SOURCE", "csv")
+    monkeypatch.setattr(cu, "BATCH", 2)  # several batches, so progress is saved along the way
     c = TestClient(build_app())
-    data = (HEADER + line("G-9", "2026-11-20 09:00:00", "2026-11-19 18:30:00")).encode()
+    data = (HEADER + "".join(line(f"G-{i}", f"2026-11-20 09:00:{i:02d}", "2026-11-19 18:30:00") for i in range(5))
+            + line("G-R", "2026-11-20 09:00:00", "2026-11-19 18:30:00", state="EMPLOYEE GOWN RETURN")).encode()
     h = {"x-dev-user": "dev-admin", "content-type": "text/csv", "x-file-name": "issues%20nov.csv"}
     r = c.post("/api/sync/upload", content=data, headers=h)
-    assert r.status_code == 200 and r.json()["new"] == 1
-    assert c.post("/api/sync/upload", content=data, headers=h).json()["alreadyImported"] == 1
+    assert r.status_code == 202 and r.json()["total"] == 5 and r.json()["otherState"] == 1
+    done = _finished(c, r.json()["runId"], h)
+    assert (done["status"], done["total"], done["done"], done["new"], done["alreadyImported"], done["fileRows"], done["fileName"]) == \
+        ("ok", 5, 5, 5, 0, 6, "issues nov.csv")
+    assert done["byStatus"]["held_unmapped"] == 0 or sum(done["byStatus"].values()) == 5
+    again = _finished(c, c.post("/api/sync/upload", content=data, headers=h).json()["runId"], h)
+    assert (again["new"], again["alreadyImported"]) == (0, 5)
     bad = c.post("/api/sync/upload", content=b"a,b\n1,2\n", headers=h)
     assert bad.status_code == 400 and "Missing column" in bad.json()["error"]
     assert c.post("/api/sync/upload", content=data, headers={**h, "x-dev-user": "dev-floor"}).status_code == 403
     assert c.post("/api/sync/run", headers=h).status_code == 409  # no automatic source
     s = c.get("/api/sync/status", headers=h).json()
     assert s["stale"] is False and s["source"] == "csv"
-    run = c.get("/api/sync/runs", headers=h).json()[0]
-    assert run["kind"] == "upload" and run["note"] == "issues nov.csv"
+    assert c.get("/api/sync/runs", headers=h).json()[0]["kind"] == "upload"

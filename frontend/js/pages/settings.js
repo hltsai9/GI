@@ -1,5 +1,5 @@
 import { h, state, flash, load, reload } from '../dom.js';
-import { api, DEMO, DEV_USERS, demoFetch, devUser, fmtNum, fmtWhen } from '../api.js';
+import { api, apiUpload, DEMO, DEV_USERS, demoFetch, devUser, fmtNum, fmtWhen } from '../api.js';
 import { attempt, Dropdown, ErrorNote, errorOf, GIcon, Msg, PageHead, Seg, Warn } from '../ui.js';
 
 const VIEWS = [
@@ -202,12 +202,21 @@ function OracleValues(meta, canEdit) {
     if (!choice) return;
     attempt('oracle', async () => {
       const r = await api(`/oracle-values/${v.id}`, { method: 'PUT', json: choice === 'ignore' ? { ignore: true } : { targetId: Number(choice) } });
-      setSaved(`${v.oracle_column} ${v.oracle_value} · ${r.reclassified} held rows applied`);
+      const st = r.byStatus ?? {};
+      const parts = [`${v.oracle_column} ${v.oracle_value} mapped`];
+      if (r.reclassified) {
+        const how = [st.applied && `${fmtNum(st.applied)} applied to stock`, st.before_start && `${fmtNum(st.before_start)} before the starting count`,
+          st.ignored && `${fmtNum(st.ignored)} ignored`].filter(Boolean).join(', ');
+        parts.push(`${fmtNum(r.reclassified)} held rows released${how ? ` (${how})` : ''}`);
+      }
+      if (r.stillHeld) parts.push(`${fmtNum(r.stillHeld)} rows with this value still wait for their other values to be mapped`);
+      else if (!r.reclassified) parts.push('no rows were waiting for it');
+      setSaved(parts.join(' · '));
       reload('/oracle-values', '/stock', '/trends', '/data-quality');
     });
   };
   return [
-    h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first; rows that use them are held until they are mapped.'),
+    h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first. An issue row is held until all four of its values (type, color, size, level) are mapped; it then counts against stock from the fab\'s starting count on.'),
     saved && Msg({ tag: 'Saved', text: saved }),
     ErrorNote(error ?? errorOf('oracle')),
     h('div', { style: { display: 'flex', flexDirection: 'column' } },
@@ -256,13 +265,26 @@ function CsvUpload(isAdmin) {
   const [busy, setBusy] = state('upload.busy', false);
   const [result, setResult] = state('upload.result', null);
   const [failure, setFailure] = state('upload.failure', null);
+  const [progress, setProgress] = state('upload.progress', null); // { phase: 'upload' | 'import', ... }
   const send = async () => {
     setBusy(true);
     setResult(null);
     setFailure(null);
+    setProgress({ phase: 'upload', fraction: 0 });
     try {
-      const r = await api('/sync/upload', { method: 'POST', body: file, headers: { 'content-type': 'text/csv', 'X-File-Name': encodeURIComponent(file.name) } });
-      setResult(r);
+      // 1. Upload; the server checks the file and starts the import in the background.
+      const started = await apiUpload('/sync/upload', file, { 'content-type': 'text/csv', 'X-File-Name': encodeURIComponent(file.name) },
+        (fraction) => setProgress({ phase: 'upload', fraction }));
+      // 2. Follow the import until it is done (progress is kept in the database, so any server can answer).
+      let run = { status: 'running', done: 0, total: started.total };
+      setProgress({ phase: 'import', done: 0, total: started.total });
+      while (run.status === 'running') {
+        await new Promise((r) => setTimeout(r, 700));
+        run = await api(`/sync/runs/${started.runId}`);
+        setProgress({ phase: 'import', done: run.done, total: run.total });
+      }
+      if (run.status !== 'ok') throw new Error(`The import stopped after ${fmtNum(run.done)} of ${fmtNum(run.total)} rows: ${run.error ?? 'unknown error'}. Rows imported so far are kept; upload the file again to finish.`);
+      setResult(run);
       setFile(null);
       const input = document.getElementById('csvfile');
       if (input) input.value = '';
@@ -270,8 +292,10 @@ function CsvUpload(isAdmin) {
     } catch (e) {
       setFailure({ message: e.message, problems: e.data?.problems ?? [] });
     }
+    setProgress(null);
     setBusy(false);
   };
+  const pct = progress && (progress.phase === 'upload' ? progress.fraction : progress.total ? progress.done / progress.total : 0);
   const st = result?.byStatus ?? {};
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
     h('h4', { class: 'sec', style: { margin: 0 } }, 'Upload an Oracle export'),
@@ -288,6 +312,13 @@ function CsvUpload(isAdmin) {
           file ? `${file.name} · ${fmtNum(Math.ceil(file.size / 1024))} KB` : 'No file chosen'),
         h('button', { class: 'btn btn-primary', disabled: !file || busy, onClick: send, style: { minHeight: 44 } }, busy ? 'Importing…' : 'Upload and import'))
       : h('div', { class: 'note' }, 'Only an admin can upload files (Settings › This device to switch user while there is no SSO).'),
+    progress && h('div', { role: 'status', 'aria-live': 'polite', style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+      h('div', { style: { height: 8, borderRadius: 4, background: 'var(--color-neutral-200)', overflow: 'hidden' } },
+        h('div', { style: { height: '100%', width: `${Math.round(pct * 100)}%`, background: 'var(--color-accent)', transition: 'width .3s' } })),
+      h('div', { class: 'num', style: { fontSize: 14, color: 'var(--color-neutral-700)' } },
+        progress.phase === 'upload'
+          ? `Uploading… ${Math.round(pct * 100)} %`
+          : `Importing… ${fmtNum(progress.done)} of ${fmtNum(progress.total)} rows (${Math.round(pct * 100)} %)`)),
     result && Msg({ tag: 'Imported', text: `${result.fileRows !== undefined ? fmtNum(result.fileRows) + ' rows in the file · ' : ''}${fmtNum(result.new)} new issues (${fmtNum(st.applied ?? 0)} applied, ${fmtNum(st.held_unmapped ?? 0)} held, ${fmtNum(st.before_start ?? 0)} before the starting count, ${fmtNum(st.ignored ?? 0)} ignored) · ${fmtNum(result.alreadyImported)} already in GI${result.otherState ? ` · ${fmtNum(result.otherState)} other STATE` : ''}` }),
     failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
 }

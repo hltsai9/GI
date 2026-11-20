@@ -128,9 +128,14 @@ def set_mapping(map_id: int, inp: MappingInput, user_id: int) -> dict:
                 [target_id, inp.ignore, user_id, to_db(now_utc()), map_id])
         _audit(conn, user_id, "oracle_value_map", map_id, "update", None,
                {"column": m["oracle_column"], "value": m["oracle_value"], "targetId": target_id, "ignore": inp.ignore})
-        applied = reclassify(conn, f"status = 'held_unmapped' AND {_ISSUE_COLUMN[m['oracle_column']]} = ?", [m["oracle_value"]],
-                             user_id, f"mapped {m['oracle_column']} {m['oracle_value']}")
-        return {"id": map_id, "reclassified": applied}
+        col = _ISSUE_COLUMN[m["oracle_column"]]
+        tally: dict[str, int] = {}
+        released = reclassify(conn, f"status = 'held_unmapped' AND {col} = ?", [m["oracle_value"]],
+                              user_id, f"mapped {m['oracle_column']} {m['oracle_value']}", tally)
+        # A row is released only when all four of its values are mapped (or one is ignored); rows that use
+        # this value but wait for another one stay held.
+        still = one(conn, f"SELECT COUNT(*) AS n FROM issue_import WHERE status = 'held_unmapped' AND {col} = ?", [m["oracle_value"]])
+        return {"id": map_id, "reclassified": released, "byStatus": tally, "stillHeld": still["n"] if still else 0}
 
     return with_tx(work)
 

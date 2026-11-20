@@ -19,6 +19,14 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - 18 new tests (44 in total pass): date formats, a bad row rejecting the whole file, re-uploads and overlapping files;
   - in the browser, on an empty database with `ISSUE_SOURCE=csv`: two overlapping exports in different date formats, then the first one again. 2,471 distinct issues were stored, with nothing counted twice.
 
+### Upload progress and clearer mapping messages
+- **Progress while importing a CSV file:** the page shows the upload percentage, then "Importing N of M rows (x %)" with a progress bar. The import now runs in the background on the server and saves its progress in the database after every 500 rows, so it works with several replicas and large files don't run into request time limits. Tested with a 29,754-row file: 27,051 issue rows imported in about 12 seconds, with the progress updating throughout.
+  - If a pod restarts during an import, the rows done so far are kept; uploading the file again finishes it (rows already in GI are skipped).
+  - Database change (migration `004`, automatic): the run records the number of rows in the file.
+- **Question answered: "0 held rows applied" after mapping a value is expected at first.** A row is released only when all four of its values (`SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL`) are mapped. With real data nothing is mapped yet, so the first mappings release nothing. Also, without a starting count, released rows are "before the starting count", not applied.
+  - The confirmation now says what happened, e.g. "SUIT_LEVEL FAB1 mapped · 1,575 held rows released (1,575 before the starting count) · 15,155 rows with this value still wait for their other values to be mapped".
+- 45 backend tests pass (1 new).
+
 ### Demo and upload screen
 - **The GitHub demo now lets you choose the user** (Settings › This device), so you can see what floor staff, the lead, an admin or a viewer can do, e.g. the CSV upload as Admin. The data stays the same and nothing is saved; an upload in the demo says it is read-only.
 - **The "Choose file" button** for the CSV upload now looks like the other buttons, with the chosen file's name and size next to it.
