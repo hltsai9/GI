@@ -102,7 +102,7 @@ def test_holds_unmapped_values_until_mapped():
     with connect() as c:
         m = one(c, "SELECT id FROM oracle_value_map WHERE oracle_column = 'SUIT_SIZE' AND oracle_value = '5XL'")
     r = set_mapping(m["id"], MappingInput(targetId=ref_ids()["size"]["Other"]), user_id())  # type: ignore[index]
-    assert r["reclassified"] == 1
+    assert (r["reclassified"], r["byStatus"], r["stillHeld"]) == (1, {"applied": 1}, 0)
     assert status("G-5xl")["status"] == "applied"
     assert on_hand("GOWN", "White", "Other", "Fab1") == -1
 
@@ -152,3 +152,16 @@ def test_generated_mock_source_is_the_same_on_every_replica():
     a, _ = generate(days=3, ahead=1, now=NOW)
     b, _ = generate(days=3, ahead=1, now=NOW)
     assert a == b and len(a) > 500
+
+
+def test_mapping_one_value_reports_rows_still_waiting_for_others():
+    # Two unmapped values on the same rows: the first mapping releases nothing, the second releases both rows.
+    poll(src([row("2026-11-21 00:00:00", "2026-11-20 09:30:00", SUIT_BARCODE=f"G-{i}", SUIT_SIZE="5XL", SUIT_COLOR="GREY") for i in range(2)]), NOW)
+    ids = ref_ids()
+    with connect() as c:
+        size = one(c, "SELECT id FROM oracle_value_map WHERE oracle_column = 'SUIT_SIZE' AND oracle_value = '5XL'")["id"]  # type: ignore[index]
+        color = one(c, "SELECT id FROM oracle_value_map WHERE oracle_column = 'SUIT_COLOR' AND oracle_value = 'GREY'")["id"]  # type: ignore[index]
+    r = set_mapping(size, MappingInput(targetId=ids["size"]["Other"]), user_id())
+    assert (r["reclassified"], r["stillHeld"]) == (0, 2)
+    r = set_mapping(color, MappingInput(targetId=ids["color"]["Other"]), user_id())
+    assert (r["reclassified"], r["byStatus"], r["stillHeld"]) == (2, {"before_start": 2}, 0)  # no starting count yet

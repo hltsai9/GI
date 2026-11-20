@@ -1,8 +1,11 @@
 """HTTP API (same paths and JSON as before) plus the web page, served from one process."""
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
+import threading
 from urllib.parse import unquote
 from pathlib import Path
 from typing import Literal
@@ -16,9 +19,10 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .auth import HttpError, User, current_user, require_role
 from .config import config
-from .db import connect, db_reachable, execute, rows, with_named_lock
+from .db import connect, db_reachable, execute, one, rows, with_named_lock
 from .importing import get_issue_source
-from .importing.csv_upload import CsvError, import_csv
+from .importing.csv_upload import CsvError, import_rows, run_progress
+from .importing.csv_upload import parse as parse_csv
 from .importing.importer import poll, sweep, sync_status
 from .ledger import invariant_violations
 from .services import counts, deliveries, settings, stock, trends
@@ -47,6 +51,10 @@ class ValueInput(BaseModel):
     value: str
 
 
+class FlagInput(BaseModel):
+    value: bool
+
+
 class OrderInput(BaseModel):
     ids: list[int]
 
@@ -57,6 +65,30 @@ MAX_UPLOAD_BYTES = 50_000_000
 def _automatic_source() -> None:
     if config.ISSUE_SOURCE == "csv":
         raise HttpError(409, "There is no automatic import (ISSUE_SOURCE=csv). Upload a CSV file instead.")
+
+
+def _start_upload(rows_: list, other: int, file_name: str) -> dict:
+    """Starts the import in a background thread holding the "import" lock; returns once the run has
+    started ({"run_id"}) or could not start ({"busy": reason})."""
+    started = threading.Event()
+    box: dict = {}
+
+    def job() -> None:
+        try:
+            ran, _ = with_named_lock("import", lambda: import_rows(rows_, other, file_name,
+                                                                    on_started=lambda rid: (box.update(run_id=rid), started.set())))
+            if not ran:
+                box["busy"] = "an import is running right now; try again in a minute"
+        except RuntimeError as e:  # this instance is already importing
+            box.setdefault("busy", str(e))
+        except Exception:  # noqa: BLE001 - recorded in sync_run and as an alert by the importer
+            log.exception("CSV upload failed")
+        finally:
+            started.set()
+
+    threading.Thread(target=job, name="gi-upload", daemon=True).start()
+    started.wait(60)
+    return box
 
 
 def _locked(fn):
@@ -206,6 +238,10 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
     def order(body: OrderInput, u: User = lead):
         return settings.reorder_sizes(body.ids, u.id)
 
+    @app.put("/api/settings/count-unregistered")
+    def put_count_unregistered(body: FlagInput, u: User = lead):
+        return settings.set_count_unregistered(body.value, u.id)
+
     @app.get("/api/oracle-values", dependencies=[user])
     def oracle_values():
         with connect() as c:
@@ -224,10 +260,27 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
     def unregistered_csv():
         with connect() as c:
             lst = settings.unregistered_barcodes(c)
-        csv = "\n".join(["barcode,times_issued,first_seen,last_seen,locations",
-                         *(f'{b["barcode"]},{b["times"]},{b["first_seen"]},{b["last_seen"]},"{b["locations"]}"' for b in lst)])
-        return Response(csv, media_type="text/csv",
+        out = io.StringIO()
+        w = csv.writer(out, lineterminator="\n", quoting=csv.QUOTE_ALL)  # keeps commas, quotes and spaces in barcodes
+        w.writerow(["barcode", "times_issued", "first_seen_utc", "last_seen_utc", "last_insert_time_oracle", "locations"])
+        for b in lst:
+            w.writerow([b["barcode"], b["times"], b["first_seen"], b["last_seen"], b["last_insert_time"], b["locations"]])
+        return Response(out.getvalue(), media_type="text/csv",
                         headers={"content-disposition": 'attachment; filename="unregistered-barcodes.csv"'})
+
+    @app.get("/api/data-quality/conflicts.csv", dependencies=[user])
+    def conflicts_csv():
+        with connect() as c:
+            lst = settings.conflicting_barcodes(c)
+        out = io.StringIO()
+        w = csv.writer(out, lineterminator="\n", quoting=csv.QUOTE_ALL)
+        w.writerow(["barcode", "suit_type", "suit_color", "suit_size", "times_issued", "first_insert_time_oracle",
+                    "last_insert_time_oracle", "locations"])
+        for b in lst:
+            for k in b["combinations"]:
+                w.writerow([b["barcode"], k["type"], k["color"], k["size"], k["times"], k["first_insert_time"], k["last_insert_time"], k["locations"]])
+        return Response(out.getvalue(), media_type="text/csv",
+                        headers={"content-disposition": 'attachment; filename="barcodes-with-conflicting-values.csv"'})
 
     # ---- Import status and admin
     @app.get("/api/sync/status", dependencies=[user])
@@ -252,14 +305,28 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
 
     @app.post("/api/sync/upload", dependencies=[admin])
     async def upload(request: Request, x_file_name: str | None = Header(None)):
-        """CSV export of the Oracle issue table, sent as the request body. Rows already in GI are skipped."""
+        """CSV export of the Oracle issue table, sent as the request body. The file is checked at once (400 with
+        the problem lines); the import then runs in the background and GET /api/sync/runs/{runId} reports its
+        progress. Rows already in GI are skipped."""
         data = await request.body()
         if len(data) > MAX_UPLOAD_BYTES:
             raise HttpError(413, f"The file is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB; split it into smaller files.")
         try:
-            return await run_in_threadpool(_locked, lambda: import_csv(data, unquote(x_file_name or "")))
+            rows_, other = await run_in_threadpool(parse_csv, data)
         except CsvError as e:
             return JSONResponse({"error": str(e), "problems": e.problems}, status_code=400)
+        box = await run_in_threadpool(_start_upload, rows_, other, unquote(x_file_name or ""))
+        if "run_id" not in box:
+            raise HttpError(409, box.get("busy") or "an import is running right now; try again in a minute")
+        return JSONResponse({"runId": box["run_id"], "total": len(rows_), "otherState": other}, status_code=202)
+
+    @app.get("/api/sync/runs/{run_id}", dependencies=[user])
+    def run_detail(run_id: int):
+        with connect() as c:
+            r = one(c, "SELECT * FROM sync_run WHERE id = ?", [run_id])
+        if not r:
+            raise HttpError(404, "run not found")
+        return run_progress(r)
 
     @app.get("/api/alerts", dependencies=[user])
     def alerts():

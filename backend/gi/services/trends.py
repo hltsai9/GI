@@ -7,6 +7,7 @@ from sqlalchemy.engine import Connection
 
 from ..config import config
 from ..db import rows
+from .settings import count_unregistered
 from ..timeutil import day_str, from_db, now_utc, site_day
 
 
@@ -53,7 +54,8 @@ def issued(conn: Connection, days: int, now: datetime | None = None) -> dict:
                         WHERE ii.issued_day BETWEEN ? AND ? AND ii.status IN ('applied','before_start')
                         GROUP BY ii.issued_day, si.garment_type_id""", [rng[0], rng[-1]])
     by = {(day_str(r["day"]), r["type_id"]): r["n"] for r in rs}
-    types = _types(conn, True)
+    # Unregistered garments are their own series, unless the lead chose to leave them out (dirty data).
+    types = _types(conn, count_unregistered(conn))
     points = []
     for day in rng:
         values = {t["name"]: by.get((day, t["id"]), 0) for t in types}
@@ -101,6 +103,8 @@ def breakdown(conn: Connection, days: int, metric: str, now: datetime | None = N
            """SELECT s.code AS size, l.code AS location, SUM(dl.qty_current) AS n FROM delivery d JOIN delivery_line dl ON dl.delivery_id = d.id
                 JOIN stock_item si ON si.id = dl.stock_item_id JOIN size s ON s.id = si.size_id JOIN location l ON l.id = si.location_id
                WHERE d.received_day BETWEEN ? AND ? GROUP BY s.code, s.sort, l.code ORDER BY s.sort""")
+    if metric == "issued" and not count_unregistered(conn):
+        sql = sql.replace("WHERE ii.issued_day", "JOIN garment_type g ON g.id = si.garment_type_id WHERE NOT g.is_system AND ii.issued_day")
     by_size: dict[str, int] = {}
     by_loc: dict[str, int] = {}
     for r in rows(conn, sql, [rng[0], rng[-1]]):

@@ -158,8 +158,8 @@ When GI cannot reach Oracle yet (for example on a test site), export the issue r
    - The first line must be the column names; extra columns are ignored, and other `STATE`s are skipped.
    - Comma, semicolon or tab separators work.
    - Dates like `20-NOV-26 09.15.30 AM` (Oracle's default) are also read, but **times must include seconds**. Don't open and save the file in Excel, which drops the seconds.
-3. Upload the file. Rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`) are skipped, so uploading the same file twice, or files whose date ranges overlap, never counts an issue twice. If any row can't be read, nothing is imported and the problem lines are listed.
-4. As with a real Oracle connection: map the values in **Settings › Oracle values** (rows with unmapped values are held until then), and enter the starting counts in **Settings › Full count**. Issues count against stock only after the starting count.
+3. Upload the file. A progress bar shows the upload, then "Importing N of M rows". The import runs on the server, so a large file doesn't hit request time limits. If the pod restarts during an import, the rows done so far are kept: upload the file again to finish. Rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`) are skipped, so uploading the same file twice, or files whose date ranges overlap, never counts an issue twice. If any row can't be read, nothing is imported and the problem lines are listed.
+4. As with a real Oracle connection: map the values in **Settings › Oracle values**. A row is held until **all four** of its values (type, color, size, level) are mapped, so the first mappings may release 0 rows; the confirmation says how many rows were released and how many still wait, and enter the starting counts in **Settings › Full count**. Issues count against stock only after the starting count.
 5. Repeat with a new export whenever you want newer issues; overlapping date ranges are fine.
 
 Later, with `ISSUE_SOURCE=oracle`, the rows already uploaded are recognised and not imported again.

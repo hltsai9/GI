@@ -91,6 +91,8 @@ Table names cannot be bind variables, so the API validates them at start-up agai
 - Issue polling pages on (`RECTIME`, `SUIT_BARCODE`), not `RECTIME` alone: many rows share a second, and a page ending inside such a group skipped the rest (found by the catch-up sweep during the first test run).
 - Classification order: an incomplete (GOWN / OTHER / OTHER) row only needs `SUIT_LEVEL` mapped; it is never held for its OTHER color or size.
 - **CSV upload of Oracle exports** (Settings › Import, admin; `ISSUE_SOURCE=csv` turns off the automatic import): for sites that cannot reach Oracle. Rows go through the same import, so the ORA-02 rule (each `SUIT_BARCODE` + `INSERT_TIME` once) also covers re-uploads and a later switch to the live connection; watermarks are not touched. A file with any unreadable row is rejected as a whole. Times must include seconds.
+- **Unregistered garments can be left out of the issued numbers** (Settings › Data quality, lead; table `app_setting`, `count_unregistered_issues`). Left out, Trends (issued per day, flows, breakdown) and the Stock warning ignore them; they are still imported, booked to the unregistered bucket and listed on the data quality page, so the choice can be reversed at any time.
+- **Barcodes are stored exactly as in Oracle** (`issue_import.suit_barcode` `VARCHAR(255)`, collation `utf8mb4_nopad_bin`): case, inner and outer spaces matter for the "each row once" rule and the data quality list.
 - Not built yet: SSO (a dev user picker stands in), email/Teams digest (ALR-02), late registration (DQ-08), estimated split (DQ-09), correction approval rules (HIS-07), CSV upload for the starting count.
 
 

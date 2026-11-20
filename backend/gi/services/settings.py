@@ -12,8 +12,26 @@ from ..importing.importer import reclassify
 from ..timeutil import iso, now_utc, to_db
 
 
+def count_unregistered(conn: Connection) -> bool:
+    """Whether issues of unregistered barcodes (GOWN / OTHER / OTHER) count in the issued numbers."""
+    r = one(conn, "SELECT value FROM app_setting WHERE name = 'count_unregistered_issues'")
+    return not r or r["value"] != "false"
+
+
+def set_count_unregistered(value: bool, user_id: int) -> dict:
+    def work(conn: Connection) -> dict:
+        execute(conn, """INSERT INTO app_setting (name, value, updated_by, updated_at) VALUES ('count_unregistered_issues', ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE value = VALUES(value), updated_by = VALUES(updated_by), updated_at = VALUES(updated_at)""",
+                ["true" if value else "false", user_id, to_db(now_utc())])
+        _audit(conn, user_id, "app_setting", None, "update", None, {"count_unregistered_issues": value})
+        return {"countUnregistered": value}
+
+    return with_tx(work)
+
+
 def meta(conn: Connection) -> dict:
     return {
+        "countUnregistered": count_unregistered(conn),
         "types": rows(conn, "SELECT id, code, name, plural, icon FROM garment_type WHERE active AND NOT is_system ORDER BY sort"),
         "colors": rows(conn, "SELECT id, name, active FROM color WHERE NOT is_system ORDER BY sort"),
         "sizes": rows(conn, "SELECT id, code, active FROM size WHERE NOT is_system ORDER BY sort"),
@@ -128,19 +146,56 @@ def set_mapping(map_id: int, inp: MappingInput, user_id: int) -> dict:
                 [target_id, inp.ignore, user_id, to_db(now_utc()), map_id])
         _audit(conn, user_id, "oracle_value_map", map_id, "update", None,
                {"column": m["oracle_column"], "value": m["oracle_value"], "targetId": target_id, "ignore": inp.ignore})
-        applied = reclassify(conn, f"status = 'held_unmapped' AND {_ISSUE_COLUMN[m['oracle_column']]} = ?", [m["oracle_value"]],
-                             user_id, f"mapped {m['oracle_column']} {m['oracle_value']}")
-        return {"id": map_id, "reclassified": applied}
+        col = _ISSUE_COLUMN[m["oracle_column"]]
+        tally: dict[str, int] = {}
+        released = reclassify(conn, f"status = 'held_unmapped' AND {col} = ?", [m["oracle_value"]],
+                              user_id, f"mapped {m['oracle_column']} {m['oracle_value']}", tally)
+        # A row is released only when all four of its values are mapped (or one is ignored); rows that use
+        # this value but wait for another one stay held.
+        still = one(conn, f"SELECT COUNT(*) AS n FROM issue_import WHERE status = 'held_unmapped' AND {col} = ?", [m["oracle_value"]])
+        return {"id": map_id, "reclassified": released, "byStatus": tally, "stillHeld": still["n"] if still else 0}
 
     return with_tx(work)
 
 
 # ---- data quality (DQ-05)
 def unregistered_barcodes(conn: Connection) -> list[dict]:
+    """One line per unregistered barcode. first_seen / last_seen are scan times (INSERT_TIME converted to UTC; the
+    page shows them in Phoenix time); last_insert_time is the latest INSERT_TIME exactly as in Oracle (Taipei
+    time), to search for in an Oracle export."""
     rs = rows(conn, """SELECT ii.suit_barcode AS barcode, COUNT(*) AS times, MIN(ii.issued_at) AS first_seen, MAX(ii.issued_at) AS last_seen,
+                              MAX(ii.insert_time) AS last_insert_time,
                               GROUP_CONCAT(DISTINCT ii.suit_level ORDER BY ii.suit_level) AS locations
                          FROM issue_import ii WHERE ii.quality = 'incomplete' GROUP BY ii.suit_barcode ORDER BY times DESC, barcode""")
-    return [{**r, "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"])} for r in rs]
+    return [{**r, "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
+             "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S") if r["last_insert_time"] else None} for r in rs]
+
+
+def conflicting_barcodes(conn: Connection) -> list[dict]:
+    """Barcodes issued with more than one SUIT_TYPE / SUIT_COLOR / SUIT_SIZE combination. A barcode means
+    one garment, so these show suit master problems (a barcode re-used or re-labelled). Unregistered rows
+    (GOWN / OTHER / OTHER) are included: a barcode that is sometimes unregistered and sometimes not
+    shows a registration that came later. Values are compared exactly (case and spaces)."""
+    rs = rows(conn, """SELECT ii.suit_barcode AS barcode, ii.suit_type, ii.suit_color, ii.suit_size, ii.quality,
+                              COUNT(*) AS times, MIN(ii.insert_time) AS first_insert_time, MAX(ii.insert_time) AS last_insert_time,
+                              MIN(ii.issued_at) AS first_seen, MAX(ii.issued_at) AS last_seen,
+                              GROUP_CONCAT(DISTINCT ii.suit_level ORDER BY ii.suit_level) AS locations
+                         FROM issue_import ii
+                         JOIN (SELECT suit_barcode FROM issue_import GROUP BY suit_barcode
+                                HAVING COUNT(DISTINCT BINARY suit_type, BINARY suit_color, BINARY suit_size) > 1) x
+                           ON x.suit_barcode = ii.suit_barcode
+                        GROUP BY ii.suit_barcode, BINARY ii.suit_type, BINARY ii.suit_color, BINARY ii.suit_size
+                        ORDER BY ii.suit_barcode, last_insert_time""")
+    out: dict[str, dict] = {}
+    for r in rs:
+        b = out.setdefault(r["barcode"], {"barcode": r["barcode"], "times": 0, "combinations": []})
+        b["times"] += r["times"]
+        b["combinations"].append({
+            "type": r["suit_type"], "color": r["suit_color"], "size": r["suit_size"], "unregistered": r["quality"] == "incomplete",
+            "times": r["times"], "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
+            "first_insert_time": r["first_insert_time"].strftime("%Y-%m-%d %H:%M:%S"),
+            "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S"), "locations": r["locations"]})
+    return sorted(out.values(), key=lambda b: (-b["times"], b["barcode"]))
 
 
 def data_quality(conn: Connection, days: int) -> dict:
@@ -149,4 +204,5 @@ def data_quality(conn: Connection, days: int) -> dict:
                              WHERE issued_day >= CURDATE() - INTERVAL ? DAY AND status <> 'ignored'
                              GROUP BY issued_day, l.code ORDER BY issued_day""", [days])
     return {"perDay": [{**r, "day": r["day"].isoformat()} for r in per_day], "unregisteredBarcodes": unregistered_barcodes(conn),
+            "conflictingBarcodes": conflicting_barcodes(conn),
             "patterns": rows(conn, "SELECT id, suit_type, suit_color, suit_size, active FROM dq_pattern ORDER BY id")}

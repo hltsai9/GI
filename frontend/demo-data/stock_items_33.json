@@ -1,1 +1,1 @@
-{"id":33,"on_hand":17,"min_qty":10,"garment":"Boots","color":"Blue","size":"MED","location":"Fab1","status":"plenty","issuedToday":5,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":10}}
+{"id":33,"on_hand":16,"min_qty":10,"garment":"Boots","color":"Blue","size":"MED","location":"Fab1","status":"plenty","issuedToday":6,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":10}}

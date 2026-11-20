@@ -21,7 +21,9 @@ export function Stock({ meta, me }) {
 }
 
 function SummaryView(s) {
-  const unreg = s.unregistered.reduce((a, u) => a + u.sinceLastCheck, 0);
+  // The lead can leave unregistered garments (often dirty data) out of the numbers: Settings › Data quality.
+  const showUnreg = s.countUnregistered !== false;
+  const unreg = showUnreg ? s.unregistered.reduce((a, u) => a + u.sinceLastCheck, 0) : 0;
   const right = { textAlign: 'right' };
   return [
     s.sync.stale && Warn('The issue import has not run for a while, so stock may be too high.'),
@@ -45,7 +47,7 @@ function SummaryView(s) {
       h('thead', null, h('tr', null, h('th', null, 'By location'), h('th', { style: right }, 'Fab1'), h('th', { style: right }, 'Fab2'))),
       h('tbody', null,
         s.totals.map((t) => h('tr', null, h('td', null, t.plural), h('td', { style: right }, fmtNum(t.byLocation.Fab1 ?? 0)), h('td', { style: right }, fmtNum(t.byLocation.Fab2 ?? 0)))),
-        h('tr', null, h('td', { class: 'muted' }, 'Unregistered'),
+        showUnreg && h('tr', null, h('td', { class: 'muted' }, 'Unregistered'),
           ['Fab1', 'Fab2'].map((l) => h('td', { class: 'muted', style: right }, s.unregistered.find((u) => u.location === l)?.onHand ?? 0))))),
   ];
 }

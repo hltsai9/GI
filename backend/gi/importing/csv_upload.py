@@ -12,13 +12,16 @@ import io
 import re
 from datetime import datetime
 
+from typing import Callable
+
+from ..db import connect, execute
 from ..timeutil import now_utc
 from .importer import _Counters, _exclusive, _finish_run, _import_batch, _start_run
 from .source import ISSUE_STATE, OracleIssueRow
 
 REQUIRED = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL", "INSERT_TIME", "RECTIME")
 MAX_ERRORS = 20
-BATCH = 1000
+BATCH = 500  # rows per transaction; progress is saved after each batch
 
 # Date-times as Oracle tools and the recommended export query write them. Seconds are required: the
 # duplicate check compares INSERT_TIME to the second (a file saved by Excel often loses the seconds).
@@ -62,11 +65,12 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
     text = _decode(data)
     if not text.strip():
         raise CsvError("The file is empty.")
-    try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
-    except csv.Error:
-        dialect = csv.excel
-    reader = csv.reader(io.StringIO(text), dialect)
+    # The separator is taken from the header line (column names only, no messy data); quoting is always the
+    # standard CSV rule ("" inside quotes is one "), which Oracle tools and Excel write. Guessing the quoting
+    # from the data (csv.Sniffer) changed barcodes that contain a quote character.
+    first = text.lstrip("\ufeff").split("\n", 1)[0]
+    delimiter = max(",;\t|", key=first.count)
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter, quotechar='"', doublequote=True, skipinitialspace=False)
     header = next(reader, [])
     cols = {h.strip().strip('"').upper(): i for i, h in enumerate(header)}
     missing = [c for c in REQUIRED if c not in cols]
@@ -89,7 +93,11 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
             empty = [c for c in REQUIRED if not get(c)]
             if empty:
                 raise ValueError(f"empty {', '.join(empty)}")
-            out.append({"SUIT_BARCODE": get("SUIT_BARCODE"), "SUIT_TYPE": get("SUIT_TYPE"), "SUIT_COLOR": get("SUIT_COLOR"),
+            barcode = rec[cols["SUIT_BARCODE"]] if cols["SUIT_BARCODE"] < len(rec) else ""
+            if len(barcode) > 255:
+                raise ValueError(f"SUIT_BARCODE is longer than 255 characters ({barcode[:40]!r}…)")
+            # The barcode is kept exactly as exported (spaces included), like the live Oracle import does.
+            out.append({"SUIT_BARCODE": barcode, "SUIT_TYPE": get("SUIT_TYPE"), "SUIT_COLOR": get("SUIT_COLOR"),
                         "SUIT_SIZE": get("SUIT_SIZE"), "SUIT_LEVEL": get("SUIT_LEVEL"),
                         "INSERT_TIME": parse_time(get("INSERT_TIME")), "RECTIME": parse_time(get("RECTIME"))})
         except ValueError as e:
@@ -103,17 +111,24 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
     return out, other_state
 
 
-def import_csv(data: bytes, file_name: str = "") -> dict:
-    """Parses and imports the file in one run (kind 'upload'). Rows already in GI are skipped."""
-    rows, other_state = parse(data)
+def import_rows(rows: list[OracleIssueRow], other_state: int, file_name: str = "",
+                on_started: Callable[[int], None] | None = None) -> dict:
+    """Imports parsed rows in one run (kind 'upload'), saving progress in sync_run after each batch so any
+    replica can report it. Rows already in GI are skipped."""
     now = now_utc()
 
     def run() -> dict:
         run_id = _start_run("upload", note=(file_name or "")[:255] or None)
+        with connect() as conn:
+            execute(conn, "UPDATE sync_run SET rows_total = ?, rows_other_state = ? WHERE id = ?", [len(rows), other_state, run_id])
+        if on_started:
+            on_started(run_id)
         c = _Counters()
         try:
             for i in range(0, len(rows), BATCH):
                 _import_batch(rows[i:i + BATCH], run_id, c, now)
+                with connect() as conn:
+                    execute(conn, "UPDATE sync_run SET rows_read = ?, rows_new = ? WHERE id = ?", [c.read, c.new, run_id])
             result = _finish_run(run_id, "upload", c)
         except Exception as e:  # noqa: BLE001
             _finish_run(run_id, "upload", c, e)
@@ -121,3 +136,23 @@ def import_csv(data: bytes, file_name: str = "") -> dict:
         return {**result, "fileRows": len(rows) + other_state, "alreadyImported": c.read - c.new, "otherState": other_state}
 
     return _exclusive(run)
+
+
+def import_csv(data: bytes, file_name: str = "") -> dict:
+    """Parses and imports a file, waiting until it is done (used by tests and scripts)."""
+    rows, other_state = parse(data)
+    return import_rows(rows, other_state, file_name)
+
+
+def run_progress(run: dict) -> dict:
+    """An upload run as the page shows it: progress while running, the counts when finished."""
+    total = run.get("rows_total") or 0
+    other = run.get("rows_other_state") or 0
+    return {
+        "runId": run["id"], "status": run["status"], "fileName": run.get("note"),
+        "total": total, "done": run["rows_read"], "new": run["rows_new"],
+        "alreadyImported": run["rows_read"] - run["rows_new"], "otherState": other, "fileRows": total + other,
+        "byStatus": {"applied": run["rows_applied"], "held_unmapped": run["rows_held"],
+                     "before_start": run["rows_before_start"], "ignored": run["rows_ignored"]},
+        "error": (run.get("error") or "").strip().splitlines()[-1] if run.get("error") else None,
+    }

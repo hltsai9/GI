@@ -1,5 +1,5 @@
 import { h, state, flash, load, reload } from '../dom.js';
-import { api, DEMO, DEV_USERS, demoFetch, devUser, fmtNum, fmtWhen } from '../api.js';
+import { api, apiUpload, DEMO, DEV_USERS, demoFetch, devUser, fmtNum, fmtWhen } from '../api.js';
 import { attempt, Dropdown, ErrorNote, errorOf, GIcon, Msg, PageHead, Seg, Warn } from '../ui.js';
 
 const VIEWS = [
@@ -31,7 +31,7 @@ export function Settings(p) {
       view === 'correct' && CorrectStock(p.meta, lead),
       view === 'count' && FullCount(p.meta, lead),
       view === 'oracle' && OracleValues(p.meta, lead),
-      view === 'quality' && DataQuality(),
+      view === 'quality' && DataQuality(p.meta, lead),
       view === 'import' && ImportStatus(p.me.role === 'admin'),
       view === 'device' && ThisDevice(p)),
   ];
@@ -202,12 +202,21 @@ function OracleValues(meta, canEdit) {
     if (!choice) return;
     attempt('oracle', async () => {
       const r = await api(`/oracle-values/${v.id}`, { method: 'PUT', json: choice === 'ignore' ? { ignore: true } : { targetId: Number(choice) } });
-      setSaved(`${v.oracle_column} ${v.oracle_value} · ${r.reclassified} held rows applied`);
+      const st = r.byStatus ?? {};
+      const parts = [`${v.oracle_column} ${v.oracle_value} mapped`];
+      if (r.reclassified) {
+        const how = [st.applied && `${fmtNum(st.applied)} applied to stock`, st.before_start && `${fmtNum(st.before_start)} before the starting count`,
+          st.ignored && `${fmtNum(st.ignored)} ignored`].filter(Boolean).join(', ');
+        parts.push(`${fmtNum(r.reclassified)} held rows released${how ? ` (${how})` : ''}`);
+      }
+      if (r.stillHeld) parts.push(`${fmtNum(r.stillHeld)} rows with this value still wait for their other values to be mapped`);
+      else if (!r.reclassified) parts.push('no rows were waiting for it');
+      setSaved(parts.join(' · '));
       reload('/oracle-values', '/stock', '/trends', '/data-quality');
     });
   };
   return [
-    h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first; rows that use them are held until they are mapped.'),
+    h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first. An issue row is held until all four of its values (type, color, size, level) are mapped; it then counts against stock from the fab\'s starting count on.'),
     saved && Msg({ tag: 'Saved', text: saved }),
     ErrorNote(error ?? errorOf('oracle')),
     h('div', { style: { display: 'flex', flexDirection: 'column' } },
@@ -221,32 +230,70 @@ function OracleValues(meta, canEdit) {
   ];
 }
 
-function DataQuality() {
+function DataQuality(meta, canEdit) {
   const { data, error } = load('/data-quality?days=30');
+  const counted = meta.countUnregistered !== false;
+  const setCounted = (value) => attempt('quality', async () => {
+    await api('/settings/count-unregistered', { method: 'PUT', json: { value } });
+    reload('/meta', '/stock', '/trends');
+  });
   const m = new Map();
   for (const r of data?.perDay ?? []) {
     const x = m.get(r.day) ?? { incomplete: 0, total: 0 };
     m.set(r.day, { incomplete: x.incomplete + Number(r.incomplete), total: x.total + Number(r.total) });
   }
   const days = [...m].slice(-14).reverse();
-  const download = async () => {
-    const res = DEMO ? await demoFetch('/data-quality/unregistered.csv') : await fetch('api/data-quality/unregistered.csv', { headers: { 'X-Dev-User': devUser() } });
+  const download = async (path, name) => {
+    const res = DEMO ? await demoFetch(path) : await fetch(`api${path}`, { headers: { 'X-Dev-User': devUser() } });
     const url = URL.createObjectURL(await res.blob());
-    Object.assign(document.createElement('a'), { href: url, download: 'unregistered-barcodes.csv' }).click();
+    Object.assign(document.createElement('a'), { href: url, download: name }).click();
   };
+  const conflicts = data?.conflictingBarcodes ?? [];
+  const combo = (k) => `${k.type} / ${k.color} / ${k.size}`;
   return [
-    h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They count in issued per day and per fab, but not per garment type, size or color.'),
-    ErrorNote(error),
+    h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color. If they are mostly dirty data, leave them out of the issued numbers too:'),
+    Seg({ label: 'Unregistered garments in issued numbers', value: counted, onChange: (v) => canEdit && setCounted(v),
+      options: [{ value: true, label: 'Count as issued' }, { value: false, label: 'Leave out' }] }),
+    h('div', { class: 'note' }, counted
+      ? 'Counted: Trends › Issued shows them as their own series, and Stock warns how many were issued since the last full check.'
+      : 'Left out: Trends and Stock ignore them. They are still imported and listed below, so you can switch back at any time.',
+    !canEdit && ' Only the cleanroom lead can change this.'),
+    ErrorNote(error ?? errorOf('quality')),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Day'), h('th', { style: right }, 'Unregistered'), h('th', { style: right }, 'All issues'), h('th', { style: right }, '%'))),
       h('tbody', null, days.map(([d, v]) => h('tr', null, h('td', null, d), h('td', { style: right }, v.incomplete), h('td', { style: right }, fmtNum(v.total)),
         h('td', { style: right }, v.total ? ((v.incomplete / v.total) * 100).toFixed(1) : '0'))))),
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 } },
       h('h4', { style: { margin: 0 } }, 'Unregistered barcodes ', h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${data?.unregisteredBarcodes.length ?? 0} for the vendor to register`)),
-      h('button', { class: 'btn btn-secondary', onClick: download, style: { minHeight: 44 } }, 'Download CSV')),
+      h('button', { class: 'btn btn-secondary', onClick: () => download('/data-quality/unregistered.csv', 'unregistered-barcodes.csv'), style: { minHeight: 44 } }, 'Download CSV')),
     h('table', { class: 'table num' },
-      h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', { style: right }, 'Times'), h('th', null, 'Last seen'), h('th', null, 'Where'))),
-      h('tbody', null, (data?.unregisteredBarcodes ?? []).slice(0, 50).map((b) => h('tr', null, h('td', null, b.barcode), h('td', { style: right }, b.times), h('td', null, fmtWhen(b.last_seen)), h('td', null, b.locations))))),
+      h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', { style: right }, 'Times'),
+        h('th', { title: 'Time of the latest scan, in Phoenix time' }, 'Last scan (Phoenix)'),
+        h('th', { title: 'INSERT_TIME of the latest scan exactly as in Oracle (Taipei time): search for this in an Oracle export' }, 'INSERT_TIME (Oracle)'),
+        h('th', null, 'Where'))),
+      // white-space: pre keeps runs of spaces in barcodes visible exactly as stored (HTML would merge them).
+      h('tbody', null, (data?.unregisteredBarcodes ?? []).slice(0, 50).map((b) => h('tr', null,
+        h('td', { style: { whiteSpace: 'pre' }, title: JSON.stringify(b.barcode) }, b.barcode), h('td', { style: right }, b.times),
+        h('td', null, fmtWhen(b.last_seen)), h('td', null, b.last_insert_time ?? ''), h('td', null, b.locations))))),
+    h('div', { class: 'note' }, 'Last scan is shown in Phoenix time. INSERT_TIME is the same moment as stored in Oracle (Taipei time, 15 hours ahead), to search for in your export. Hover a barcode to see it with its exact spaces.'),
+    // One barcode is one garment, so its type, color and size should never change.
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginTop: 8 } },
+      h('h4', { style: { margin: 0 } }, 'Barcodes with conflicting values ',
+        h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(conflicts.length)} barcodes`)),
+      h('button', { class: 'btn btn-secondary', disabled: !conflicts.length, onClick: () => download('/data-quality/conflicts.csv', 'barcodes-with-conflicting-values.csv'), style: { minHeight: 44 } }, 'Download CSV')),
+    h('div', { class: 'note' }, 'The same barcode was issued with different type, color or size. Each combination is listed with how often and when it was seen. "unregistered" marks GOWN / OTHER / OTHER rows; a barcode that is unregistered first and complete later was registered in between.'),
+    conflicts.length
+      ? h('table', { class: 'table num' },
+        h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', null, 'Type / color / size'), h('th', { style: right }, 'Times'),
+          h('th', { title: 'First and last INSERT_TIME exactly as in Oracle (Taipei time)' }, 'INSERT_TIME (Oracle)'), h('th', null, 'Where'))),
+        h('tbody', null, conflicts.slice(0, 50).flatMap((b) => b.combinations.map((k, i) => h('tr', null,
+          h('td', { style: { whiteSpace: 'pre', fontWeight: 600, borderBottomColor: i < b.combinations.length - 1 ? 'transparent' : null }, title: JSON.stringify(b.barcode) }, i === 0 ? b.barcode : ''),
+          h('td', { style: { whiteSpace: 'pre' } }, combo(k), k.unregistered && h('span', { class: 'tag tag-neutral', style: { marginLeft: 6 } }, 'unregistered')),
+          h('td', { style: right }, k.times),
+          h('td', null, k.first_insert_time === k.last_insert_time ? k.last_insert_time : `${k.first_insert_time} – ${k.last_insert_time}`),
+          h('td', null, k.locations))))))
+      : h('div', { class: 'note' }, data ? 'None found: every barcode always came with the same type, color and size.' : ''),
+    conflicts.length > 50 && h('div', { class: 'note' }, `Showing the 50 barcodes with the most issues; Download CSV has all ${fmtNum(conflicts.length)}.`),
   ];
 }
 
@@ -256,13 +303,26 @@ function CsvUpload(isAdmin) {
   const [busy, setBusy] = state('upload.busy', false);
   const [result, setResult] = state('upload.result', null);
   const [failure, setFailure] = state('upload.failure', null);
+  const [progress, setProgress] = state('upload.progress', null); // { phase: 'upload' | 'import', ... }
   const send = async () => {
     setBusy(true);
     setResult(null);
     setFailure(null);
+    setProgress({ phase: 'upload', fraction: 0 });
     try {
-      const r = await api('/sync/upload', { method: 'POST', body: file, headers: { 'content-type': 'text/csv', 'X-File-Name': encodeURIComponent(file.name) } });
-      setResult(r);
+      // 1. Upload; the server checks the file and starts the import in the background.
+      const started = await apiUpload('/sync/upload', file, { 'content-type': 'text/csv', 'X-File-Name': encodeURIComponent(file.name) },
+        (fraction) => setProgress({ phase: 'upload', fraction }));
+      // 2. Follow the import until it is done (progress is kept in the database, so any server can answer).
+      let run = { status: 'running', done: 0, total: started.total };
+      setProgress({ phase: 'import', done: 0, total: started.total });
+      while (run.status === 'running') {
+        await new Promise((r) => setTimeout(r, 700));
+        run = await api(`/sync/runs/${started.runId}`);
+        setProgress({ phase: 'import', done: run.done, total: run.total });
+      }
+      if (run.status !== 'ok') throw new Error(`The import stopped after ${fmtNum(run.done)} of ${fmtNum(run.total)} rows: ${run.error ?? 'unknown error'}. Rows imported so far are kept; upload the file again to finish.`);
+      setResult(run);
       setFile(null);
       const input = document.getElementById('csvfile');
       if (input) input.value = '';
@@ -270,8 +330,10 @@ function CsvUpload(isAdmin) {
     } catch (e) {
       setFailure({ message: e.message, problems: e.data?.problems ?? [] });
     }
+    setProgress(null);
     setBusy(false);
   };
+  const pct = progress && (progress.phase === 'upload' ? progress.fraction : progress.total ? progress.done / progress.total : 0);
   const st = result?.byStatus ?? {};
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
     h('h4', { class: 'sec', style: { margin: 0 } }, 'Upload an Oracle export'),
@@ -288,6 +350,13 @@ function CsvUpload(isAdmin) {
           file ? `${file.name} · ${fmtNum(Math.ceil(file.size / 1024))} KB` : 'No file chosen'),
         h('button', { class: 'btn btn-primary', disabled: !file || busy, onClick: send, style: { minHeight: 44 } }, busy ? 'Importing…' : 'Upload and import'))
       : h('div', { class: 'note' }, 'Only an admin can upload files (Settings › This device to switch user while there is no SSO).'),
+    progress && h('div', { role: 'status', 'aria-live': 'polite', style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+      h('div', { style: { height: 8, borderRadius: 4, background: 'var(--color-neutral-200)', overflow: 'hidden' } },
+        h('div', { style: { height: '100%', width: `${Math.round(pct * 100)}%`, background: 'var(--color-accent)', transition: 'width .3s' } })),
+      h('div', { class: 'num', style: { fontSize: 14, color: 'var(--color-neutral-700)' } },
+        progress.phase === 'upload'
+          ? `Uploading… ${Math.round(pct * 100)} %`
+          : `Importing… ${fmtNum(progress.done)} of ${fmtNum(progress.total)} rows (${Math.round(pct * 100)} %)`)),
     result && Msg({ tag: 'Imported', text: `${result.fileRows !== undefined ? fmtNum(result.fileRows) + ' rows in the file · ' : ''}${fmtNum(result.new)} new issues (${fmtNum(st.applied ?? 0)} applied, ${fmtNum(st.held_unmapped ?? 0)} held, ${fmtNum(st.before_start ?? 0)} before the starting count, ${fmtNum(st.ignored ?? 0)} ignored) · ${fmtNum(result.alreadyImported)} already in GI${result.otherState ? ` · ${fmtNum(result.otherState)} other STATE` : ''}` }),
     failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
 }
