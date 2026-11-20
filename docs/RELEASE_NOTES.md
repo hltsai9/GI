@@ -19,6 +19,25 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
   - 18 new tests (44 in total pass): date formats, a bad row rejecting the whole file, re-uploads and overlapping files;
   - in the browser, on an empty database with `ISSUE_SOURCE=csv`: two overlapping exports in different date formats, then the first one again. 2,471 distinct issues were stored, with nothing counted twice.
 
+### New sizes and color, leaving out unregistered garments, exact barcodes
+- **New color Grey and sizes XSM, 5XLG, 6XLG, 7XLG, UNI**, for every installation (migration `005`, automatic).
+  - Size order: XSM, SM, MED, LG, XLG, 2XLG–7XLG, UNI, Other.
+  - If one was already added in Settings › Sizes & colors, it is simply kept.
+  - Stock grids, Receive and the full count show them straight away; map Oracle size codes to them in Settings › Oracle values.
+- **Unregistered garments can be left out of the issued numbers** (Settings › Data quality › "Leave out", lead only). Many unregistered barcodes turned out to be dirty data.
+  - Left out: Trends (issued per day, the weekday average, deliveries vs issues, breakdown) and the Stock warning ignore them.
+  - They are still imported and listed on the data quality page, so you can switch back at any time.
+- **Question answered: where "Last seen" comes from.** It is the scan time (`INSERT_TIME`) of the barcode's latest issue, converted to Phoenix time, which is 15 hours behind the Taipei time stored in Oracle. That is one reason the values could not be found in the raw file.
+  - The column is now called "Last scan (Phoenix)", and a new column "INSERT_TIME (Oracle)" shows the same moment exactly as stored in Oracle, so you can search for it in your export.
+- **Bugs found and fixed while checking why the barcodes could not be found in the raw file:**
+  - **Runs of spaces:** the page merged several spaces in a barcode into one (normal HTML behaviour). Barcodes are now shown with their exact spaces; hovering shows the barcode in quotes.
+  - **Quote characters:** the CSV upload guessed the file's quoting rules from the data and could guess wrong. A barcode with a quote character, e.g. `Q"7 7`, was stored as `Q"7 7"`. It now reads the separator from the header line only and always uses standard CSV quoting.
+  - **Leading and trailing spaces:** the CSV upload removed them from barcodes. Barcodes are now kept exactly as exported, like the live Oracle import.
+  - **Case and trailing spaces in the database:** the database treated barcodes that differ only in upper/lower case or trailing spaces as the same. The data quality list merged them, and a second row could be skipped as a "duplicate". Barcodes are now compared exactly (migration `005`) and may be up to 255 characters.
+  - **The "Download CSV" file** now quotes every field, so barcodes with commas or spaces at the ends survive Excel. It also has the Oracle `INSERT_TIME` column.
+- **If you uploaded files before this version**, the barcodes stored then had their outer spaces removed, and some quote characters may be wrong. To get exact barcodes, drop and re-create the `gi` database and upload the files again (steps from today: drop, re-create, restart the pods).
+- Tested here: 51 backend tests pass (7 new). In the browser: a file with messy barcodes (`AB   1203`, `  0000  `, `X-1, BAD`, `Q"7 7`) was imported and shown exactly, and switching to "Leave out" changed the weekday average from 580 to 565 and removed the Stock warning.
+
 ### Upload progress and clearer mapping messages
 - **Progress while importing a CSV file:** the page shows the upload percentage, then "Importing N of M rows (x %)" with a progress bar. The import now runs in the background on the server and saves its progress in the database after every 500 rows, so it works with several replicas and large files don't run into request time limits. Tested with a 29,754-row file: 27,051 issue rows imported in about 12 seconds, with the progress updating throughout.
   - If a pod restarts during an import, the rows done so far are kept; uploading the file again finishes it (rows already in GI are skipped).

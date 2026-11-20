@@ -65,11 +65,12 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
     text = _decode(data)
     if not text.strip():
         raise CsvError("The file is empty.")
-    try:
-        dialect = csv.Sniffer().sniff(text[:4096], delimiters=",;\t|")
-    except csv.Error:
-        dialect = csv.excel
-    reader = csv.reader(io.StringIO(text), dialect)
+    # The separator is taken from the header line (column names only, no messy data); quoting is always the
+    # standard CSV rule ("" inside quotes is one "), which Oracle tools and Excel write. Guessing the quoting
+    # from the data (csv.Sniffer) changed barcodes that contain a quote character.
+    first = text.lstrip("\ufeff").split("\n", 1)[0]
+    delimiter = max(",;\t|", key=first.count)
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter, quotechar='"', doublequote=True, skipinitialspace=False)
     header = next(reader, [])
     cols = {h.strip().strip('"').upper(): i for i, h in enumerate(header)}
     missing = [c for c in REQUIRED if c not in cols]
@@ -92,7 +93,11 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
             empty = [c for c in REQUIRED if not get(c)]
             if empty:
                 raise ValueError(f"empty {', '.join(empty)}")
-            out.append({"SUIT_BARCODE": get("SUIT_BARCODE"), "SUIT_TYPE": get("SUIT_TYPE"), "SUIT_COLOR": get("SUIT_COLOR"),
+            barcode = rec[cols["SUIT_BARCODE"]] if cols["SUIT_BARCODE"] < len(rec) else ""
+            if len(barcode) > 255:
+                raise ValueError(f"SUIT_BARCODE is longer than 255 characters ({barcode[:40]!r}…)")
+            # The barcode is kept exactly as exported (spaces included), like the live Oracle import does.
+            out.append({"SUIT_BARCODE": barcode, "SUIT_TYPE": get("SUIT_TYPE"), "SUIT_COLOR": get("SUIT_COLOR"),
                         "SUIT_SIZE": get("SUIT_SIZE"), "SUIT_LEVEL": get("SUIT_LEVEL"),
                         "INSERT_TIME": parse_time(get("INSERT_TIME")), "RECTIME": parse_time(get("RECTIME"))})
         except ValueError as e:

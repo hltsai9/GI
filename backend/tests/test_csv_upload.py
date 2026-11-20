@@ -111,3 +111,10 @@ def test_upload_endpoint(monkeypatch):
     s = c.get("/api/sync/status", headers=h).json()
     assert s["stale"] is False and s["source"] == "csv"
     assert c.get("/api/sync/runs", headers=h).json()[0]["kind"] == "upload"
+
+
+def test_barcodes_with_quotes_commas_and_spaces_survive_the_csv():
+    text = HEADER + "".join(f"{f},GOWN,OTHER,OTHER,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:0{i},U1,2026-11-19 18:30:00\n"
+                            for i, f in enumerate(['"Q""7 7"', '"X-1, BAD"', '  0000  ', 'AB   1203', '"tab\there"']))
+    got, _ = parse(text.encode())
+    assert [r["SUIT_BARCODE"] for r in got] == ['Q"7 7', "X-1, BAD", "  0000  ", "AB   1203", "tab\there"]

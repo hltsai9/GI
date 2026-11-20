@@ -1,6 +1,8 @@
 """HTTP API (same paths and JSON as before) plus the web page, served from one process."""
 from __future__ import annotations
 
+import csv
+import io
 import json
 import logging
 import threading
@@ -47,6 +49,10 @@ class MinInput(BaseModel):
 
 class ValueInput(BaseModel):
     value: str
+
+
+class FlagInput(BaseModel):
+    value: bool
 
 
 class OrderInput(BaseModel):
@@ -232,6 +238,10 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
     def order(body: OrderInput, u: User = lead):
         return settings.reorder_sizes(body.ids, u.id)
 
+    @app.put("/api/settings/count-unregistered")
+    def put_count_unregistered(body: FlagInput, u: User = lead):
+        return settings.set_count_unregistered(body.value, u.id)
+
     @app.get("/api/oracle-values", dependencies=[user])
     def oracle_values():
         with connect() as c:
@@ -250,9 +260,12 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
     def unregistered_csv():
         with connect() as c:
             lst = settings.unregistered_barcodes(c)
-        csv = "\n".join(["barcode,times_issued,first_seen,last_seen,locations",
-                         *(f'{b["barcode"]},{b["times"]},{b["first_seen"]},{b["last_seen"]},"{b["locations"]}"' for b in lst)])
-        return Response(csv, media_type="text/csv",
+        out = io.StringIO()
+        w = csv.writer(out, lineterminator="\n", quoting=csv.QUOTE_ALL)  # keeps commas, quotes and spaces in barcodes
+        w.writerow(["barcode", "times_issued", "first_seen_utc", "last_seen_utc", "last_insert_time_oracle", "locations"])
+        for b in lst:
+            w.writerow([b["barcode"], b["times"], b["first_seen"], b["last_seen"], b["last_insert_time"], b["locations"]])
+        return Response(out.getvalue(), media_type="text/csv",
                         headers={"content-disposition": 'attachment; filename="unregistered-barcodes.csv"'})
 
     # ---- Import status and admin

@@ -1,1 +1,1 @@
-{"id":62,"on_hand":46,"min_qty":20,"garment":"Hood","color":"White","size":"XLG","location":"Fab2","status":"plenty","issuedToday":11,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":20}}
+{"id":62,"on_hand":5,"min_qty":4,"garment":"Hood","color":"Black","size":"XLG","location":"Fab2","status":"close_to_min","issuedToday":0,"lastDelivery":{"at":"2026-11-19T13:40:00.000Z","qty":5}}

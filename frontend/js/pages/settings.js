@@ -31,7 +31,7 @@ export function Settings(p) {
       view === 'correct' && CorrectStock(p.meta, lead),
       view === 'count' && FullCount(p.meta, lead),
       view === 'oracle' && OracleValues(p.meta, lead),
-      view === 'quality' && DataQuality(),
+      view === 'quality' && DataQuality(p.meta, lead),
       view === 'import' && ImportStatus(p.me.role === 'admin'),
       view === 'device' && ThisDevice(p)),
   ];
@@ -230,8 +230,13 @@ function OracleValues(meta, canEdit) {
   ];
 }
 
-function DataQuality() {
+function DataQuality(meta, canEdit) {
   const { data, error } = load('/data-quality?days=30');
+  const counted = meta.countUnregistered !== false;
+  const setCounted = (value) => attempt('quality', async () => {
+    await api('/settings/count-unregistered', { method: 'PUT', json: { value } });
+    reload('/meta', '/stock', '/trends');
+  });
   const m = new Map();
   for (const r of data?.perDay ?? []) {
     const x = m.get(r.day) ?? { incomplete: 0, total: 0 };
@@ -244,8 +249,14 @@ function DataQuality() {
     Object.assign(document.createElement('a'), { href: url, download: 'unregistered-barcodes.csv' }).click();
   };
   return [
-    h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They count in issued per day and per fab, but not per garment type, size or color.'),
-    ErrorNote(error),
+    h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color. If they are mostly dirty data, leave them out of the issued numbers too:'),
+    Seg({ label: 'Unregistered garments in issued numbers', value: counted, onChange: (v) => canEdit && setCounted(v),
+      options: [{ value: true, label: 'Count as issued' }, { value: false, label: 'Leave out' }] }),
+    h('div', { class: 'note' }, counted
+      ? 'Counted: Trends › Issued shows them as their own series, and Stock warns how many were issued since the last full check.'
+      : 'Left out: Trends and Stock ignore them. They are still imported and listed below, so you can switch back at any time.',
+    !canEdit && ' Only the cleanroom lead can change this.'),
+    ErrorNote(error ?? errorOf('quality')),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Day'), h('th', { style: right }, 'Unregistered'), h('th', { style: right }, 'All issues'), h('th', { style: right }, '%'))),
       h('tbody', null, days.map(([d, v]) => h('tr', null, h('td', null, d), h('td', { style: right }, v.incomplete), h('td', { style: right }, fmtNum(v.total)),
@@ -254,8 +265,15 @@ function DataQuality() {
       h('h4', { style: { margin: 0 } }, 'Unregistered barcodes ', h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${data?.unregisteredBarcodes.length ?? 0} for the vendor to register`)),
       h('button', { class: 'btn btn-secondary', onClick: download, style: { minHeight: 44 } }, 'Download CSV')),
     h('table', { class: 'table num' },
-      h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', { style: right }, 'Times'), h('th', null, 'Last seen'), h('th', null, 'Where'))),
-      h('tbody', null, (data?.unregisteredBarcodes ?? []).slice(0, 50).map((b) => h('tr', null, h('td', null, b.barcode), h('td', { style: right }, b.times), h('td', null, fmtWhen(b.last_seen)), h('td', null, b.locations))))),
+      h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', { style: right }, 'Times'),
+        h('th', { title: 'Time of the latest scan, in Phoenix time' }, 'Last scan (Phoenix)'),
+        h('th', { title: 'INSERT_TIME of the latest scan exactly as in Oracle (Taipei time): search for this in an Oracle export' }, 'INSERT_TIME (Oracle)'),
+        h('th', null, 'Where'))),
+      // white-space: pre keeps runs of spaces in barcodes visible exactly as stored (HTML would merge them).
+      h('tbody', null, (data?.unregisteredBarcodes ?? []).slice(0, 50).map((b) => h('tr', null,
+        h('td', { style: { whiteSpace: 'pre' }, title: JSON.stringify(b.barcode) }, b.barcode), h('td', { style: right }, b.times),
+        h('td', null, fmtWhen(b.last_seen)), h('td', null, b.last_insert_time ?? ''), h('td', null, b.locations))))),
+    h('div', { class: 'note' }, 'Last scan is shown in Phoenix time. INSERT_TIME is the same moment as stored in Oracle (Taipei time, 15 hours ahead), to search for in your export. Hover a barcode to see it with its exact spaces.'),
   ];
 }
 
