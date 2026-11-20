@@ -16,7 +16,7 @@
 
 ```
  Phones / laptops ──HTTP──▶ ┌──────────────────────────────────────┐
-                            │ app  (image "gi", port 3000)         │──▶ Oracle (read-only)
+                            │ app  (image "gi", port 8000)         │──▶ Oracle (read-only)
                             │ web page + API + import scheduler    │     or mock data (no Oracle)
                             └──────────────────┬───────────────────┘
                               published as HTTP_PORT                 ▼
@@ -220,7 +220,7 @@ docker compose ps
 
 Without Compose at all, the image runs on its own:
 ```bash
-docker run -d --name gi --restart unless-stopped -p 8080:3000 \
+docker run -d --name gi --restart unless-stopped -p 8080:8000 \
   -e MARIADB_URL='mysql://gi:<password>@<db-host>:3306/gi' -e ISSUE_SOURCE=mock -e DEV_AUTH=true \
   gi:<GI_VERSION>
 ```
@@ -299,7 +299,7 @@ What to watch:
 |---|---|---|
 | `COMPOSE_PROFILES` | `db` | `db` runs the MariaDB container |
 | `IMAGE_PREFIX`, `GI_VERSION` | `gi`, `latest` | Image name `<prefix>:<version>` |
-| `HTTP_PORT` | `8080` | Host port for the site (the container listens on 3000) |
+| `HTTP_PORT` | `8080` | Host port for the site (the container listens on 8000) |
 | `DB_PASSWORD`, `DB_ROOT_PASSWORD` | — | MariaDB container passwords |
 | `MARIADB_URL` | built from `DB_PASSWORD` | Database URL, e.g. for an existing server |
 | `ISSUE_SOURCE` | `mock` | `mock` (no Oracle) or `oracle` |

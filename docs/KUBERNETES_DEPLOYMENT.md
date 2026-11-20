@@ -137,7 +137,7 @@ The pipeline passes the company's base image as a build argument (variable `pyth
 
 If the company base image already trusts the company certificate and its pip is set up for the internal mirror (common for approved base images), only `PYTHON_IMAGE` is needed.
 
-The image runs as user `10001` (non-root) and needs no writable files, so it works with `readOnlyRootFilesystem: true`.
+The image runs as user `1000` (non-root) and needs no writable files, so it works with `readOnlyRootFilesystem: true`.
 
 ## 7. Switching to the real Oracle later
 

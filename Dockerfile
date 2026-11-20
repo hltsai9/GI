@@ -11,7 +11,7 @@ FROM ${PYTHON_IMAGE}
 # and a company root certificate (BuildKit secret "company_ca") for TLS-inspecting proxies.
 ARG PIP_INDEX_URL=https://pypi.org/simple
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PORT=3000
+    PORT=8000
 
 WORKDIR /app
 # 1. Packages first, so this layer is reused until requirements.txt changes.
@@ -25,11 +25,11 @@ COPY backend/gi ./backend/gi
 COPY backend/db ./backend/db
 COPY frontend ./frontend
 
-# Runs as a non-root user (numeric, so it works on any base image and with runAsNonRoot in Kubernetes).
-USER 10001
+# Runs as non-root user 1000 (numeric, so it works on any base image and with runAsNonRoot in Kubernetes).
+USER 1000
 WORKDIR /app/backend
-EXPOSE 3000
+EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/api/health', timeout=4)"
+  CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"
 # Migrations run at start-up (under a database lock); with ISSUE_SOURCE=mock the mock Oracle data is generated in memory.
 CMD ["python", "-m", "gi.server"]
