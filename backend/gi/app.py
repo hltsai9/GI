@@ -274,11 +274,12 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
             lst = settings.conflicting_barcodes(c)
         out = io.StringIO()
         w = csv.writer(out, lineterminator="\n", quoting=csv.QUOTE_ALL)
-        w.writerow(["barcode", "suit_type", "suit_color", "suit_size", "times_issued", "first_insert_time_oracle",
+        w.writerow(["barcode", "suit_type", "suit_color", "suit_size", "times_seen", "counted", "first_insert_time_oracle",
                     "last_insert_time_oracle", "locations"])
         for b in lst:
             for k in b["combinations"]:
-                w.writerow([b["barcode"], k["type"], k["color"], k["size"], k["times"], k["first_insert_time"], k["last_insert_time"], k["locations"]])
+                w.writerow([b["barcode"], k["type"], k["color"], k["size"], k["times"], "no (same scan as another row)" if k["notCounted"] else "yes",
+                            k["first_insert_time"], k["last_insert_time"], k["locations"]])
         return Response(out.getvalue(), media_type="text/csv",
                         headers={"content-disposition": 'attachment; filename="barcodes-with-conflicting-values.csv"'})
 

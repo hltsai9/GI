@@ -104,4 +104,24 @@ def test_barcodes_with_conflicting_values():
     assert [k["unregistered"] for k in got["G-3"]["combinations"]] == [True, False]   # registered later
     from gi.app import build_app
     text = TestClient(build_app()).get("/api/data-quality/conflicts.csv", headers={"x-dev-user": "dev-lead"}).text
-    assert text.count("\n") == 1 + 6 and '"G-1","GOWN","BLUE","L","1"' in text
+    assert text.count("\n") == 1 + 6 and '"G-1","GOWN","BLUE","L","1","yes"' in text
+
+
+
+def test_same_scan_with_other_values_is_recorded_not_lost():
+    # Back-to-back rows: same barcode and INSERT_TIME (the same scan), different color.
+    same = (HEADER + csv_line("2399600002641084", "2026-11-20 09:00:00") + csv_line("2399600002641084", "2026-11-20 09:00:00", "BLUE")
+            + csv_line("G-9", "2026-11-20 09:00:00") + csv_line("G-9", "2026-11-20 09:00:00"))   # a true duplicate
+    r = import_csv(same.encode())
+    assert (r["new"], r["conflicts"], r["alreadyImported"]) == (2, 1, 1)
+    with connect() as c:
+        got = {b["barcode"]: b for b in settings.conflicting_barcodes(c)}
+        alerts = rows(c, "SELECT kind FROM admin_alert")
+    assert list(got) == ["2399600002641084"]
+    assert [(k["color"], k["notCounted"]) for k in got["2399600002641084"]["combinations"]] == [("WHITE", False), ("BLUE", True)]
+    assert {"kind": "data_conflict"} in alerts
+    # Uploading the same file again records nothing new twice.
+    r = import_csv(same.encode())
+    assert (r["new"], r["conflicts"]) == (0, 1)
+    with connect() as c:
+        assert rows(c, "SELECT times FROM issue_import_conflict") == [{"times": 2}]

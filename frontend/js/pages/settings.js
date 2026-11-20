@@ -281,14 +281,16 @@ function DataQuality(meta, canEdit) {
       h('h4', { style: { margin: 0 } }, 'Barcodes with conflicting values ',
         h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(conflicts.length)} barcodes`)),
       h('button', { class: 'btn btn-secondary', disabled: !conflicts.length, onClick: () => download('/data-quality/conflicts.csv', 'barcodes-with-conflicting-values.csv'), style: { minHeight: 44 } }, 'Download CSV')),
-    h('div', { class: 'note' }, 'The same barcode was issued with different type, color or size. Each combination is listed with how often and when it was seen. "unregistered" marks GOWN / OTHER / OTHER rows; a barcode that is unregistered first and complete later was registered in between.'),
+    h('div', { class: 'note' }, 'The same barcode was issued with different type, color or size. Each combination is listed with how often and when it was seen. "unregistered" marks GOWN / OTHER / OTHER rows; a barcode that is unregistered first and complete later was registered in between. "same scan, not counted" marks rows with the same barcode and INSERT_TIME as another row: only the first one counts.'),
     conflicts.length
       ? h('table', { class: 'table num' },
         h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', null, 'Type / color / size'), h('th', { style: right }, 'Times'),
           h('th', { title: 'First and last INSERT_TIME exactly as in Oracle (Taipei time)' }, 'INSERT_TIME (Oracle)'), h('th', null, 'Where'))),
         h('tbody', null, conflicts.slice(0, 50).flatMap((b) => b.combinations.map((k, i) => h('tr', null,
           h('td', { style: { whiteSpace: 'pre', fontWeight: 600, borderBottomColor: i < b.combinations.length - 1 ? 'transparent' : null }, title: JSON.stringify(b.barcode) }, i === 0 ? b.barcode : ''),
-          h('td', { style: { whiteSpace: 'pre' } }, combo(k), k.unregistered && h('span', { class: 'tag tag-neutral', style: { marginLeft: 6 } }, 'unregistered')),
+          h('td', { style: { whiteSpace: 'pre' } }, combo(k),
+            k.unregistered && h('span', { class: 'tag tag-neutral', style: { marginLeft: 6 } }, 'unregistered'),
+            k.notCounted && h('span', { class: 'tag tag-accent-2', style: { marginLeft: 6 }, title: 'Same barcode and INSERT_TIME as another row: the same scan, so it was not counted again' }, 'same scan, not counted')),
           h('td', { style: right }, k.times),
           h('td', null, k.first_insert_time === k.last_insert_time ? k.last_insert_time : `${k.first_insert_time} – ${k.last_insert_time}`),
           h('td', null, k.locations))))))
@@ -357,7 +359,7 @@ function CsvUpload(isAdmin) {
         progress.phase === 'upload'
           ? `Uploading… ${Math.round(pct * 100)} %`
           : `Importing… ${fmtNum(progress.done)} of ${fmtNum(progress.total)} rows (${Math.round(pct * 100)} %)`)),
-    result && Msg({ tag: 'Imported', text: `${result.fileRows !== undefined ? fmtNum(result.fileRows) + ' rows in the file · ' : ''}${fmtNum(result.new)} new issues (${fmtNum(st.applied ?? 0)} applied, ${fmtNum(st.held_unmapped ?? 0)} held, ${fmtNum(st.before_start ?? 0)} before the starting count, ${fmtNum(st.ignored ?? 0)} ignored) · ${fmtNum(result.alreadyImported)} already in GI${result.otherState ? ` · ${fmtNum(result.otherState)} other STATE` : ''}` }),
+    result && Msg({ tag: 'Imported', text: `${result.fileRows !== undefined ? fmtNum(result.fileRows) + ' rows in the file · ' : ''}${fmtNum(result.new)} new issues (${fmtNum(st.applied ?? 0)} applied, ${fmtNum(st.held_unmapped ?? 0)} held, ${fmtNum(st.before_start ?? 0)} before the starting count, ${fmtNum(st.ignored ?? 0)} ignored) · ${fmtNum(result.alreadyImported)} already in GI${result.conflicts ? ` · ${fmtNum(result.conflicts)} same scan with other values (not counted, see Data quality)` : ''}${result.otherState ? ` · ${fmtNum(result.otherState)} other STATE` : ''}` }),
     failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
 }
 

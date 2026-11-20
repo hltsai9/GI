@@ -133,12 +133,12 @@ def import_rows(rows: list[OracleIssueRow], other_state: int, file_name: str = "
             for i in range(0, len(rows), BATCH):
                 _import_batch(rows[i:i + BATCH], run_id, c, now)
                 with connect() as conn:
-                    execute(conn, "UPDATE sync_run SET rows_read = ?, rows_new = ? WHERE id = ?", [c.read, c.new, run_id])
+                    execute(conn, "UPDATE sync_run SET rows_read = ?, rows_new = ?, rows_conflicts = ? WHERE id = ?", [c.read, c.new, c.conflicts, run_id])
             result = _finish_run(run_id, "upload", c)
         except Exception as e:  # noqa: BLE001
             _finish_run(run_id, "upload", c, e)
             raise
-        return {**result, "fileRows": len(rows) + other_state, "alreadyImported": c.read - c.new, "otherState": other_state}
+        return {**result, "fileRows": len(rows) + other_state, "alreadyImported": c.read - c.new - c.conflicts, "otherState": other_state}
 
     return _exclusive(run)
 
@@ -156,7 +156,8 @@ def run_progress(run: dict) -> dict:
     return {
         "runId": run["id"], "status": run["status"], "fileName": run.get("note"),
         "total": total, "done": run["rows_read"], "new": run["rows_new"],
-        "alreadyImported": run["rows_read"] - run["rows_new"], "otherState": other, "fileRows": total + other,
+        "conflicts": run.get("rows_conflicts") or 0,
+        "alreadyImported": run["rows_read"] - run["rows_new"] - (run.get("rows_conflicts") or 0), "otherState": other, "fileRows": total + other,
         "byStatus": {"applied": run["rows_applied"], "held_unmapped": run["rows_held"],
                      "before_start": run["rows_before_start"], "ignored": run["rows_ignored"]},
         "error": (run.get("error") or "").strip().splitlines()[-1] if run.get("error") else None,

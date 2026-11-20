@@ -7,6 +7,17 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### Same scan with different values is now reported, not silently skipped
+- **Problem reported:** back-to-back rows with the same barcode and `RECTIME` but different colors did not appear in "Barcodes with conflicting values".
+- **Cause:** the rows also have the same `INSERT_TIME`, so GI treats them as one scan (the "each scan once" rule, ORA-02). The second row was counted as "already in GI" and dropped, so only one color was ever stored and the report could not see the conflict.
+- **Now:** a row with the same barcode and `INSERT_TIME` as a stored issue but another type, color, size or level is still not counted again (only the first one counts), but it is recorded (migration `007`, table `issue_import_conflict`).
+  - The report lists it, tagged "same scan, not counted".
+  - The upload result says "N same scan with other values".
+  - An admin alert `data conflict` is raised.
+  - The same applies to the live Oracle import.
+- **For files already uploaded:** upload them again. The rows already in GI are skipped as before, and the conflicting rows are now recorded. No database reset is needed.
+- Tested here: 55 backend tests pass (1 new); checked in the browser with the barcode from the report.
+
 ### Barcodes looked different from the file: Excel's 15-digit limit
 - **Question answered:** after an upload, barcodes such as `2399600002641084` looked different from the file, which showed `2399600002641080`.
   - **Cause:** the file was viewed in Excel. Excel keeps only 15 significant digits of a number, so the 16th digit of these barcodes is shown as 0. GI reads the file as text and stores the barcode exactly; the database value is the correct one.

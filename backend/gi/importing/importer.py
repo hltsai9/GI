@@ -24,6 +24,7 @@ class _Counters:
     new: int = 0
     by_status: dict[str, int] = field(default_factory=dict)
     incomplete: int = 0
+    conflicts: int = 0  # same barcode and INSERT_TIME as a stored issue, but other values
     time_check_failed: int = 0
     min_day: str | None = None
     max_day: str | None = None
@@ -48,8 +49,17 @@ def _import_batch(batch: list[OracleIssueRow], run_id: int, c: _Counters, now: d
             c.read += 1
             for col in ("SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL"):
                 seen[(col, r[col])] = seen.get((col, r[col]), 0) + 1  # type: ignore[literal-required]
-            if one(conn, "SELECT id FROM issue_import WHERE suit_barcode = ? AND insert_time = ?", [r["SUIT_BARCODE"], r["INSERT_TIME"]]):
-                continue  # ORA-02: each row exactly once
+            kept = one(conn, """SELECT id, suit_type, suit_color, suit_size, suit_level FROM issue_import
+                                  WHERE suit_barcode = ? AND insert_time = ?""", [r["SUIT_BARCODE"], r["INSERT_TIME"]])
+            if kept:  # ORA-02: each scan exactly once
+                if (kept["suit_type"], kept["suit_color"], kept["suit_size"], kept["suit_level"]) != \
+                        (r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"]):
+                    # The same scan with other values: not counted again, but recorded for the data quality report.
+                    c.conflicts += 1
+                    execute(conn, """INSERT INTO issue_import_conflict (issue_import_id, suit_type, suit_color, suit_size, suit_level, rectime, sync_run_id)
+                                      VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE times = times + 1""",
+                            [kept["id"], r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"], r["RECTIME"], run_id])
+                continue
             issued_at, recorded_at, issued_day = issue_times(r["INSERT_TIME"], r["RECTIME"])
             cls = classify_issue(conn, ctx, r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"], issued_at)
             res = execute(conn, """INSERT INTO issue_import (suit_barcode, insert_time, rectime, suit_type, suit_color, suit_size, suit_level,
@@ -91,10 +101,10 @@ def alert(kind: str, message: str, details: object) -> None:
 def _finish_run(run_id: int, kind: str, c: _Counters, error: BaseException | None = None) -> dict:
     s = c.by_status
     with connect() as conn:
-        execute(conn, """UPDATE sync_run SET finished_at = ?, rows_read = ?, rows_new = ?, rows_applied = ?, rows_held = ?, rows_ignored = ?,
+        execute(conn, """UPDATE sync_run SET finished_at = ?, rows_read = ?, rows_new = ?, rows_conflicts = ?, rows_applied = ?, rows_held = ?, rows_ignored = ?,
                  rows_before_start = ?, rows_incomplete = ?, rows_time_check_failed = ?, first_issued_day = ?, last_issued_day = ?,
                  status = ?, error = ? WHERE id = ?""",
-                [to_db(now_utc()), c.read, c.new, s.get("applied", 0), s.get("held_unmapped", 0), s.get("ignored", 0),
+                [to_db(now_utc()), c.read, c.new, c.conflicts, s.get("applied", 0), s.get("held_unmapped", 0), s.get("ignored", 0),
                  s.get("before_start", 0), c.incomplete, c.time_check_failed, c.min_day, c.max_day,
                  "failed" if error else "ok", "".join(traceback.format_exception(error)) if error else None, run_id])
     if error:
@@ -107,7 +117,10 @@ def _finish_run(run_id: int, kind: str, c: _Counters, error: BaseException | Non
         else:
             alert("time_check", f"{len(c.time_alerts)} issue rows have RECTIME before the scan or a scan in the future",
                   {"runId": run_id, "rows": c.time_alerts})
-    return {"runId": run_id, "kind": kind, "read": c.read, "new": c.new, "byStatus": c.by_status, "incomplete": c.incomplete,
+    if c.conflicts:
+        alert("data_conflict", f"{c.conflicts} rows had the same barcode and INSERT_TIME as an issue already imported but another "
+              "type, color, size or level; they were not counted again (see Settings › Data quality)", {"runId": run_id, "count": c.conflicts})
+    return {"runId": run_id, "kind": kind, "read": c.read, "new": c.new, "conflicts": c.conflicts, "byStatus": c.by_status, "incomplete": c.incomplete,
             "timeCheckFailed": c.time_check_failed, "issueDays": [c.min_day, c.max_day] if c.min_day else None}
 
 
