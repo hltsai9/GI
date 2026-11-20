@@ -8,7 +8,6 @@ from sqlalchemy.engine import Connection
 from ..auth import HttpError
 from ..config import config
 from ..db import execute, marks, one, rows
-from .settings import count_unregistered
 from ..timeutil import iso, now_utc, site_day
 
 CLOSE_TO_MIN_FACTOR = 1.5  # TODO: confirm with the lead
@@ -45,7 +44,7 @@ def _weekday_issue_rate(conn: Connection, now: datetime) -> dict[int, float]:
 def stock_summary(conn: Connection, now: datetime | None = None) -> dict:
     now = now or now_utc()
     day = site_day(now)
-    types = rows(conn, "SELECT id, name, plural, icon FROM garment_type WHERE NOT is_system AND active ORDER BY sort")
+    types = rows(conn, "SELECT id, name, plural, unit, icon FROM garment_type WHERE NOT is_system AND active ORDER BY sort")
     by_type_loc = rows(conn, """SELECT si.garment_type_id AS type_id, l.code AS location, SUM(si.on_hand) AS on_hand
                                   FROM stock_item si JOIN location l ON l.id = si.location_id GROUP BY si.garment_type_id, l.code""")
     locations = rows(conn, "SELECT id, code FROM location ORDER BY id")
@@ -62,7 +61,7 @@ def stock_summary(conn: Connection, now: datetime | None = None) -> dict:
                    for l in locations}
         total = sum(per_loc.values())
         r = rate.get(t["id"], 0)
-        totals.append({"garmentTypeId": t["id"], "name": t["name"], "plural": t["plural"], "icon": t["icon"], "onHand": total,
+        totals.append({"garmentTypeId": t["id"], "name": t["name"], "plural": t["plural"], "unit": t["unit"], "icon": t["icon"], "onHand": total,
                        "byLocation": per_loc, "daysOfCover": round(total / r, 1) if r > 0 else None,
                        "deliveredToday": delivered.get(t["id"], 0), "issuedToday": issued.get(t["id"], 0)})
     unregistered = rows(conn, """SELECT l.code AS location, si.on_hand FROM stock_item si JOIN garment_type g ON g.id = si.garment_type_id
@@ -78,7 +77,7 @@ def stock_summary(conn: Connection, now: datetime | None = None) -> dict:
     below = one(conn, """SELECT COUNT(*) AS n FROM stock_item si JOIN garment_type g ON g.id = si.garment_type_id
                           WHERE NOT g.is_system AND si.min_qty IS NOT NULL AND si.on_hand < si.min_qty""")
     return {
-        "asOf": iso(now), "day": day, "totals": totals, "countUnregistered": count_unregistered(conn),
+        "asOf": iso(now), "day": day, "totals": totals,
         "unregistered": [{"location": u["location"], "onHand": u["on_hand"], "sinceLastCheck": max(0, -u["on_hand"])} for u in unregistered],
         "unregisteredToday": unreg_today["n"] if unreg_today else 0,  # type: ignore[index]
         "reorder": [{**r, "status": stock_status(r["on_hand"], r["min_qty"])} for r in reorder],

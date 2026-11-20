@@ -93,3 +93,21 @@ def test_server_starts_without_the_database_and_reports_it(monkeypatch):
     finally:
         Startup.ready = True
         Startup.error = None
+
+
+@pytest.mark.usefixtures("fresh_db")
+def test_floor_staff_settings_rights_locations_and_units():
+    from gi.app import build_app
+    c = TestClient(build_app())
+    floor = {"x-dev-user": "dev-floor"}
+    meta = c.get("/api/meta", headers=floor).json()
+    assert [l["code"] for l in meta["locations"]] == ["P1", "P2"]
+    assert {t["code"]: t["unit"] for t in meta["types"]} == {"GOWN": "pieces", "HOOD": "pieces", "BOOT": "pairs"}
+    # Sizes & colors, corrections and the full count: floor staff, lead and admin.
+    assert c.post("/api/colors", json={"value": "Teal"}, headers=floor).status_code == 201
+    gown = next(t["id"] for t in meta["types"] if t["code"] == "GOWN")
+    item = {"garmentTypeId": gown, "colorId": meta["colors"][0]["id"], "sizeId": meta["sizes"][0]["id"], "qty": 5}
+    assert c.post("/api/corrections", json={"reason": "found", "locationId": meta["locations"][0]["id"], "items": [item]}, headers=floor).status_code == 201
+    # Viewers still cannot change anything; data quality stays lead/admin.
+    assert c.post("/api/colors", json={"value": "Mint"}, headers={"x-dev-user": "dev-viewer"}).status_code == 403
+    assert c.put("/api/data-quality/excluded", json={"barcode": "x", "excluded": True}, headers=floor).status_code == 403

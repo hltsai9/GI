@@ -10,7 +10,7 @@ trigger:
     include: [main]
 
 variables:
-  - group: gi-test                         # Library variable group with GI_DB_PASSWORD (secret)
+  - group: gi-test                         # Library variable group with GI_DB_PASSWORD and GI_ADMIN_PASSCODE (secret)
   - name: registryServiceConnection        # company: Docker registry service connection
     value: company-registry
   - name: registryHost                     # company: registry host name
@@ -79,7 +79,7 @@ stages:
                     namespace: $(namespace)
                     secretType: generic
                     secretName: gi-secrets
-                    secretArguments: --from-literal=MARIADB_PASSWORD=$(GI_DB_PASSWORD)
+                    secretArguments: --from-literal=MARIADB_PASSWORD=$(GI_DB_PASSWORD) --from-literal=ADMIN_PASSCODE=$(GI_ADMIN_PASSCODE)
 
                 - task: KubernetesManifest@1
                   displayName: Deploy GI

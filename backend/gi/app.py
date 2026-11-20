@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .auth import HttpError, User, current_user, require_role
+from .auth import HttpError, User, current_user, require_role, unlock_admin
 from .config import config
 from .db import connect, db_reachable, execute, one, rows, with_named_lock
 from .importing import get_issue_source
@@ -51,8 +51,8 @@ class ValueInput(BaseModel):
     value: str
 
 
-class FlagInput(BaseModel):
-    value: bool
+class PasscodeInput(BaseModel):
+    passcode: str
 
 
 class OrderInput(BaseModel):
@@ -101,7 +101,7 @@ def _locked(fn):
 def build_app(static_dir: str | Path | None = None) -> FastAPI:
     app = FastAPI(title="GI", docs_url=None, redoc_url=None, openapi_url=None)
     lead = Depends(require_role("lead"))
-    floor_or_lead = Depends(require_role("floor", "lead"))
+    floor_or_lead = Depends(require_role("floor", "lead"))  # floor staff, lead (and admin)
     admin = Depends(require_role("admin"))
     user = Depends(current_user)
 
@@ -129,6 +129,12 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
     @app.get("/healthz", response_class=PlainTextResponse)
     def healthz():
         return "ok\n"
+
+    @app.post("/api/dev/admin-unlock")
+    def admin_unlock(body: PasscodeInput):
+        """Test sign-in only: switching to the dev admin needs the passcode (ADMIN_PASSCODE). Returns a token the page
+        sends as X-Admin-Token; it expires after ADMIN_TOKEN_HOURS."""
+        return unlock_admin(body.passcode)
 
     @app.get("/api/me")
     def me(u: User = user):
@@ -186,7 +192,7 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
             return counts.starting_counts(c)
 
     @app.post("/api/starting-counts", status_code=201)
-    def post_starting_count(body: counts.StartingCountInput, u: User = lead):
+    def post_starting_count(body: counts.StartingCountInput, u: User = floor_or_lead):
         return counts.save_starting_count(body, u.id)
 
     @app.get("/api/corrections", dependencies=[user])
@@ -195,7 +201,7 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
             return counts.list_corrections(c)
 
     @app.post("/api/corrections", status_code=201)
-    def post_correction(body: counts.CorrectionInput, u: User = lead):
+    def post_correction(body: counts.CorrectionInput, u: User = floor_or_lead):
         return counts.save_correction(body, u.id)
 
     # ---- Trends
@@ -221,13 +227,13 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
 
     # ---- Settings
     for kind in ("color", "size"):
-        def add(body: ValueInput, u: User = lead, kind=kind):
+        def add(body: ValueInput, u: User = floor_or_lead, kind=kind):
             return JSONResponse(settings.add_value(kind, body.value, u.id), status_code=201)
 
-        def hide(item_id: int, u: User = lead, kind=kind):
+        def hide(item_id: int, u: User = floor_or_lead, kind=kind):
             return settings.set_active(kind, item_id, False, u.id)
 
-        def restore(item_id: int, u: User = lead, kind=kind):
+        def restore(item_id: int, u: User = floor_or_lead, kind=kind):
             return settings.set_active(kind, item_id, True, u.id)
 
         app.post(f"/api/{kind}s")(add)
@@ -235,12 +241,13 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
         app.post(f"/api/{kind}s/{{item_id}}/restore")(restore)
 
     @app.put("/api/sizes/order")
-    def order(body: OrderInput, u: User = lead):
+    def order(body: OrderInput, u: User = floor_or_lead):
         return settings.reorder_sizes(body.ids, u.id)
 
-    @app.put("/api/settings/count-unregistered")
-    def put_count_unregistered(body: FlagInput, u: User = lead):
-        return settings.set_count_unregistered(body.value, u.id)
+    @app.put("/api/data-quality/excluded")
+    def put_excluded(body: settings.ExcludeInput, u: User = lead):
+        """Leaves one unregistered barcode out of the issued numbers, or counts it again (lead or admin)."""
+        return settings.set_barcode_excluded(body, u.id)
 
     @app.get("/api/oracle-values", dependencies=[user])
     def oracle_values():
@@ -248,7 +255,7 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
             return settings.oracle_values(c)
 
     @app.put("/api/oracle-values/{map_id}")
-    def set_mapping(map_id: int, body: settings.MappingInput, u: User = lead):
+    def set_mapping(map_id: int, body: settings.MappingInput, u: User = admin):
         return settings.set_mapping(map_id, body, u.id)
 
     @app.get("/api/data-quality", dependencies=[user])
@@ -274,11 +281,12 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
             lst = settings.conflicting_barcodes(c)
         out = io.StringIO()
         w = csv.writer(out, lineterminator="\n", quoting=csv.QUOTE_ALL)
-        w.writerow(["barcode", "suit_type", "suit_color", "suit_size", "times_issued", "first_insert_time_oracle",
+        w.writerow(["barcode", "suit_type", "suit_color", "suit_size", "times_seen", "counted", "first_insert_time_oracle",
                     "last_insert_time_oracle", "locations"])
         for b in lst:
             for k in b["combinations"]:
-                w.writerow([b["barcode"], k["type"], k["color"], k["size"], k["times"], k["first_insert_time"], k["last_insert_time"], k["locations"]])
+                w.writerow([b["barcode"], k["type"], k["color"], k["size"], k["times"], "no (same scan as another row)" if k["notCounted"] else "yes",
+                            k["first_insert_time"], k["last_insert_time"], k["locations"]])
         return Response(out.getvalue(), media_type="text/csv",
                         headers={"content-disposition": 'attachment; filename="barcodes-with-conflicting-values.csv"'})
 

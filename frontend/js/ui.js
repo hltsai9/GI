@@ -37,6 +37,7 @@ export function Dropdown({ label, value, options, onChange, id = '' }) {
         options.map((o) => h('button', { type: 'button', role: 'option', 'aria-selected': String(o.value === value), onClick: () => { setOpen(false); onChange(o.value); } },
           o.icon && GIcon({ name: o.icon, size: 22 }),
           h('span', { style: { flex: 1 } }, o.label),
+          o.trailing,
           o.value === value && ph('check', 16, 'var(--color-accent-700)')))),
     ]);
 }

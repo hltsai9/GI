@@ -21,6 +21,7 @@ data:
   ORACLE_POLL_SECONDS: "300"
   # No SSO yet: choose the user in Settings › This device. Test environments only.
   DEV_AUTH: "true"
+  # The Admin passcode (ADMIN_PASSCODE) is a secret: it comes from the Secret gi-secrets, not from here.
   SITE_TIMEZONE: "America/Phoenix"
   ORACLE_INSERT_TIME_ZONE: "Asia/Taipei"
   ORACLE_RECTIME_ZONE: "America/Phoenix"

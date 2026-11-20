@@ -91,6 +91,7 @@ Settings to fill in for a first deployment without Oracle (everything else has w
 | `HTTP_PORT` | Port for the web page on the host (default `8080`). |
 | `ISSUE_SOURCE` | Leave `mock`. |
 | `DEV_AUTH` | Leave `true` until SSO is connected (otherwise nobody can sign in). |
+| `ADMIN_PASSCODE` | A passcode for switching to the Admin user in Settings › This device. Empty = Admin cannot be chosen. |
 | `GI_VERSION` | Tag for the image you build, e.g. `2026-11-19`. Makes rollback easy (§9). |
 
 Never commit `deploy/.env`; it is in `.gitignore`.
@@ -207,7 +208,7 @@ When GI cannot reach Oracle yet (for example on a test site), export the issue r
    ```
    - The first line must be the column names; extra columns are ignored, and other `STATE`s are skipped.
    - Comma, semicolon or tab separators work.
-   - Dates like `20-NOV-26 09.15.30 AM` (Oracle's default) are also read, but **times must include seconds**. Don't open and save the file in Excel, which drops the seconds.
+   - Dates like `20-NOV-26 09.15.30 AM` (Oracle's default) are also read, but **times must include seconds**. Don't open and save the file in Excel. Excel drops the seconds, and it keeps only 15 digits of a number, so a 16-digit barcode like `2399600002641084` becomes `2399600002641080`. Opening it in Excel only to look also shows the changed number; use a text editor, or import the column as Text.
 3. Upload the file. A progress bar shows the upload, then "Importing N of M rows". The import runs on the server, so a large file doesn't hit request time limits. If the pod restarts during an import, the rows done so far are kept: upload the file again to finish. Rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`) are skipped, so uploading the same file twice, or files whose date ranges overlap, never counts an issue twice. If any row can't be read, nothing is imported and the problem lines are listed.
 4. As with a real Oracle connection: map the values in **Settings › Oracle values**. A row is held until **all four** of its values (type, color, size, level) are mapped, so the first mappings may release 0 rows; the confirmation says how many rows were released and how many still wait, and enter the starting counts in **Settings › Full count**. Issues count against stock only after the starting count.
 5. Repeat with a new export whenever you want newer issues; overlapping date ranges are fine.
@@ -331,6 +332,7 @@ What to watch:
 | `ORACLE_POLL_SECONDS` | `300` | Import interval, 300–43200 s |
 | `ORACLE_BACKFILL_FROM` | `2026-10-01 00:00:00` | First `RECTIME` (Phoenix time) read on a fresh install |
 | `DEV_AUTH` | `true` | Choose the user in the app (no SSO yet) |
+| `ADMIN_PASSCODE` | — | Passcode needed to switch to Admin (secret); empty = Admin locked |
 | `SITE_TIMEZONE`, `ORACLE_INSERT_TIME_ZONE`, `ORACLE_RECTIME_ZONE` | Phoenix, Taipei, Phoenix | Time zones (URD ORA-12) |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `BUILD_NETWORK`, `PIP_INDEX_URL`, `COMPANY_CA_FILE`, `PYTHON_IMAGE`, `MARIADB_IMAGE` | — | Building on company networks (§5.2) |
 

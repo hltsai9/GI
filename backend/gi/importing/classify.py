@@ -27,6 +27,7 @@ class ClassifyContext:
     mapping: dict[tuple[str, str], dict]
     patterns: set[tuple[str, str, str]]
     starting_counts: dict[int, datetime]
+    excluded: set[str] = field(default_factory=set)  # unregistered barcodes left out (excluded_barcode)
     items: dict[tuple, int] = field(default_factory=dict)  # stock item ids already resolved
 
     @classmethod
@@ -35,7 +36,8 @@ class ClassifyContext:
         patterns = {(r["suit_type"], r["suit_color"], r["suit_size"])
                     for r in rows(conn, "SELECT suit_type, suit_color, suit_size FROM dq_pattern WHERE active")}
         starts = {r["location_id"]: from_db(r["as_of"]) for r in rows(conn, "SELECT location_id, as_of FROM starting_count")}
-        return cls(mapping, patterns, starts)
+        excluded = {r["suit_barcode"] for r in rows(conn, "SELECT suit_barcode FROM excluded_barcode")}
+        return cls(mapping, patterns, starts, excluded)
 
     def lookup(self, column: str, value: str) -> dict | None:
         return self.mapping.get((column, value))
@@ -50,9 +52,9 @@ def _is_mapped(m: dict | None) -> bool:
 
 
 def classify_issue(conn: Connection, ctx: ClassifyContext, suit_type: str, suit_color: str, suit_size: str,
-                   suit_level: str, issued_at: datetime) -> Classification:
+                   suit_level: str, issued_at: datetime, barcode: str | None = None) -> Classification:
     """Checks run in a fixed order and the first match wins:
-     a) any value mapped to Ignore      → ignored
+     a) any value mapped to Ignore, or an unregistered barcode left out (Settings › Data quality) → ignored
      b) incomplete (known-bad pattern)  → unregistered bucket of the location (only SUIT_LEVEL must be mapped)
         complete                        → all four values must be mapped, else held_unmapped
      c) no starting count yet / before it → before_start
@@ -63,7 +65,7 @@ def classify_issue(conn: Connection, ctx: ClassifyContext, suit_type: str, suit_
         ("SUIT_TYPE", suit_type), ("SUIT_COLOR", suit_color), ("SUIT_SIZE", suit_size), ("SUIT_LEVEL", suit_level)]
     quality = "incomplete" if incomplete else "complete"
 
-    if any((ctx.lookup(c, v) or {}).get("is_ignored") for c, v in cols):
+    if any((ctx.lookup(c, v) or {}).get("is_ignored") for c, v in cols) or (incomplete and barcode in ctx.excluded):
         return Classification("ignored", quality, None, None)
     location_id = _mapped_id(ctx.lookup("SUIT_LEVEL", suit_level), "SUIT_LEVEL")
     if not all(_is_mapped(ctx.lookup(c, v)) for c, v in cols):

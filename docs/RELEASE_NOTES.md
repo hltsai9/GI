@@ -7,6 +7,86 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### Trends: Delivered moved to Breakdown; issued charts in pink
+- **Decision: the "Delivered" chart was removed from Trends › Over time**, because its daily bars repeated the top half of "Deliveries vs issues"; it moved to Breakdown.
+- **Trends › Breakdown now starts with "Delivered per day"**, with the range total, P1 / P2 bars, and the same hover read-out as the other charts (per location, per garment, total). "Issued per day" follows below.
+  - **Decision:** it uses the same 7 / 14 / 30 / 90 days switch as "Issued per day". The Day / Week / Month switch was removed, so deliveries per week or month are no longer shown as separate bars.
+- **"Issued per day" is now pink**, like issued bars everywhere else; deliveries stay blue.
+- **Breakdown's By size / By location switch now lists "Delivered" first** and opens on it, like the rest of the page.
+
+### Trends per location; same spacing on every page
+- **Every Trends chart now shows P1 and P2 separately, in the same chart:**
+  - **Stock on hand:** a line per garment and location, with a dot on every day (up to 31 days). The color is the garment; P1 is a solid line with filled dots, P2 a dashed line with hollow dots. The legend is a small table of today's stock per location.
+  - **Deliveries vs issues, Delivered, Issued per day:** a pair of bars for each day (or week / month), P1 in the full color and P2 in a lighter shade.
+  - **By size:** each bar is split into P1 and P2, with both numbers.
+  - The hover read-out lists P1 and P2 separately (and per garment as P1 / P2 for issues).
+  - The API also returns these per-location numbers (`byLocation`), and the old totals are unchanged.
+- **The gap between the page title and the switcher is now the same on Receive, Stock, Trends and Settings.** Stock and Trends put their switcher inside the page body, while Receive and Settings had it in a band under the title; now all four use the band. Measured: 12 px on laptop, 8 px on phone, on all four pages.
+- Tested here: 58 backend tests pass (1 new); screenshots on laptop and phone.
+
+### "Leave out" seemed to do nothing; By location table removed again
+- **Question answered: clicking "Leave out" seemed to do nothing.** It did work, but its message appeared at the top of the page, scrolled out of sight. On the GitHub demo that message is "read-only demo" (the demo cannot change anything); on the test site it was the confirmation.
+  - **Now the result appears directly under the row you clicked**, in Settings › Data quality ("Left out · N issues no longer count…" or the error) and in Settings › Oracle values (the mapping result).
+  - Choosing "Not mapped" for a value that is already mapped now explains that it cannot be undone (choose another value or Ignore). Before, the click was silently ignored.
+- **Stock › Summary: the "By location" table is removed again**, because it repeated the P1 / P2 numbers shown at the top.
+- Tested here: in the demo and on a test server, on rows far down the list. The message is visible next to the row each time.
+
+### Fix: Admin passcode could not be typed; Stock summary tables
+- **Bug fixed: typing the Admin passcode showed nothing**, on the GitHub demo and on the real site alike. The passcode field has an Enter-key check that answered "no" for every other key, and the browser took that as "ignore this key press". The page's view helper now never lets an event handler's answer cancel a key press or click. Tested on laptop and phone by typing the passcode key by key, the way a person does (the earlier test pasted it, which hid the bug).
+- **Stock › Summary:**
+  - The P1 / P2 labels above the numbers are larger.
+  - **Reorder** is now a table with column titles: garment · color · size, location, on hand and minimum, most urgent first. On phones the location goes with the item, so the table fits.
+  - The **By location** table is back under Reorder, with P1, P2 and a total per garment (with its unit) and the unregistered count.
+
+### P1 and P2, boots in pairs, "Off truck", stock per location, floor staff settings
+- **Fab1 and Fab2 are now called P1 and P2** everywhere in the app. Only the names changed (migration `009`, automatic): stock, history and the Oracle mapping (`SUIT_LEVEL` FAB1 → P1, FAB2 → P2) are unchanged. Oracle's own values (FAB1, FAB2) are still shown as they are in Settings › Oracle values and Data quality.
+- **Boots are counted in pairs, and every quantity shows its unit.** Each garment type now has a unit: gowns and hoods in pieces, boots in pairs.
+  - Receive shows "Quantity (pairs)" when Boots is chosen, the unit next to each line, and totals per unit (e.g. "60 pieces · 12 pairs"), also in the confirmation and in History.
+  - Stock shows "Boots in pairs".
+  - The numbers themselves don't change: one boot issue in Oracle is one pair, as before.
+- **Receive: the page title is now "Off truck"** (was "Morning delivery").
+- **Stock › Summary shows P1 and P2 side by side** for each garment, with the total, days of cover and today's in/out under the name, and the unregistered count per location. On phones the two numbers sit under the garment name. The separate "By location" table was removed because the columns now show the same numbers.
+- **Settings › Sizes & colors, Correct stock and Full count are now open to floor staff too** (with the cleanroom lead and admin). The server allows them the same changes.
+- Tested here: 57 backend tests pass (1 new). Browser check on laptop and phone: a delivery with boots and gowns (footer, confirmation, History), Stock summary, and the floor staff's Settings tabs.
+
+### Leave out unregistered barcodes one by one; Settings by role; Admin passcode
+- **Leave out, per barcode** (Settings › Data quality, lead or admin): each unregistered barcode has a **Leave out** button. This replaces the all-or-nothing switch added earlier today.
+  - A left-out barcode's issues no longer count anywhere: Trends, the unregistered stock and the Stock warning. Future imports of that barcode are left out too.
+  - **Count again** restores them.
+  - Left-out barcodes stay in the list, struck through and tagged "left out".
+  - A **Find a barcode** box reaches any barcode, not only the 50 shown.
+  - Tested: leaving out one barcode removed exactly its 19 issues from the 30-day total (6,681 → 6,662); counting it again restored them, and stock stayed equal to its ledger.
+- **Settings sections by role.** A section is hidden when the user can do nothing there, and the server checks the same rules:
+  - Sizes & colors, Correct stock, Full count, Data quality: cleanroom lead and admin;
+  - Oracle values and Import: admin only (mapping values was allowed for the lead before);
+  - This device: everyone. Floor staff and viewers see only this.
+- **Switching to Admin needs a passcode.** The Admin option shows a lock. Choosing it asks for the passcode; a wrong one is refused. The server also refuses admin requests without the unlock, so changing the request header does not get around it.
+  - Unlocking lasts 12 hours on that device, and switching to another user locks it again.
+  - **Set the passcode before deploying:** add a secret variable `GI_ADMIN_PASSCODE` to the Azure DevOps variable group `gi-test`. The pipeline puts it into the Secret `gi-secrets` as `ADMIN_PASSCODE`. Without it, Admin cannot be chosen.
+  - For Docker Compose: `ADMIN_PASSCODE` in `deploy/.env`. In the GitHub demo any passcode works.
+- **Database change** (migration `008`, automatic): table `excluded_barcode`; the old switch's setting is removed.
+- Tested here: 56 backend tests pass (3 new). Browser check of each role's sections, the lock, wrong and right passcodes, and leaving out and restoring a barcode.
+
+### Same scan with different values is now reported, not silently skipped
+- **Problem reported:** back-to-back rows with the same barcode and `RECTIME` but different colors did not appear in "Barcodes with conflicting values".
+- **Cause:** the rows also have the same `INSERT_TIME`, so GI treats them as one scan (the "each scan once" rule, ORA-02). The second row was counted as "already in GI" and dropped, so only one color was ever stored and the report could not see the conflict.
+- **Now:** a row with the same barcode and `INSERT_TIME` as a stored issue but another type, color, size or level is still not counted again (only the first one counts), but it is recorded (migration `007`, table `issue_import_conflict`).
+  - The report lists it, tagged "same scan, not counted".
+  - The upload result says "N same scan with other values".
+  - An admin alert `data conflict` is raised.
+  - The same applies to the live Oracle import.
+- **For files already uploaded:** upload them again. The rows already in GI are skipped as before, and the conflicting rows are now recorded. No database reset is needed.
+- Tested here: 55 backend tests pass (1 new); checked in the browser with the barcode from the report.
+
+### Barcodes looked different from the file: Excel's 15-digit limit
+- **Question answered:** after an upload, barcodes such as `2399600002641084` looked different from the file, which showed `2399600002641080`.
+  - **Cause:** the file was viewed in Excel. Excel keeps only 15 significant digits of a number, so the 16th digit of these barcodes is shown as 0. GI reads the file as text and stores the barcode exactly; the database value is the correct one.
+  - To check a barcode in the export, open the file in a text editor, or import the column into Excel as Text.
+- **Never save an export from Excel before uploading it:** the barcodes in the file would really be changed. The upload now refuses barcodes in scientific notation (e.g. `2.39960000264108E+15`), which Excel writes when it saves long numbers. The upload screen and the guides say so.
+- **Also changed (safeguard, found while investigating):** trailing spaces are now removed from barcodes in both the CSV upload and the live Oracle import, so both store the same value. These spaces are padding added by fixed-width Oracle `CHAR` columns or exports that line up their columns. Leading and inner spaces are still kept. Rows already stored with such padding are trimmed automatically (migration `006`).
+  - If the same scan is in the database both with and without padding, it was counted twice, and the migration leaves both rows unchanged. List them with `SELECT suit_barcode, insert_time FROM issue_import WHERE suit_barcode <> RTRIM(suit_barcode);`.
+- Tested here: 54 backend tests pass (2 new). The migration was checked on padded test data, including a duplicate pair.
+
 ### Import issues from a CSV export of Oracle
 - **New: Settings › Import › Upload an Oracle export** (admin). The test site cannot reach Oracle yet, so issue rows can be exported from Oracle to a CSV file and uploaded.
 - **Nothing is counted twice:** rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`, the rule from ORA-02) are skipped. Uploading the same file again, or files with overlapping dates, only adds the new rows. A later switch to the live Oracle connection also skips the rows already uploaded.

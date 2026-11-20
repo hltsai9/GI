@@ -11,7 +11,7 @@ INSERT IGNORE INTO oracle_value_map (oracle_column, oracle_value, size_id)
     UNION ALL SELECT '2XL','2XLG' UNION ALL SELECT '3XL','3XLG' UNION ALL SELECT '4XL','4XLG' UNION ALL SELECT 'OTHER','Other') v
   JOIN size s ON s.code = v.n;
 INSERT IGNORE INTO oracle_value_map (oracle_column, oracle_value, location_id)
-  SELECT 'SUIT_LEVEL', v.c, l.id FROM (SELECT 'FAB1' c, 'Fab1' n UNION ALL SELECT 'FAB2','Fab2') v
+  SELECT 'SUIT_LEVEL', v.c, l.id FROM (SELECT 'FAB1' c, 'P1' n UNION ALL SELECT 'FAB2','P2') v
   JOIN location l ON l.code = v.n;
 -- A test area that should never touch stock (MAP-05). '5XL' is deliberately left unmapped
 -- so the "held" flow can be seen.

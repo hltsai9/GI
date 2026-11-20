@@ -40,3 +40,10 @@ class IssueSource(Protocol):
         """Rows with INSERT_TIME >= start (no upper limit), keyset-paged by (INSERT_TIME, SUIT_BARCODE)."""
 
     def close(self) -> None: ...
+
+
+def clean_barcode(value: str) -> str:
+    """Trailing spaces are padding, not part of the barcode: an Oracle CHAR column, or an export that lines up
+    its columns, pads every barcode to the column width. Leading and inner spaces are kept as they are.
+    Both the CSV upload and the live Oracle import use this, so they store the same value."""
+    return value.rstrip(" ")

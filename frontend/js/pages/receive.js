@@ -17,7 +17,7 @@ export function Receive({ meta, me }) {
   const [view, setView] = state('receive.view', 'new');
   const canPost = me.role !== 'viewer';
   return [
-    PageHead({ kicker: view === 'new' ? `Receive · ${fmtToday()}` : 'Receive · history', title: view === 'new' ? 'Morning delivery' : 'Past deliveries' }),
+    PageHead({ kicker: view === 'new' ? `Receive · ${fmtToday()}` : 'Receive · history', title: view === 'new' ? 'Off truck' : 'Past deliveries' }),
     h('div', { class: 'p-seg' },
       Seg({ label: 'Receive view', value: view, onChange: setView, options: [{ value: 'new', label: 'New delivery' }, { value: 'history', label: 'History' }] })),
     view === 'new' ? NewDelivery({ meta, canPost }) : History({ canEdit: canPost }),
@@ -25,6 +25,13 @@ export function Receive({ meta, me }) {
 }
 
 const typeName = (t) => (t.code === 'BOOT' ? 'Boots' : t.name);
+/** "205 pieces · 40 pairs": quantities added up per unit (boots are counted in pairs). */
+export const perUnit = (items) => {
+  const sums = new Map();
+  for (const { unit, qty } of items) sums.set(unit || 'pieces', (sums.get(unit || 'pieces') ?? 0) + qty);
+  return [...sums].map(([u, n]) => `${fmtNum(n)} ${n === 1 ? u.replace(/s$/, '') : u}`).join(' · ') || '0 items';
+};
+const Unit = (unit) => h('span', { style: { width: 44, fontSize: 12, color: 'var(--color-neutral-700)' } }, unit);
 const same = (a, b) => a.garmentTypeId === b.garmentTypeId && a.colorId === b.colorId && a.sizeId === b.sizeId && a.locationId === b.locationId;
 
 function NewDelivery({ meta, canPost }) {
@@ -45,6 +52,8 @@ function NewDelivery({ meta, canPost }) {
   };
   const set = (k) => (v) => setForm({ ...form, [k]: v });
   const type = (l) => meta.types.find((t) => t.id === l.garmentTypeId);
+  const unitOf = (l) => type(l)?.unit ?? 'pieces';
+  const formUnit = meta.types.find((t) => t.id === form.garmentTypeId)?.unit ?? 'pieces';
   const metaText = (l) => [meta.colors.find((c) => c.id === l.colorId)?.name, meta.sizes.find((s) => s.id === l.sizeId)?.code, meta.locations.find((x) => x.id === l.locationId)?.code].join(' · ');
   const add = () => {
     const qty = parseInt(form.qty, 10);
@@ -53,16 +62,16 @@ function NewDelivery({ meta, canPost }) {
     setLines(lines.some((l) => same(l, key)) ? lines.map((l) => (same(l, key) ? { ...l, qty: l.qty + qty } : l)) : [{ ...key, qty }, ...lines]);
     setPosted(null);
   };
-  const total = lines.reduce((s, l) => s + l.qty, 0);
   const post = async () => {
     setBusy(true);
     await attempt('receive', async () => {
       const key = sessionStorage.getItem('gi.postKey') ?? newKey();
       sessionStorage.setItem('gi.postKey', key); // same key on retry → no double post (NFR-06)
-      const r = await api('/deliveries', { method: 'POST', json: { lines }, headers: { 'Idempotency-Key': key } });
+      const added = perUnit(lines.map((l) => ({ unit: unitOf(l), qty: l.qty })));
+      await api('/deliveries', { method: 'POST', json: { lines }, headers: { 'Idempotency-Key': key } });
       sessionStorage.removeItem('gi.postKey');
       setLines([]);
-      setPosted(`${fmtNum(r.total ?? total)} items added to stock`);
+      setPosted(`${added} added to stock`);
       reload('/deliveries', '/stock', '/trends');
     });
     setBusy(false);
@@ -77,18 +86,19 @@ function NewDelivery({ meta, canPost }) {
         Dropdown({ label: 'Color', value: form.colorId, onChange: set('colorId'), options: colors.map((c) => ({ value: c.id, label: c.name })) }),
         Dropdown({ label: 'Size', value: form.sizeId, onChange: set('sizeId'), options: sizes.map((s) => ({ value: s.id, label: s.code })) }),
         Dropdown({ label: 'Location', value: form.locationId, onChange: set('locationId'), options: meta.locations.map((l) => ({ value: l.id, label: l.code })) }),
-        QtyField({ label: 'Quantity', value: form.qty, onChange: set('qty') }),
+        QtyField({ label: `Quantity (${formUnit})`, value: form.qty, onChange: set('qty') }),
         h('div', { style: { display: 'flex', alignItems: 'flex-end' } },
           h('button', { class: 'btn btn-secondary', onClick: add, style: { width: '100%', minHeight: 54, borderRadius: 'var(--radius-lg)' } }, ph('plus', 18), 'Add line'))),
       h('div', { style: { display: 'flex', flexDirection: 'column' } },
         lines.map((l, i) => h('div', { class: 'line' },
           GIcon({ name: type(l)?.icon, size: 28, color: 'var(--color-accent-700)' }),
           h('div', { style: { flex: 1, minWidth: 0 } }, h('div', { class: 'line-name' }, type(l) ? typeName(type(l)) : ''), h('div', { class: 'line-meta' }, metaText(l))),
-          Stepper({ label: 'quantity', step: 5, value: l.qty, onChange: (q) => setLines(lines.map((x, j) => (j === i ? { ...x, qty: q } : x)).filter((x) => x.qty > 0)) }))),
+          Stepper({ label: 'quantity', step: 5, value: l.qty, onChange: (q) => setLines(lines.map((x, j) => (j === i ? { ...x, qty: q } : x)).filter((x) => x.qty > 0)) }),
+          Unit(unitOf(l)))),
         !lines.length && h('div', { style: { fontSize: 14, color: 'var(--color-neutral-700)', padding: '8px 0' } }, 'No lines yet. Add each garment, color, size and location from the delivery.'))),
     h('div', { class: 'p-foot' },
       h('div', { style: { flex: 1, fontSize: 13, color: 'var(--color-neutral-700)' } },
-        `${lines.length} lines`, h('br'), h('span', { style: { fontSize: 17, fontWeight: 600, color: 'var(--color-text)' } }, `${fmtNum(total)} items`)),
+        `${lines.length} lines`, h('br'), h('span', { style: { fontSize: 17, fontWeight: 600, color: 'var(--color-text)' } }, perUnit(lines.map((l) => ({ unit: unitOf(l), qty: l.qty }))))),
       h('button', { class: 'btn btn-primary', onClick: post, disabled: !lines.length || busy || !canPost, style: { minHeight: 48, fontSize: 15, padding: '0 22px' } }, busy ? 'Posting…' : 'Post delivery')),
   ];
 }
@@ -114,7 +124,7 @@ function History({ canEdit }) {
     saved && h('div', { style: { paddingBottom: 6 } }, Msg({ tag: 'Saved', text: saved })),
     ErrorNote(error ?? errorOf('history')),
     (data ?? []).map((d) => {
-      const total = d.lines.reduce((s, l) => s + l.qty_current, 0);
+      const total = perUnit(d.lines.map((l) => ({ unit: l.unit, qty: l.qty_current })));
       const isOpen = open === d.id;
       const diff = d.lines.reduce((s, l) => s + ((draft[l.id] ?? l.qty_current) - l.qty_current), 0);
       const changed = d.lines.some((l) => draft[l.id] !== undefined && draft[l.id] !== l.qty_current);
@@ -127,7 +137,7 @@ function History({ canEdit }) {
         },
         h('div', { style: { flex: 1, minWidth: 0 } },
           h('div', { class: 'line-name' }, fmtWhen(d.receivedAt)),
-          h('div', { class: 'line-meta' }, `${fmtNum(total)} items · ${d.lines.length} lines · ${[...new Set(d.lines.map((l) => l.location))].join(', ')}`)),
+          h('div', { class: 'line-meta' }, `${total} · ${d.lines.length} lines · ${[...new Set(d.lines.map((l) => l.location))].join(', ')}`)),
         d.status !== 'posted' && h('span', { class: 'tag tag-neutral' }, d.status === 'voided' ? 'Voided' : 'Edited'),
         h('span', { style: { color: 'var(--color-accent-700)' } }, ph(isOpen ? 'caretUp' : 'caretDown', 18))),
         isOpen && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 2, padding: '0 0 14px' } },
@@ -144,7 +154,8 @@ function History({ canEdit }) {
                   `${l.color} · ${l.size} · ${l.location}${moved ? ` · was ${l.qty_current}` : ''}`)),
               editable
                 ? Stepper({ label: 'quantity', value: q, size: 16, width: 36, onChange: (v) => setDraft({ ...draft, [l.id]: v }) })
-                : h('span', { class: 'num', style: { fontWeight: 600 } }, q));
+                : h('span', { class: 'num', style: { fontWeight: 600 } }, q),
+              Unit(l.unit));
           }),
           h('div', { style: { fontSize: 14, padding: '6px 0', color: changed ? 'var(--color-accent-2-700)' : 'var(--color-neutral-700)' } },
             !changed ? 'Tap − / + to fix a quantity.' : diff === 0 ? 'Quantities moved, total unchanged.'

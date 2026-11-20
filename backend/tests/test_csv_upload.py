@@ -1,5 +1,5 @@
 import pytest
-from conftest import on_hand, ref_ids, user_id
+from conftest import admin_headers, on_hand, ref_ids, user_id
 from fastapi.testclient import TestClient
 
 from gi.config import config
@@ -55,11 +55,11 @@ def test_missing_columns_are_named():
 @pytest.mark.usefixtures("fresh_db")
 def test_rows_already_in_gi_are_not_imported_again():
     ids = ref_ids()
-    save_starting_count(StartingCountInput(locationId=ids["loc"]["Fab1"], asOf="2026-11-01T00:00:00Z", counts=[]), user_id())
+    save_starting_count(StartingCountInput(locationId=ids["loc"]["P1"], asOf="2026-11-01T00:00:00Z", counts=[]), user_id())
     first = HEADER + line("G-1", "2026-11-20 09:00:00", "2026-11-19 18:30:00") + line("G-2", "2026-11-20 10:00:00", "2026-11-19 19:30:00")
     r = import_csv(first.encode(), "export-1.csv")
     assert (r["new"], r["alreadyImported"]) == (2, 0)
-    assert on_hand("GOWN", "White", "LG", "Fab1") == -2
+    assert on_hand("GOWN", "White", "LG", "P1") == -2
     # The same file again: nothing new, stock unchanged.
     r = import_csv(first.encode(), "export-1.csv")
     assert (r["new"], r["alreadyImported"]) == (0, 2)
@@ -69,7 +69,7 @@ def test_rows_already_in_gi_are_not_imported_again():
     r = import_csv(second.encode(), "export-2.csv")
     assert (r["new"], r["alreadyImported"]) == (1, 2)
     assert count() == 3
-    assert on_hand("GOWN", "White", "LG", "Fab1") == -3
+    assert on_hand("GOWN", "White", "LG", "P1") == -3
     with connect() as c:
         runs = rows(c, "SELECT kind, note, rows_new FROM sync_run ORDER BY id")
         assert one(c, "SELECT COUNT(*) AS n FROM sync_watermark")["n"] == 0  # type: ignore[index]
@@ -95,7 +95,7 @@ def test_upload_endpoint(monkeypatch):
     c = TestClient(build_app())
     data = (HEADER + "".join(line(f"G-{i}", f"2026-11-20 09:00:{i:02d}", "2026-11-19 18:30:00") for i in range(5))
             + line("G-R", "2026-11-20 09:00:00", "2026-11-19 18:30:00", state="EMPLOYEE GOWN RETURN")).encode()
-    h = {"x-dev-user": "dev-admin", "content-type": "text/csv", "x-file-name": "issues%20nov.csv"}
+    h = admin_headers(**{"content-type": "text/csv", "x-file-name": "issues%20nov.csv"})
     r = c.post("/api/sync/upload", content=data, headers=h)
     assert r.status_code == 202 and r.json()["total"] == 5 and r.json()["otherState"] == 1
     done = _finished(c, r.json()["runId"], h)
@@ -117,4 +117,21 @@ def test_barcodes_with_quotes_commas_and_spaces_survive_the_csv():
     text = HEADER + "".join(f"{f},GOWN,OTHER,OTHER,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:0{i},U1,2026-11-19 18:30:00\n"
                             for i, f in enumerate(['"Q""7 7"', '"X-1, BAD"', '  0000  ', 'AB   1203', '"tab\there"']))
     got, _ = parse(text.encode())
-    assert [r["SUIT_BARCODE"] for r in got] == ['Q"7 7', "X-1, BAD", "  0000  ", "AB   1203", "tab\there"]
+    assert [r["SUIT_BARCODE"] for r in got] == ['Q"7 7', "X-1, BAD", "  0000", "AB   1203", "tab\there"]
+
+
+def test_trailing_padding_is_removed_from_barcodes():
+    # Oracle CHAR columns and aligned exports pad barcodes with spaces up to the column width.
+    text = HEADER + "".join(f"{b},GOWN,WHITE,L,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:0{i},U1,2026-11-19 18:30:00\n"
+                            for i, b in enumerate(['"ABC123    "', '"ABC1234567"', '"ABC123"      ', '"  LEAD  IN    "']))
+    got, _ = parse(text.encode())
+    assert [r["SUIT_BARCODE"] for r in got] == ["ABC123", "ABC1234567", "ABC123", "  LEAD  IN"]
+
+
+def test_long_numeric_barcodes_are_kept_and_excel_damage_is_refused():
+    ok = HEADER + "2399600002641084,GOWN,WHITE,L,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:00,U1,2026-11-19 18:30:00\n"
+    assert parse(ok.encode())[0][0]["SUIT_BARCODE"] == "2399600002641084"
+    bad = HEADER + "2.39960000264108E+15,GOWN,WHITE,L,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:00,U1,2026-11-19 18:30:00\n"
+    with pytest.raises(CsvError) as e:
+        parse(bad.encode())
+    assert "scientific notation" in e.value.problems[0]

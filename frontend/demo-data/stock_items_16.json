@@ -1,1 +1,1 @@
-{"id":16,"on_hand":2,"min_qty":10,"garment":"Boots","color":"Blue","size":"SM","location":"Fab2","status":"below_min","issuedToday":2,"lastDelivery":{"at":"2026-11-18T13:40:00.000Z","qty":5}}
+{"id":16,"on_hand":0,"min_qty":10,"garment":"Boots","color":"Blue","size":"SM","location":"P2","status":"below_min","issuedToday":4,"lastDelivery":{"at":"2026-11-18T13:40:00.000Z","qty":5}}

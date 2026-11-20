@@ -2,6 +2,24 @@
 import { setFetcher } from './dom.js';
 
 const USER_KEY = 'gi.devUser';
+const ADMIN_TOKEN_KEY = 'gi.adminToken'; // from the admin passcode (dev sign-in)
+
+function adminToken() {
+  try {
+    return localStorage.getItem(ADMIN_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setAdminToken(t) {
+  try {
+    if (t) localStorage.setItem(ADMIN_TOKEN_KEY, t);
+    else localStorage.removeItem(ADMIN_TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
 
 export function devUser() {
   try {
@@ -40,7 +58,7 @@ export class ApiError extends Error {
 export const DEV_USERS = [
   { value: 'dev-floor', label: 'Floor staff', user: { id: 1, name: 'Dana (floor staff)', role: 'floor' } },
   { value: 'dev-lead', label: 'Cleanroom lead', user: { id: 2, name: 'Lee (cleanroom lead)', role: 'lead' } },
-  { value: 'dev-admin', label: 'Admin', user: { id: 3, name: 'Avery (admin)', role: 'admin' } },
+  { value: 'dev-admin', label: 'Admin', locked: true, user: { id: 3, name: 'Avery (admin)', role: 'admin' } },
   { value: 'dev-viewer', label: 'Viewer', user: { id: 4, name: 'Vic (viewer)', role: 'viewer' } },
 ];
 
@@ -52,7 +70,7 @@ export async function api(path, init = {}) {
     if (!res.ok) throw new ApiError(404, `Not available in the demo (${path})`);
     return res.json();
   }
-  const headers = { 'X-Dev-User': devUser(), ...(init.headers || {}) };
+  const headers = { ...authHeaders(), ...(init.headers || {}) };
   let body = init.body;
   if (init.json !== undefined) {
     headers['content-type'] = 'application/json';
@@ -66,11 +84,36 @@ export async function api(path, init = {}) {
   } catch {
     /* not JSON */
   }
+  if (res.status === 401 && devUser() === 'dev-admin') lockAdmin(); // passcode token missing or expired
   if (!res.ok) throw new ApiError(res.status, data?.error ?? res.statusText, data);
   return data;
 }
 
 setFetcher((path) => api(path));
+
+export function authHeaders() {
+  const h = { 'X-Dev-User': devUser() };
+  const t = devUser() === 'dev-admin' && adminToken();
+  if (t) h['X-Admin-Token'] = t;
+  return h;
+}
+
+/** Checks the admin passcode; on success the page may act as the dev admin. The demo accepts any passcode. */
+export async function unlockAdmin(passcode) {
+  if (DEMO) {
+    setAdminToken('demo');
+    return;
+  }
+  const r = await api('/dev/admin-unlock', { method: 'POST', json: { passcode } });
+  setAdminToken(r.token);
+}
+
+/** Back to the cleanroom lead when the admin token is missing or expired. */
+function lockAdmin() {
+  setAdminToken(null);
+  setDevUser('dev-lead');
+  location.reload();
+}
 
 /** Sends a file as the request body and reports upload progress (0–1); fetch() cannot report it, XMLHttpRequest can. */
 export function apiUpload(path, file, headers, onProgress) {
@@ -78,7 +121,7 @@ export function apiUpload(path, file, headers, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open('POST', `api${path}`);
-    for (const [k, v] of Object.entries({ 'X-Dev-User': devUser(), ...headers })) xhr.setRequestHeader(k, v);
+    for (const [k, v] of Object.entries({ ...authHeaders(), ...headers })) xhr.setRequestHeader(k, v);
     xhr.upload.onprogress = (e) => e.lengthComputable && onProgress(e.loaded / e.total);
     xhr.onload = () => {
       let data = null;

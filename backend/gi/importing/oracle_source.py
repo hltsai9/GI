@@ -3,7 +3,7 @@ so they arrive as naive strings and GI applies the time zones itself."""
 from __future__ import annotations
 
 from ..config import Config
-from .source import ISSUE_STATE, InsertKey, OracleIssueRow, RectimeKey
+from .source import ISSUE_STATE, InsertKey, OracleIssueRow, RectimeKey, clean_barcode
 
 _COLS = """SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL,
   TO_CHAR(INSERT_TIME, 'YYYY-MM-DD HH24:MI:SS') AS INSERT_TIME,
@@ -30,7 +30,10 @@ class OracleIssueSource:
         with self._pool.acquire() as conn, conn.cursor() as cur:
             cur.execute(sql, binds)
             names = [d[0] for d in cur.description]
-            return [dict(zip(names, r)) for r in cur.fetchall()]  # type: ignore[misc]
+            out = [dict(zip(names, r)) for r in cur.fetchall()]
+            for r in out:
+                r["SUIT_BARCODE"] = clean_barcode(r["SUIT_BARCODE"] or "")
+            return out  # type: ignore[return-value]
 
     def by_level(self, level: str, after: RectimeKey, limit: int) -> list[OracleIssueRow]:
         return self._q(f"""SELECT {_COLS} FROM {self._table} WHERE STATE = :state AND SUIT_LEVEL = :lvl AND {_AFTER_KEY}
