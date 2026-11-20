@@ -70,7 +70,7 @@ GRANT ALL ON gi.* TO 'gi'@'<same>';
 - [ ] **Docker registry service connection** to the company registry (e.g. `company-registry`).
 - [ ] **Kubernetes service connection** to the test cluster/namespace (e.g. `company-k8s-test`).
 - [ ] **Namespace** `gi-test` exists (or ask the platform team to create it).
-- [ ] **Variable group** `gi-test` (Pipelines › Library) with the variable `GI_DB_PASSWORD`, marked secret (🔒). To use Azure Key Vault: link the group to the vault and add the secret there. Key Vault names cannot contain `_`, so name it `GI-DB-PASSWORD` and use `$(GI-DB-PASSWORD)` in the pipeline.
+- [ ] **Variable group** `gi-test` (Pipelines › Library) with the variables `GI_DB_PASSWORD` and `GI_ADMIN_PASSCODE`, both marked secret (🔒). `GI_ADMIN_PASSCODE` is the passcode for switching to the Admin user in Settings › This device; without it, Admin cannot be chosen. To use Azure Key Vault: link the group to the vault and add the secret there. Key Vault names cannot contain `_`, so name it `GI-DB-PASSWORD` and use `$(GI-DB-PASSWORD)` in the pipeline.
 - [ ] Allow the pipeline to use the variable group and the service connections (first run asks).
 - [ ] Optional: **Environment** `gi-test` (Pipelines › Environments) with an approval check.
 

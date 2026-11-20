@@ -1,5 +1,5 @@
 import pytest
-from conftest import on_hand, ref_ids, user_id
+from conftest import admin_headers, on_hand, ref_ids, user_id
 from fastapi.testclient import TestClient
 
 from gi.config import config
@@ -95,7 +95,7 @@ def test_upload_endpoint(monkeypatch):
     c = TestClient(build_app())
     data = (HEADER + "".join(line(f"G-{i}", f"2026-11-20 09:00:{i:02d}", "2026-11-19 18:30:00") for i in range(5))
             + line("G-R", "2026-11-20 09:00:00", "2026-11-19 18:30:00", state="EMPLOYEE GOWN RETURN")).encode()
-    h = {"x-dev-user": "dev-admin", "content-type": "text/csv", "x-file-name": "issues%20nov.csv"}
+    h = admin_headers(**{"content-type": "text/csv", "x-file-name": "issues%20nov.csv"})
     r = c.post("/api/sync/upload", content=data, headers=h)
     assert r.status_code == 202 and r.json()["total"] == 5 and r.json()["otherState"] == 1
     done = _finished(c, r.json()["runId"], h)

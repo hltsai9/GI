@@ -1,36 +1,39 @@
 import { h, state, flash, load, reload } from '../dom.js';
-import { api, apiUpload, DEMO, DEV_USERS, demoFetch, devUser, fmtNum, fmtWhen } from '../api.js';
+import { api, apiUpload, authHeaders, DEMO, DEV_USERS, demoFetch, fmtNum, fmtWhen, unlockAdmin } from '../api.js';
+import { ph } from '../icons.js';
 import { attempt, Dropdown, ErrorNote, errorOf, GIcon, Msg, PageHead, Seg, Warn } from '../ui.js';
 
+// Who can use each section; a section is hidden from everyone else (the server checks the same rules).
 const VIEWS = [
-  { value: 'values', label: 'Sizes & colors', kicker: 'Settings', title: 'Sizes and colors' },
-  { value: 'correct', label: 'Correct stock', kicker: 'Settings · stock correction', title: 'Correct a count' },
-  { value: 'count', label: 'Full count', kicker: 'Settings · full count', title: 'Count everything' },
-  { value: 'oracle', label: 'Oracle values', kicker: 'Settings · issue import', title: 'Oracle values' },
-  { value: 'quality', label: 'Data quality', kicker: 'Settings · data quality', title: 'Unregistered garments' },
-  { value: 'import', label: 'Import', kicker: 'Settings · issue import', title: 'Import status' },
-  { value: 'device', label: 'This device', kicker: 'Settings · this device', title: 'View and user' },
+  { value: 'values', label: 'Sizes & colors', kicker: 'Settings', title: 'Sizes and colors', roles: ['lead', 'admin'] },
+  { value: 'correct', label: 'Correct stock', kicker: 'Settings · stock correction', title: 'Correct a count', roles: ['lead', 'admin'] },
+  { value: 'count', label: 'Full count', kicker: 'Settings · full count', title: 'Count everything', roles: ['lead', 'admin'] },
+  { value: 'oracle', label: 'Oracle values', kicker: 'Settings · issue import', title: 'Oracle values', roles: ['admin'] },
+  { value: 'quality', label: 'Data quality', kicker: 'Settings · data quality', title: 'Unregistered garments', roles: ['lead', 'admin'] },
+  { value: 'import', label: 'Import', kicker: 'Settings · issue import', title: 'Import status', roles: ['admin'] },
+  { value: 'device', label: 'This device', kicker: 'Settings · this device', title: 'View and user', roles: null },
 ];
 const right = { textAlign: 'right' };
 
 /** p: { meta, me, device, onSwitchView, user, onChooseUser } */
 export function Settings(p) {
-  const [view, setView] = state('settings.view', 'values');
-  const v = VIEWS.find((x) => x.value === view);
+  const allowed = VIEWS.filter((x) => !x.roles || x.roles.includes(p.me.role));
+  const [chosen, setView] = state('settings.view', 'values');
+  const v = allowed.find((x) => x.value === chosen) ?? allowed[0];
+  const view = v.value;
   const lead = p.me.role === 'lead' || p.me.role === 'admin';
-  const opts = VIEWS.map((x) => ({ value: x.value, label: x.label }));
+  const opts = allowed.map((x) => ({ value: x.value, label: x.label }));
   return [
     PageHead({ kicker: v.kicker, title: v.title }),
     h('div', { class: 'p-seg' },
-      p.device === 'laptop'
+      allowed.length === 1 ? null : p.device === 'laptop'
         ? Seg({ label: 'Settings section', value: view, onChange: setView, optStyle: { padding: '7px 4px' }, options: opts })
         : Dropdown({ label: 'Section', value: view, onChange: setView, options: opts })),
     h('div', { class: 'p-body', style: view === 'values' ? { gap: 'var(--space-6)' } : undefined },
-      !lead && ['values', 'correct', 'count', 'oracle'].includes(view) && Warn('Only the cleanroom lead can change these settings.'),
       view === 'values' && Values(p.meta, lead),
       view === 'correct' && CorrectStock(p.meta, lead),
       view === 'count' && FullCount(p.meta, lead),
-      view === 'oracle' && OracleValues(p.meta, lead),
+      view === 'oracle' && OracleValues(p.meta, p.me.role === 'admin'),
       view === 'quality' && DataQuality(p.meta, lead),
       view === 'import' && ImportStatus(p.me.role === 'admin'),
       view === 'device' && ThisDevice(p)),
@@ -232,11 +235,17 @@ function OracleValues(meta, canEdit) {
 
 function DataQuality(meta, canEdit) {
   const { data, error } = load('/data-quality?days=30');
-  const counted = meta.countUnregistered !== false;
-  const setCounted = (value) => attempt('quality', async () => {
-    await api('/settings/count-unregistered', { method: 'PUT', json: { value } });
-    reload('/meta', '/stock', '/trends');
+  const [find, setFind] = state('quality.find', '');
+  const [saved, setSaved] = flash('quality.saved');
+  const toggle = (b) => attempt('quality', async () => {
+    const r = await api('/data-quality/excluded', { method: 'PUT', json: { barcode: b.barcode, excluded: !b.excluded } });
+    setSaved([h('span', { style: { whiteSpace: 'pre' } }, JSON.stringify(b.barcode)),
+      ` ${r.excluded ? 'left out' : 'counted again'} · ${fmtNum(r.changed)} issues ${r.excluded ? 'no longer count' : 'count again'}`]);
+    reload('/data-quality', '/stock', '/trends');
   });
+  const all = data?.unregisteredBarcodes ?? [];
+  const leftOut = all.filter((b) => b.excluded).length;
+  const shown = all.filter((b) => !find || b.barcode.toLowerCase().includes(find.toLowerCase())).slice(0, 50);
   const m = new Map();
   for (const r of data?.perDay ?? []) {
     const x = m.get(r.day) ?? { incomplete: 0, total: 0 };
@@ -244,37 +253,38 @@ function DataQuality(meta, canEdit) {
   }
   const days = [...m].slice(-14).reverse();
   const download = async (path, name) => {
-    const res = DEMO ? await demoFetch(path) : await fetch(`api${path}`, { headers: { 'X-Dev-User': devUser() } });
+    const res = DEMO ? await demoFetch(path) : await fetch(`api${path}`, { headers: authHeaders() });
     const url = URL.createObjectURL(await res.blob());
     Object.assign(document.createElement('a'), { href: url, download: name }).click();
   };
   const conflicts = data?.conflictingBarcodes ?? [];
   const combo = (k) => `${k.type} / ${k.color} / ${k.size}`;
   return [
-    h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color. If they are mostly dirty data, leave them out of the issued numbers too:'),
-    Seg({ label: 'Unregistered garments in issued numbers', value: counted, onChange: (v) => canEdit && setCounted(v),
-      options: [{ value: true, label: 'Count as issued' }, { value: false, label: 'Leave out' }] }),
-    h('div', { class: 'note' }, counted
-      ? 'Counted: Trends › Issued shows them as their own series, and Stock warns how many were issued since the last full check.'
-      : 'Left out: Trends and Stock ignore them. They are still imported and listed below, so you can switch back at any time.',
-    !canEdit && ' Only the cleanroom lead can change this.'),
+    h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color, but they count as issued. A barcode that is only dirty data can be left out of the issued numbers below (Leave out); its issues then no longer count anywhere, now and in future imports, until you count it again.'),
+    saved && Msg({ tag: 'Saved', text: saved }),
     ErrorNote(error ?? errorOf('quality')),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Day'), h('th', { style: right }, 'Unregistered'), h('th', { style: right }, 'All issues'), h('th', { style: right }, '%'))),
       h('tbody', null, days.map(([d, v]) => h('tr', null, h('td', null, d), h('td', { style: right }, v.incomplete), h('td', { style: right }, fmtNum(v.total)),
         h('td', { style: right }, v.total ? ((v.incomplete / v.total) * 100).toFixed(1) : '0'))))),
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 } },
-      h('h4', { style: { margin: 0 } }, 'Unregistered barcodes ', h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${data?.unregisteredBarcodes.length ?? 0} for the vendor to register`)),
+      h('h4', { style: { margin: 0 } }, 'Unregistered barcodes ', h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(all.length)} for the vendor to register${leftOut ? ` · ${fmtNum(leftOut)} left out` : ''}`)),
       h('button', { class: 'btn btn-secondary', onClick: () => download('/data-quality/unregistered.csv', 'unregistered-barcodes.csv'), style: { minHeight: 44 } }, 'Download CSV')),
+    h('input', { class: 'input', placeholder: 'Find a barcode', 'aria-label': 'Find a barcode', value: find, onInput: (e) => setFind(e.target.value), style: { minHeight: 44, maxWidth: 360 } }),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', { style: right }, 'Times'),
         h('th', { title: 'Time of the latest scan, in Phoenix time' }, 'Last scan (Phoenix)'),
         h('th', { title: 'INSERT_TIME of the latest scan exactly as in Oracle (Taipei time): search for this in an Oracle export' }, 'INSERT_TIME (Oracle)'),
-        h('th', null, 'Where'))),
+        h('th', null, 'Where'), h('th', { style: right }, 'Issued count'))),
       // white-space: pre keeps runs of spaces in barcodes visible exactly as stored (HTML would merge them).
-      h('tbody', null, (data?.unregisteredBarcodes ?? []).slice(0, 50).map((b) => h('tr', null,
-        h('td', { style: { whiteSpace: 'pre' }, title: JSON.stringify(b.barcode) }, b.barcode), h('td', { style: right }, b.times),
-        h('td', null, fmtWhen(b.last_seen)), h('td', null, b.last_insert_time ?? ''), h('td', null, b.locations))))),
+      h('tbody', null, shown.map((b) => h('tr', { style: b.excluded ? { color: 'var(--color-neutral-600)' } : null },
+        h('td', { style: { whiteSpace: 'pre', textDecoration: b.excluded ? 'line-through' : null }, title: JSON.stringify(b.barcode) }, b.barcode), h('td', { style: right }, b.times),
+        h('td', null, fmtWhen(b.last_seen)), h('td', null, b.last_insert_time ?? ''), h('td', null, b.locations),
+        h('td', { style: { ...right, whiteSpace: 'nowrap' } },
+          b.excluded && h('span', { class: 'tag tag-neutral', style: { marginRight: 6 } }, 'left out'),
+          canEdit && h('button', { class: 'btn btn-ghost', onClick: () => toggle(b), style: { minHeight: 36, padding: '0 6px' } }, b.excluded ? 'Count again' : 'Leave out')))))),
+    find && !shown.length && h('div', { class: 'note' }, 'No unregistered barcode contains that text.'),
+    all.length > 50 && !find && h('div', { class: 'note' }, `Showing the 50 barcodes issued most often; find a barcode to see any of the ${fmtNum(all.length)}.`),
     h('div', { class: 'note' }, 'Last scan is shown in Phoenix time. INSERT_TIME is the same moment as stored in Oracle (Taipei time, 15 hours ahead), to search for in your export. Hover a barcode to see it with its exact spaces.'),
     // One barcode is one garment, so its type, color and size should never change.
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginTop: 8 } },
@@ -403,12 +413,46 @@ function ImportStatus(isAdmin) {
 }
 
 function ThisDevice({ device, onSwitchView, user, onChooseUser, me }) {
+  const [asking, setAsking] = state('admin.asking', false);
+  const [code, setCode] = state('admin.code', '');
+  const [busy, setBusy] = state('admin.busy', false);
+  const choose = (u) => {
+    if (u === 'dev-admin' && user !== 'dev-admin') {
+      setAsking(true); // the admin needs the passcode first
+      setCode('');
+      return;
+    }
+    setAsking(false);
+    onChooseUser(u);
+  };
+  const unlock = async () => {
+    setBusy(true);
+    const ok = await attempt('admin', async () => {
+      await unlockAdmin(code);
+      return true;
+    });
+    setBusy(false);
+    if (ok) {
+      setAsking(false);
+      setCode('');
+      onChooseUser('dev-admin');
+    }
+  };
+  const options = DEV_USERS.map((u) => ({ ...u, trailing: u.locked ? ph('lock', 16, 'var(--color-neutral-700)') : null }));
   return [
     h('div', { class: 'note' }, 'The layout is chosen from the type of device. Change it here if this device got the wrong one; the choice is remembered on this device.'),
     Seg({ label: 'Layout', value: device, onChange: onSwitchView, options: [{ value: 'phone', label: 'Phone layout' }, { value: 'laptop', label: 'Laptop layout' }] }),
     h('div', { class: 'note' }, DEMO
       ? `Demo: signed in as ${me.name}. Choose another user to see what each role can do; the data stays the same and nothing is saved.`
       : 'Company sign-in (SSO) is not connected yet. For development, choose who you are:'),
-    Dropdown({ label: DEMO ? 'Signed in as (demo)' : 'Signed in as (dev)', value: user, onChange: onChooseUser, options: DEV_USERS }),
+    Dropdown({ label: DEMO ? 'Signed in as (demo)' : 'Signed in as (dev)', value: user, onChange: choose, options }),
+    asking && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+      h('div', { class: 'note', style: { display: 'flex', alignItems: 'center', gap: 6 } }, ph('lock', 16), DEMO ? 'Admin is locked. Demo: any passcode works.' : 'Admin is locked. Type the admin passcode:'),
+      h('div', { style: { display: 'flex', gap: 8, flexWrap: 'wrap' } },
+        h('input', { class: 'input', type: 'password', autocomplete: 'off', 'aria-label': 'Admin passcode', value: code, onInput: (e) => setCode(e.target.value),
+          onKeyDown: (e) => e.key === 'Enter' && code && !busy && unlock(), style: { minHeight: 44, flex: '1 1 200px' } }),
+        h('button', { class: 'btn btn-primary', disabled: !code || busy, onClick: unlock, style: { minHeight: 44 } }, busy ? 'Checking…' : 'Unlock'),
+        h('button', { class: 'btn btn-ghost', onClick: () => setAsking(false), style: { minHeight: 44 } }, 'Cancel')),
+      ErrorNote(errorOf('admin'))),
   ];
 }

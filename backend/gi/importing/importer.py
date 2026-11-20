@@ -61,7 +61,7 @@ def _import_batch(batch: list[OracleIssueRow], run_id: int, c: _Counters, now: d
                             [kept["id"], r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"], r["RECTIME"], run_id])
                 continue
             issued_at, recorded_at, issued_day = issue_times(r["INSERT_TIME"], r["RECTIME"])
-            cls = classify_issue(conn, ctx, r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"], issued_at)
+            cls = classify_issue(conn, ctx, r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"], issued_at, r["SUIT_BARCODE"])
             res = execute(conn, """INSERT INTO issue_import (suit_barcode, insert_time, rectime, suit_type, suit_color, suit_size, suit_level,
                      issued_at, recorded_at, issued_day, location_id, stock_item_id, quality, status, sync_run_id)
                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
@@ -226,15 +226,18 @@ def reclassify(conn: Connection, where: str, params: list, user_id: int | None, 
     """Re-classifies rows whose answer may have changed (BUILD_PLAN §3.3); applies new −1 entries.
     Returns how many rows changed status; `tally` (if given) counts them by their new status."""
     ctx = ClassifyContext.load(conn)
-    candidates = rows(conn, f"""SELECT id, suit_type, suit_color, suit_size, suit_level, issued_at, status
+    candidates = rows(conn, f"""SELECT id, suit_barcode, suit_type, suit_color, suit_size, suit_level, issued_at, status, stock_item_id
                                   FROM issue_import WHERE {where} FOR UPDATE""", params)
     movements: list[Movement] = []
     changed = 0
     for r in candidates:
         issued_at = from_db(r["issued_at"])
-        cls = classify_issue(conn, ctx, r["suit_type"], r["suit_color"], r["suit_size"], r["suit_level"], issued_at)
+        cls = classify_issue(conn, ctx, r["suit_type"], r["suit_color"], r["suit_size"], r["suit_level"], issued_at, r["suit_barcode"])
         if cls.status == r["status"]:
             continue
+        if r["status"] == "applied":
+            # It no longer counts (e.g. its barcode was left out): give the garment back, dated like the issue.
+            movements.append(Movement(r["stock_item_id"], +1, issued_at, "issue_correction", issue_import_id=r["id"]))
         execute(conn, "UPDATE issue_import SET status = ?, quality = ?, location_id = ?, stock_item_id = ? WHERE id = ?",
                 [cls.status, cls.quality, cls.location_id, cls.stock_item_id, r["id"]])
         if cls.status == "applied":

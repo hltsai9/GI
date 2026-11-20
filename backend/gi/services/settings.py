@@ -12,26 +12,34 @@ from ..importing.importer import reclassify
 from ..timeutil import iso, now_utc, to_db
 
 
-def count_unregistered(conn: Connection) -> bool:
-    """Whether issues of unregistered barcodes (GOWN / OTHER / OTHER) count in the issued numbers."""
-    r = one(conn, "SELECT value FROM app_setting WHERE name = 'count_unregistered_issues'")
-    return not r or r["value"] != "false"
+class ExcludeInput(BaseModel):
+    barcode: str
+    excluded: bool
+    note: str | None = None
 
 
-def set_count_unregistered(value: bool, user_id: int) -> dict:
+def set_barcode_excluded(inp: ExcludeInput, user_id: int) -> dict:
+    """Leaves one unregistered barcode out of the issued numbers (or counts it again). Its issues are
+    re-classified: left out they become 'ignored' and their stock movements are reversed."""
     def work(conn: Connection) -> dict:
-        execute(conn, """INSERT INTO app_setting (name, value, updated_by, updated_at) VALUES ('count_unregistered_issues', ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE value = VALUES(value), updated_by = VALUES(updated_by), updated_at = VALUES(updated_at)""",
-                ["true" if value else "false", user_id, to_db(now_utc())])
-        _audit(conn, user_id, "app_setting", None, "update", None, {"count_unregistered_issues": value})
-        return {"countUnregistered": value}
+        if not one(conn, "SELECT 1 AS x FROM issue_import WHERE suit_barcode = ? AND quality = 'incomplete' LIMIT 1", [inp.barcode]):
+            raise HttpError(404, "no unregistered issues with that barcode")
+        if inp.excluded:
+            execute(conn, """INSERT INTO excluded_barcode (suit_barcode, note, excluded_by, excluded_at) VALUES (?,?,?,?)
+                             ON DUPLICATE KEY UPDATE note = VALUES(note)""", [inp.barcode, (inp.note or None), user_id, to_db(now_utc())])
+        else:
+            execute(conn, "DELETE FROM excluded_barcode WHERE suit_barcode = ?", [inp.barcode])
+        _audit(conn, user_id, "excluded_barcode", None, "update", None, {"barcode": inp.barcode, "excluded": inp.excluded, "note": inp.note})
+        tally: dict[str, int] = {}
+        changed = reclassify(conn, "suit_barcode = ? AND quality = 'incomplete'", [inp.barcode], user_id,
+                             f"barcode {'left out' if inp.excluded else 'counted again'}", tally)
+        return {"barcode": inp.barcode, "excluded": inp.excluded, "changed": changed, "byStatus": tally}
 
     return with_tx(work)
 
 
 def meta(conn: Connection) -> dict:
     return {
-        "countUnregistered": count_unregistered(conn),
         "types": rows(conn, "SELECT id, code, name, plural, icon FROM garment_type WHERE active AND NOT is_system ORDER BY sort"),
         "colors": rows(conn, "SELECT id, name, active FROM color WHERE NOT is_system ORDER BY sort"),
         "sizes": rows(conn, "SELECT id, code, active FROM size WHERE NOT is_system ORDER BY sort"),
@@ -165,9 +173,11 @@ def unregistered_barcodes(conn: Connection) -> list[dict]:
     time), to search for in an Oracle export."""
     rs = rows(conn, """SELECT ii.suit_barcode AS barcode, COUNT(*) AS times, MIN(ii.issued_at) AS first_seen, MAX(ii.issued_at) AS last_seen,
                               MAX(ii.insert_time) AS last_insert_time,
-                              GROUP_CONCAT(DISTINCT ii.suit_level ORDER BY ii.suit_level) AS locations
-                         FROM issue_import ii WHERE ii.quality = 'incomplete' GROUP BY ii.suit_barcode ORDER BY times DESC, barcode""")
-    return [{**r, "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
+                              GROUP_CONCAT(DISTINCT ii.suit_level ORDER BY ii.suit_level) AS locations,
+                              MAX(e.suit_barcode IS NOT NULL) AS excluded, MAX(e.note) AS excluded_note
+                         FROM issue_import ii LEFT JOIN excluded_barcode e ON e.suit_barcode = ii.suit_barcode
+                        WHERE ii.quality = 'incomplete' GROUP BY ii.suit_barcode ORDER BY times DESC, barcode""")
+    return [{**r, "excluded": bool(r["excluded"]), "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
              "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S") if r["last_insert_time"] else None} for r in rs]
 
 

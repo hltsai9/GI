@@ -62,6 +62,9 @@ class Config:
     PORT: int = 8000
     STATIC_DIR: str | None = None  # the web page to serve; default: ../frontend next to this package
     DEV_AUTH: bool = False
+    # Dev sign-in: switching to the admin user needs this passcode (a secret). Empty = admin cannot be chosen.
+    ADMIN_PASSCODE: str | None = None
+    ADMIN_TOKEN_HOURS: int = 12
 
 
 def load_config() -> Config:
@@ -92,6 +95,8 @@ def load_config() -> Config:
         PORT=_int("PORT", 8000),
         STATIC_DIR=_env("STATIC_DIR"),
         DEV_AUTH=(_env("DEV_AUTH", "false") or "false").lower() == "true",
+        ADMIN_PASSCODE=_env("ADMIN_PASSCODE"),
+        ADMIN_TOKEN_HOURS=_int("ADMIN_TOKEN_HOURS", 12, 1, 24 * 30),
     )
     if c.ISSUE_SOURCE not in ("mock", "oracle", "csv"):
         raise ValueError("ISSUE_SOURCE must be mock, oracle or csv")

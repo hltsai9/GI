@@ -6,6 +6,7 @@ import string
 os.environ.setdefault("MARIADB_URL", "mysql://gi:gi@localhost:3306/gi_test")
 os.environ["MARIADB_HOST"] = ""
 os.environ["DEV_AUTH"] = "true"
+os.environ["ADMIN_PASSCODE"] = "test-passcode"
 
 import pytest  # noqa: E402
 
@@ -60,3 +61,9 @@ def on_hand(garment: str, color: str, size: str, loc: str) -> int:
                         JOIN size s ON s.id = si.size_id JOIN location l ON l.id = si.location_id
                        WHERE g.code = ? AND c.name = ? AND s.code = ? AND l.code = ?""", [garment, color, size, loc])
     return r["on_hand"] if r else 0
+
+
+def admin_headers(**extra) -> dict:
+    """Headers of the dev admin, unlocked with the passcode."""
+    from gi.auth import admin_token
+    return {"x-dev-user": "dev-admin", "x-admin-token": admin_token(), **extra}

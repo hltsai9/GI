@@ -8,7 +8,6 @@ from sqlalchemy.engine import Connection
 from ..auth import HttpError
 from ..config import config
 from ..db import execute, marks, one, rows
-from .settings import count_unregistered
 from ..timeutil import iso, now_utc, site_day
 
 CLOSE_TO_MIN_FACTOR = 1.5  # TODO: confirm with the lead
@@ -78,7 +77,7 @@ def stock_summary(conn: Connection, now: datetime | None = None) -> dict:
     below = one(conn, """SELECT COUNT(*) AS n FROM stock_item si JOIN garment_type g ON g.id = si.garment_type_id
                           WHERE NOT g.is_system AND si.min_qty IS NOT NULL AND si.on_hand < si.min_qty""")
     return {
-        "asOf": iso(now), "day": day, "totals": totals, "countUnregistered": count_unregistered(conn),
+        "asOf": iso(now), "day": day, "totals": totals,
         "unregistered": [{"location": u["location"], "onHand": u["on_hand"], "sinceLastCheck": max(0, -u["on_hand"])} for u in unregistered],
         "unregisteredToday": unreg_today["n"] if unreg_today else 0,  # type: ignore[index]
         "reorder": [{**r, "status": stock_status(r["on_hand"], r["min_qty"])} for r in reorder],

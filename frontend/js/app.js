@@ -1,5 +1,5 @@
 import { h, mount, state, load, update, clearCache } from './dom.js';
-import { DEMO, devUser, fmtClock, fmtToday, setDevUser } from './api.js';
+import { DEMO, devUser, fmtClock, fmtToday, setAdminToken, setDevUser } from './api.js';
 import { currentDevice, isTouchOnly, saveDeviceChoice } from './device.js';
 import { ph } from './icons.js';
 import { ErrorNote, Msg } from './ui.js';
@@ -40,6 +40,7 @@ function App() {
     setDeviceState(d);
   };
   const chooseUser = (u) => {
+    if (u !== 'dev-admin') setAdminToken(null); // leaving admin locks it again
     setDevUser(u);
     clearCache(); // everything is reloaded as the new user
     setUser(u);

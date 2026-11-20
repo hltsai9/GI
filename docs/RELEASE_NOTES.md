@@ -7,6 +7,24 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### Leave out unregistered barcodes one by one; Settings by role; Admin passcode
+- **Leave out, per barcode** (Settings › Data quality, lead or admin): each unregistered barcode has a **Leave out** button. This replaces the all-or-nothing switch added earlier today.
+  - A left-out barcode's issues no longer count anywhere: Trends, the unregistered stock and the Stock warning. Future imports of that barcode are left out too.
+  - **Count again** restores them.
+  - Left-out barcodes stay in the list, struck through and tagged "left out".
+  - A **Find a barcode** box reaches any barcode, not only the 50 shown.
+  - Tested: leaving out one barcode removed exactly its 19 issues from the 30-day total (6,681 → 6,662); counting it again restored them, and stock stayed equal to its ledger.
+- **Settings sections by role.** A section is hidden when the user can do nothing there, and the server checks the same rules:
+  - Sizes & colors, Correct stock, Full count, Data quality: cleanroom lead and admin;
+  - Oracle values and Import: admin only (mapping values was allowed for the lead before);
+  - This device: everyone. Floor staff and viewers see only this.
+- **Switching to Admin needs a passcode.** The Admin option shows a lock. Choosing it asks for the passcode; a wrong one is refused. The server also refuses admin requests without the unlock, so changing the request header does not get around it.
+  - Unlocking lasts 12 hours on that device, and switching to another user locks it again.
+  - **Set the passcode before deploying:** add a secret variable `GI_ADMIN_PASSCODE` to the Azure DevOps variable group `gi-test`. The pipeline puts it into the Secret `gi-secrets` as `ADMIN_PASSCODE`. Without it, Admin cannot be chosen.
+  - For Docker Compose: `ADMIN_PASSCODE` in `deploy/.env`. In the GitHub demo any passcode works.
+- **Database change** (migration `008`, automatic): table `excluded_barcode`; the old switch's setting is removed.
+- Tested here: 56 backend tests pass (3 new). Browser check of each role's sections, the lock, wrong and right passcodes, and leaving out and restoring a barcode.
+
 ### Same scan with different values is now reported, not silently skipped
 - **Problem reported:** back-to-back rows with the same barcode and `RECTIME` but different colors did not appear in "Barcodes with conflicting values".
 - **Cause:** the rows also have the same `INSERT_TIME`, so GI treats them as one scan (the "each scan once" rule, ORA-02). The second row was counted as "already in GI" and dropped, so only one color was ever stored and the report could not see the conflict.

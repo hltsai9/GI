@@ -69,6 +69,7 @@ services:
       ORACLE_INSERT_TIME_ZONE: ${ORACLE_INSERT_TIME_ZONE:-Asia/Taipei}
       ORACLE_RECTIME_ZONE: ${ORACLE_RECTIME_ZONE:-America/Phoenix}
       DEV_AUTH: ${DEV_AUTH:-true}
+      ADMIN_PASSCODE: ${ADMIN_PASSCODE:-}
     # Mock Oracle data (ISSUE_SOURCE=mock) is generated in memory, the same on every container.
     # Several app containers are safe: only the one holding a MariaDB lock runs the import.
 

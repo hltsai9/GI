@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 
 import pytest
-from conftest import ref_ids, user_id
+from conftest import admin_headers, ref_ids, user_id
 from fastapi.testclient import TestClient
 
 from gi.db import connect, rows
+from gi.ledger import invariant_violations
 from gi.importing.csv_upload import import_csv
 from gi.services import settings, stock, trends
 from gi.services.counts import StartingCountInput, save_starting_count
@@ -53,32 +54,57 @@ def test_barcodes_are_kept_exactly():
     assert b["last_seen"] == "2026-11-20T01:02:00.000Z"    # the same moment in UTC (18:02 on 19 Nov in Phoenix)
 
 
-def test_unregistered_can_be_left_out_of_issued_numbers():
+def test_unregistered_barcodes_can_be_left_out_one_by_one():
     setup_rows()
+    def issued_19() -> int:
+        with connect() as c:
+            return next(p for p in trends.issued(c, 7, NOW)["points"] if p["day"] == "2026-11-19")["total"]
+    def bucket() -> int:
+        with connect() as c:
+            return stock.stock_summary(c, NOW)["unregistered"][0]["onHand"]
+    assert (issued_19(), bucket()) == (5, -3)
+    r = settings.set_barcode_excluded(settings.ExcludeInput(barcode="X  12", excluded=True, note="test tag"), user_id())
+    assert (r["changed"], r["byStatus"]) == (1, {"ignored": 1})
+    assert (issued_19(), bucket()) == (4, -2)          # only that barcode is left out; the others still count
     with connect() as c:
-        day = next(p for p in trends.issued(c, 7, NOW)["points"] if p["day"] == "2026-11-19")
-        assert (day["values"]["Unregistered"], day["total"]) == (3, 5)
-        assert sum(x["n"] for x in trends.breakdown(c, 7, "issued", NOW)["byLocation"]) == 5
-        assert stock.stock_summary(c, NOW)["countUnregistered"] is True
-    assert settings.set_count_unregistered(False, user_id()) == {"countUnregistered": False}
+        listed = {b["barcode"]: b for b in settings.unregistered_barcodes(c)}
+        assert listed["X  12"]["excluded"] and listed["X  12"]["excluded_note"] == "test tag" and not listed["x  12"]["excluded"]
+        assert invariant_violations(c) == []
+    # A new issue of the same barcode is left out too.
+    import_csv((HEADER + csv_line("X  12", "2026-11-21 09:00:00", "OTHER", "OTHER")).encode())
     with connect() as c:
-        iss = trends.issued(c, 7, NOW)
-        day = next(p for p in iss["points"] if p["day"] == "2026-11-19")
-        assert "Unregistered" not in iss["series"] and day["total"] == 2
-        assert sum(x["n"] for x in trends.breakdown(c, 7, "issued", NOW)["byLocation"]) == 2
-        assert next(f for f in trends.stock_over_time(c, 7, NOW)["flows"] if f["day"] == "2026-11-19")["issued"] == 2
-        assert stock.stock_summary(c, NOW)["countUnregistered"] is False
-        assert settings.meta(c)["countUnregistered"] is False
-        # Still imported and listed for the vendor.
-        assert len(settings.unregistered_barcodes(c)) == 3
+        assert rows(c, "SELECT status FROM issue_import WHERE suit_barcode = 'X  12' ORDER BY id") == [{"status": "ignored"}] * 2
+    # Counting it again restores both issues.
+    r = settings.set_barcode_excluded(settings.ExcludeInput(barcode="X  12", excluded=False), user_id())
+    assert (r["changed"], r["byStatus"]) == (2, {"applied": 2})
+    assert bucket() == -4
+    with connect() as c:
+        assert invariant_violations(c) == []
 
 
-def test_switch_endpoint_needs_the_lead():
+def test_exclusion_endpoint_needs_lead_or_admin():
+    setup_rows()
     from gi.app import build_app
     c = TestClient(build_app())
-    assert c.put("/api/settings/count-unregistered", json={"value": False}, headers={"x-dev-user": "dev-floor"}).status_code == 403
-    assert c.put("/api/settings/count-unregistered", json={"value": False}, headers={"x-dev-user": "dev-lead"}).json() == {"countUnregistered": False}
-    assert c.get("/api/meta", headers={"x-dev-user": "dev-viewer"}).json()["countUnregistered"] is False
+    body = {"barcode": "X  12", "excluded": True}
+    assert c.put("/api/data-quality/excluded", json=body, headers={"x-dev-user": "dev-floor"}).status_code == 403
+    assert c.put("/api/data-quality/excluded", json=body, headers={"x-dev-user": "dev-lead"}).json()["changed"] == 1
+    assert c.put("/api/data-quality/excluded", json={**body, "barcode": "nope"}, headers=admin_headers()).status_code == 404
+
+
+def test_admin_needs_the_passcode():
+    from gi.app import build_app
+    c = TestClient(build_app())
+    assert c.get("/api/me", headers={"x-dev-user": "dev-admin"}).status_code == 401
+    assert c.post("/api/dev/admin-unlock", json={"passcode": "wrong"}).status_code == 403
+    token = c.post("/api/dev/admin-unlock", json={"passcode": "test-passcode"}).json()["token"]
+    assert c.get("/api/me", headers={"x-dev-user": "dev-admin", "x-admin-token": token}).json()["role"] == "admin"
+    assert c.get("/api/me", headers={"x-dev-user": "dev-admin", "x-admin-token": token[:-1] + "0"}).status_code == 401
+    # Oracle values: changes are admin only.
+    with connect() as cn:
+        mid = rows(cn, "SELECT id FROM oracle_value_map LIMIT 1")
+    if mid:
+        assert c.put(f"/api/oracle-values/{mid[0]['id']}", json={"ignore": True}, headers={"x-dev-user": "dev-lead"}).status_code == 403
 
 
 def test_unregistered_csv_download_quotes_barcodes():

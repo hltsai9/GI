@@ -91,6 +91,7 @@ Settings to fill in for a first deployment without Oracle (everything else has w
 | `HTTP_PORT` | Port for the web page on the host (default `8080`). |
 | `ISSUE_SOURCE` | Leave `mock`. |
 | `DEV_AUTH` | Leave `true` until SSO is connected (otherwise nobody can sign in). |
+| `ADMIN_PASSCODE` | A passcode for switching to the Admin user in Settings › This device. Empty = Admin cannot be chosen. |
 | `GI_VERSION` | Tag for the image you build, e.g. `2026-11-19`. Makes rollback easy (§9). |
 
 Never commit `deploy/.env`; it is in `.gitignore`.
@@ -331,6 +332,7 @@ What to watch:
 | `ORACLE_POLL_SECONDS` | `300` | Import interval, 300–43200 s |
 | `ORACLE_BACKFILL_FROM` | `2026-10-01 00:00:00` | First `RECTIME` (Phoenix time) read on a fresh install |
 | `DEV_AUTH` | `true` | Choose the user in the app (no SSO yet) |
+| `ADMIN_PASSCODE` | — | Passcode needed to switch to Admin (secret); empty = Admin locked |
 | `SITE_TIMEZONE`, `ORACLE_INSERT_TIME_ZONE`, `ORACLE_RECTIME_ZONE` | Phoenix, Taipei, Phoenix | Time zones (URD ORA-12) |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `BUILD_NETWORK`, `PIP_INDEX_URL`, `COMPANY_CA_FILE`, `PYTHON_IMAGE`, `MARIADB_IMAGE` | — | Building on company networks (§5.2) |
 
