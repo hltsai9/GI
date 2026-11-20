@@ -6,9 +6,15 @@ from .source import IssueSource
 _source: IssueSource | None = None
 
 
+class NoAutomaticSource(RuntimeError):
+    """ISSUE_SOURCE=csv: nothing to poll; issues arrive by CSV upload."""
+
+
 def get_issue_source() -> IssueSource:
     global _source
     if _source is None:
+        if config.ISSUE_SOURCE == "csv":
+            raise NoAutomaticSource("ISSUE_SOURCE=csv: issues come only from CSV uploads (Settings › Import)")
         if config.ISSUE_SOURCE == "oracle":
             from .oracle_source import OracleIssueSource
             _source = OracleIssueSource(config)

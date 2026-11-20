@@ -250,6 +250,43 @@ function DataQuality() {
   ];
 }
 
+/** CSV export of the Oracle issue table, for test sites that cannot reach Oracle. Rows already in GI are skipped. */
+function CsvUpload(isAdmin) {
+  const [file, setFile] = state('upload.file', null);
+  const [busy, setBusy] = state('upload.busy', false);
+  const [result, setResult] = state('upload.result', null);
+  const [failure, setFailure] = state('upload.failure', null);
+  const send = async () => {
+    setBusy(true);
+    setResult(null);
+    setFailure(null);
+    try {
+      const r = await api('/sync/upload', { method: 'POST', body: file, headers: { 'content-type': 'text/csv', 'X-File-Name': encodeURIComponent(file.name) } });
+      setResult(r);
+      setFile(null);
+      const input = document.getElementById('csvfile');
+      if (input) input.value = '';
+      reload('/sync', '/alerts', '/stock', '/trends', '/oracle-values', '/data-quality');
+    } catch (e) {
+      setFailure({ message: e.message, problems: e.data?.problems ?? [] });
+    }
+    setBusy(false);
+  };
+  const st = result?.byStatus ?? {};
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+    h('h4', { class: 'sec', style: { margin: 0 } }, 'Upload an Oracle export'),
+    h('div', { class: 'note' }, 'A CSV file of the Oracle issue table, with the column names in the first line (',
+      h('code', null, 'SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL, STATE, INSERT_TIME, RECTIME'),
+      '). Only rows with STATE = EMPLOYEE GOWN ISSUE are used. Rows already in GI (same barcode and INSERT_TIME) are skipped, so uploading the same or an overlapping file again is safe. Times need seconds: do not open and save the file in Excel.'),
+    isAdmin
+      ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+        h('input', { id: 'csvfile', type: 'file', accept: '.csv,text/csv,text/plain', onChange: (e) => { setFile(e.target.files[0] ?? null); setResult(null); setFailure(null); }, style: { flex: '1 1 220px', fontSize: 14 } }),
+        h('button', { class: 'btn btn-primary', disabled: !file || busy, onClick: send, style: { minHeight: 44 } }, busy ? 'Importing…' : 'Upload and import'))
+      : h('div', { class: 'note' }, 'Only an admin can upload files.'),
+    result && Msg({ tag: 'Imported', text: `${result.fileRows !== undefined ? fmtNum(result.fileRows) + ' rows in the file · ' : ''}${fmtNum(result.new)} new issues (${fmtNum(st.applied ?? 0)} applied, ${fmtNum(st.held_unmapped ?? 0)} held, ${fmtNum(st.before_start ?? 0)} before the starting count, ${fmtNum(st.ignored ?? 0)} ignored) · ${fmtNum(result.alreadyImported)} already in GI${result.otherState ? ` · ${fmtNum(result.otherState)} other STATE` : ''}` }),
+    failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
+}
+
 function ImportStatus(isAdmin) {
   const status = load('/sync/status');
   const runs = load('/sync/runs');
@@ -264,14 +301,16 @@ function ImportStatus(isAdmin) {
     setBusy(false);
   };
   const s = status.data;
+  const csvOnly = s?.source === 'csv';
   return [
     s && (s.stale
       ? Warn(`No successful import for a while — last ${s.lastSuccessfulImport ? fmtWhen(s.lastSuccessfulImport) : 'never'}.`)
-      : Msg({ tag: 'OK', text: `Last import ${s.lastSuccessfulImport ? fmtWhen(s.lastSuccessfulImport) : '—'} · issues up to ${s.issuesUpTo ? fmtWhen(s.issuesUpTo) : '—'} · every ${Math.round(s.pollSeconds / 60)} min` })),
-    isAdmin && h('div', { style: { display: 'flex', gap: 8 } },
+      : Msg({ tag: 'OK', text: `Last import ${s.lastSuccessfulImport ? fmtWhen(s.lastSuccessfulImport) : '—'} · issues up to ${s.issuesUpTo ? fmtWhen(s.issuesUpTo) : '—'} · ${csvOnly ? 'issues come from CSV uploads' : `every ${Math.round(s.pollSeconds / 60)} min`}` })),
+    isAdmin && !csvOnly && h('div', { style: { display: 'flex', gap: 8 } },
       h('button', { class: 'btn btn-secondary', disabled: busy, onClick: () => run('/sync/run'), style: { minHeight: 44 } }, 'Run import now'),
       h('button', { class: 'btn btn-secondary', disabled: busy, onClick: () => run('/sync/sweep'), style: { minHeight: 44 } }, 'Run catch-up sweep')),
     ErrorNote(errorOf('import')),
+    CsvUpload(isAdmin),
     h('div', null,
       h('h4', { class: 'sec' }, 'Alerts'),
       (alerts.data ?? []).map((a) => h('div', { style: { display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', fontSize: 14 } },
@@ -282,7 +321,7 @@ function ImportStatus(isAdmin) {
       !alerts.data?.length && h('div', { class: 'note' }, 'No alerts.')),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Recent runs'), h('th', null, 'Kind'), h('th', { style: right }, 'New'), h('th', { style: right }, 'Applied'), h('th', { style: right }, 'Held'), h('th', null, 'Status'))),
-      h('tbody', null, (runs.data ?? []).map((r) => h('tr', null, h('td', null, fmtWhen(r.started_at)), h('td', null, r.kind), h('td', { style: right }, fmtNum(r.rows_new)),
+      h('tbody', null, (runs.data ?? []).map((r) => h('tr', null, h('td', null, fmtWhen(r.started_at)), h('td', null, r.note ? `${r.kind} · ${r.note}` : r.kind), h('td', { style: right }, fmtNum(r.rows_new)),
         h('td', { style: right }, fmtNum(r.rows_applied)), h('td', { style: right }, r.rows_held), h('td', null, r.status))))),
   ];
 }

@@ -29,9 +29,10 @@ export const demoFile = (path) => path.replace(/^\//, '').replace(/[^A-Za-z0-9]+
 export const demoFetch = (path) => fetch(`demo-data/${demoFile(path)}`);
 
 export class ApiError extends Error {
-  constructor(status, message) {
+  constructor(status, message, data) {
     super(message);
     this.status = status;
+    this.data = data; // the error response, e.g. { error, problems } from a CSV upload
   }
 }
 
@@ -56,7 +57,7 @@ export async function api(path, init = {}) {
   } catch {
     /* not JSON */
   }
-  if (!res.ok) throw new ApiError(res.status, data?.error ?? res.statusText);
+  if (!res.ok) throw new ApiError(res.status, data?.error ?? res.statusText, data);
   return data;
 }
 

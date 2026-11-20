@@ -190,6 +190,30 @@ docker compose up -d
 ```
 No rebuild is needed: the same image reads Oracle when `ISSUE_SOURCE=oracle`. Then follow §8.2.
 
+### 8.4 Real Oracle data without an Oracle connection: CSV upload
+
+When GI cannot reach Oracle yet (for example on a test site), export the issue rows to a CSV file and upload it in **Settings › Import › Upload an Oracle export** (admin only).
+
+1. In `deploy/.env`: `ISSUE_SOURCE=csv`. GI then imports nothing automatically, shows no "import stale" warning, and hides "Run import now". Start from an empty `gi` database if mock issues were imported before, so they do not mix with real ones.
+2. Export from Oracle, e.g. in SQL Developer (Run the query, then right-click the result › **Export** › format **csv**):
+   ```sql
+   SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL, STATE,
+          TO_CHAR(INSERT_TIME, 'YYYY-MM-DD HH24:MI:SS') AS INSERT_TIME,
+          TO_CHAR(RECTIME,     'YYYY-MM-DD HH24:MI:SS') AS RECTIME
+     FROM SCHEMA.ISSUE_TABLE
+    WHERE STATE = 'EMPLOYEE GOWN ISSUE'
+      AND INSERT_TIME >= TO_DATE('2026-11-01', 'YYYY-MM-DD')
+    ORDER BY INSERT_TIME;
+   ```
+   - The first line must be the column names; extra columns are ignored, and other `STATE`s are skipped.
+   - Comma, semicolon or tab separators work.
+   - Dates like `20-NOV-26 09.15.30 AM` (Oracle's default) are also read, but **times must include seconds**. Don't open and save the file in Excel, which drops the seconds.
+3. Upload the file. Rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`) are skipped, so uploading the same file twice, or files whose date ranges overlap, never counts an issue twice. If any row can't be read, nothing is imported and the problem lines are listed.
+4. As with a real Oracle connection: map the values in **Settings › Oracle values** (rows with unmapped values are held until then), and enter the starting counts in **Settings › Full count**. Issues count against stock only after the starting count.
+5. Repeat with a new export whenever you want newer issues; overlapping date ranges are fine.
+
+Later, with `ISSUE_SOURCE=oracle`, the rows already uploaded are recognised and not imported again.
+
 ## 9. Updating to a new version
 
 ```bash
@@ -302,7 +326,7 @@ What to watch:
 | `HTTP_PORT` | `8080` | Host port for the site (the container listens on 8000) |
 | `DB_PASSWORD`, `DB_ROOT_PASSWORD` | — | MariaDB container passwords |
 | `MARIADB_URL` | built from `DB_PASSWORD` | Database URL, e.g. for an existing server |
-| `ISSUE_SOURCE` | `mock` | `mock` (no Oracle) or `oracle` |
+| `ISSUE_SOURCE` | `mock` | `mock` (generated test data), `oracle` (read Oracle), or `csv` (no automatic import; upload Oracle exports, §8.4) |
 | `ORACLE_CONNECT_STRING`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_ISSUE_TABLE`, `ORACLE_SUIT_TABLE` | — | Oracle access (read-only), only for `oracle` |
 | `ORACLE_POLL_SECONDS` | `300` | Import interval, 300–43200 s |
 | `ORACLE_BACKFILL_FROM` | `2026-10-01 00:00:00` | First `RECTIME` (Phoenix time) read on a fresh install |

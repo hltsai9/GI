@@ -1,1 +1,1 @@
-{"id":21,"on_hand":17,"min_qty":10,"garment":"Gown","color":"Blue","size":"MED","location":"Fab1","status":"plenty","issuedToday":5,"lastDelivery":{"at":"2026-11-19T13:40:00.000Z","qty":5}}
+{"id":21,"on_hand":18,"min_qty":10,"garment":"Gown","color":"Blue","size":"MED","location":"Fab1","status":"plenty","issuedToday":4,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":10}}

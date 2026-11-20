@@ -1,1 +1,1 @@
-{"id":267,"on_hand":1,"min_qty":2,"garment":"Gown","color":"Black","size":"4XLG","location":"Fab1","status":"below_min","issuedToday":0,"lastDelivery":{"at":"2026-11-02T13:40:00.000Z","qty":5}}
+{"id":267,"on_hand":3,"min_qty":2,"garment":"Hood","color":"Black","size":"3XLG","location":"Fab2","status":"plenty","issuedToday":0,"lastDelivery":{"at":"2026-11-15T13:40:00.000Z","qty":5}}
