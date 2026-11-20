@@ -131,7 +131,7 @@ function OverTime(days) {
 }
 
 function BreakdownView(days, meta) {
-  const [metric, setMetric] = state('trends.metric', 'issued');
+  const [metric, setMetric] = state('trends.metric', 'delivered'); // delivered first, as on the rest of the page
   // Same range as Issued per day (the days switch at the top). Paths must match backend/gi/cli/export_demo.py.
   const del = load(`/trends/delivered?days=${days}&per=day`, 'trends.delivered');
   const dl = del.data;
@@ -189,7 +189,7 @@ function BreakdownView(days, meta) {
       Axis(i.points[0]?.day, 'Today (so far)'),
       h('div', { class: 'note', style: { marginTop: 6 } }, `Per garment type the read-out shows ${ilocs.join(' / ')}.`,
         unreg > 0 ? ` Includes ${fmtNum(unreg)} unregistered garments (type, size and color unknown).` : '')),
-    Seg({ label: 'Metric', value: metric, onChange: setMetric, options: [{ value: 'issued', label: `Issued, ${days} days` }, { value: 'delivered', label: `Delivered, ${days} days` }] }),
+    Seg({ label: 'Metric', value: metric, onChange: setMetric, options: [{ value: 'delivered', label: `Delivered, ${days} days` }, { value: 'issued', label: `Issued, ${days} days` }] }),
     b && [
       h('div', null,
         h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 } },
