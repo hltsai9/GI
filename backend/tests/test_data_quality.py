@@ -99,7 +99,8 @@ def test_admin_needs_the_passcode():
     assert c.post("/api/dev/admin-unlock", json={"passcode": "wrong"}).status_code == 403
     token = c.post("/api/dev/admin-unlock", json={"passcode": "test-passcode"}).json()["token"]
     assert c.get("/api/me", headers={"x-dev-user": "dev-admin", "x-admin-token": token}).json()["role"] == "admin"
-    assert c.get("/api/me", headers={"x-dev-user": "dev-admin", "x-admin-token": token[:-1] + "0"}).status_code == 401
+    tampered = token[:-1] + ("1" if token[-1] == "0" else "0")  # always a different last character
+    assert c.get("/api/me", headers={"x-dev-user": "dev-admin", "x-admin-token": tampered}).status_code == 401
     # Oracle values: changes are admin only.
     with connect() as cn:
         mid = rows(cn, "SELECT id FROM oracle_value_map LIMIT 1")
