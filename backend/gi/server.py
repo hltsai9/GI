@@ -1,14 +1,16 @@
-"""Starts GI: database migrations (under a lock, so replicas can start together), test-install seeds,
-the import scheduler and the web server. Uvicorn finishes requests in flight on SIGTERM."""
+"""Starts GI: the web server at once, then in the background the database migrations (under a lock, so
+replicas can start together), test-install seeds and the import scheduler. If the database cannot be
+reached, GI keeps running and retries; /api/health reports why. Uvicorn finishes requests in flight on SIGTERM."""
 from __future__ import annotations
 
 import logging
 import os
+import threading
 from contextlib import asynccontextmanager
 
 import uvicorn
 
-from .app import build_app
+from .app import Startup, build_app
 from .config import config
 from .db import dispose
 from .migrate import apply_startup_seeds, migrate
@@ -28,21 +30,56 @@ class _NoHealthChecks(logging.Filter):
 logging.getLogger("uvicorn.access").addFilter(_NoHealthChecks())
 
 
+def _short(e: BaseException) -> str:
+    """One line for logs and the health check, e.g. (2003, "Can't connect to MySQL server on 'db' (timed out)")."""
+    orig = getattr(e, "orig", None) or e
+    return f"{type(orig).__name__}: {orig}".splitlines()[0][:300]
+
+
+def _set_up_database(stop: threading.Event) -> bool:
+    """Migrations and test-install seeds, retried until the database answers. The web server is already
+    running meanwhile: liveness is OK, readiness says why it is not ready yet."""
+    delay = 5
+    while not stop.is_set():
+        try:
+            applied = migrate()  # under a database lock, so replicas can start together
+            if applied:
+                log.info("migrations applied: %s", applied)
+            # Test installs: users for dev sign-in, and the mapping for the mock data's codes (both idempotent).
+            apply_startup_seeds(dev_users=config.DEV_AUTH, mock_mapping=config.ISSUE_SOURCE == "mock")
+            Startup.error = None
+            Startup.ready = True
+            log.info("database ready")
+            return True
+        except Exception as e:  # noqa: BLE001
+            Startup.error = f"database not reachable or not set up ({_short(e)})"
+            log.warning("%s; retrying in %d s", Startup.error, delay)
+            stop.wait(delay)
+            delay = min(delay * 2, 60)
+    return False
+
+
 def create_app():
-    applied = migrate()
-    if applied:
-        log.info("migrations applied: %s", applied)
-    # Test installs: users for dev sign-in, and the mapping for the mock data's codes (both idempotent).
-    apply_startup_seeds(dev_users=config.DEV_AUTH, mock_mapping=config.ISSUE_SOURCE == "mock")
     app = build_app()
+    Startup.ready = False
 
     @asynccontextmanager
     async def lifespan(_app):
-        sched = Scheduler().start() if os.environ.get("NO_SCHEDULER") != "true" else None
+        stop = threading.Event()
+        state: dict = {}
+
+        def start() -> None:
+            if _set_up_database(stop) and os.environ.get("NO_SCHEDULER") != "true" and not stop.is_set():
+                state["sched"] = Scheduler().start()
+
+        starter = threading.Thread(target=start, name="gi-startup", daemon=True)
+        starter.start()
         yield
         log.info("shutting down")
-        if sched:
-            sched.stop()
+        stop.set()
+        starter.join(5)
+        if state.get("sched"):
+            state["sched"].stop()
         dispose()
 
     app.router.lifespan_context = lifespan

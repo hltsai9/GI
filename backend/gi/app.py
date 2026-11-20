@@ -29,6 +29,13 @@ DEFAULT_STATIC = Path(__file__).resolve().parents[2] / "frontend"
 Days = Query(14, ge=1, le=366)
 
 
+class Startup:
+    """Set by the server while it is still setting up the database (see server.py). Until then the
+    readiness check fails with the reason, so Kubernetes sends no traffic to this instance."""
+    ready = True
+    error: str | None = None
+
+
 class MinInput(BaseModel):
     min: int | None = Field(..., ge=1)
 
@@ -71,6 +78,8 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
     # Readiness: only send traffic to an instance that can reach the database.
     @app.get("/api/health")
     def health():
+        if not Startup.ready:
+            return JSONResponse({"ok": False, "error": f"starting: {Startup.error or 'setting up the database'}"}, status_code=503)
         return {"ok": True} if db_reachable() else JSONResponse({"ok": False, "error": "database unreachable"}, status_code=503)
 
     # Liveness: the process is up (a database blip restarts nothing).

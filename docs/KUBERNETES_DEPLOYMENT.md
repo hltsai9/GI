@@ -45,7 +45,8 @@ Jobs that must run only once at a time are coordinated through MariaDB locks:
 With mock data, every replica generates the mock Oracle rows in memory, and the generator produces identical rows for any given day, so it does not matter which replica imports.
 
 Health checks:
-- **Readiness** (`/api/health`) fails while a pod cannot reach the database, so Kubernetes stops sending it traffic.
+- **Readiness** (`/api/health`) fails while a pod cannot reach the database, so Kubernetes stops sending it traffic. The response says why, e.g. `{"ok":false,"error":"starting: database not reachable or not set up (… Can't connect to MySQL server …)"}`.
+- **The web server starts first.** If MariaDB cannot be reached at start-up, the pod stays up (no restart loop), logs `database not reachable or not set up (…); retrying in N s` (5 s, then up to every 60 s), and sets up the database by itself once it can connect.
 - **Liveness** (`/healthz`) only checks the process, so a database outage does not restart pods.
 - On `SIGTERM` (rolling update, node drain) the app finishes requests in flight and exits cleanly.
 
@@ -153,10 +154,11 @@ The image runs as user `1000` (non-root) and needs no writable files, so it work
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Pods `Running` but `READY 0/1` | Readiness: the database is unreachable | Check `MARIADB_HOST`/port, the firewall from the cluster, and the user's allowed host in MariaDB |
+| Pods `Running` but `READY 0/1` (with Istio: `1/2`) | Readiness: the database is unreachable or not set up | The log line `database not reachable or not set up (…)` gives the reason. Check `MARIADB_HOST`/port, the firewall from the cluster, and the user's allowed host in MariaDB |
+| Probes fail with status 500, Istio sidecar log `request to probe app failed` | The probe port does not match the port GI listens on (default 8000, setting `PORT`) | Make `containerPort`, the probe ports and the Service `targetPort` match `PORT` |
 | Log: `Access denied for user 'gi'` | Wrong password, or user not allowed from the cluster's addresses | Check `GI_DB_PASSWORD` and the `'gi'@'<host>'` grant |
 | `CreateContainerConfigError`, "secret gi-secrets not found" | The Secret step did not run, or ran in another namespace | Check the pipeline's namespace and the createSecret step |
 | `ImagePullBackOff` | Image name or registry credentials | Check `image:` in `deployment.yaml` and `imagePullSecrets` |
-| Pods restart; log `could not get the migration lock` | Another replica held the migration lock for over 5 minutes | Look at the other replica's log for the real error |
+| Log repeats `could not get the migration lock` | Another replica held the migration lock for over 5 minutes | Look at the other replica's log for the real error |
 | Password with special characters not accepted by the createSecret step | Shell quoting in `secretArguments` | Use letters, digits and `-_.` in the password, or create the Secret with a script step: `kubectl create secret generic gi-secrets --from-literal=MARIADB_PASSWORD="$DB_PASSWORD" --dry-run=client -o yaml \| kubectl apply -f -` with `env: { DB_PASSWORD: $(GI_DB_PASSWORD) }` |
 | "Import is running right now" in Settings | Another replica is importing | Wait a minute and retry |
