@@ -86,22 +86,48 @@ def stock_summary(conn: Connection, now: datetime | None = None) -> dict:
     }
 
 
-def stock_grid(conn: Connection, garment_type_id: int, location_id: int) -> dict:
+def stock_grid(conn: Connection, garment_type_id: int, location_id: int, days: int | None = None, now: datetime | None = None,
+               day: str | None = None) -> dict:
+    """Stock per size × color. With `days` or `day`, each cell also has `delivered` and `issued`: the quantities
+    delivered and issued over the last `days` site days including today, or on the single site day `day`."""
     sizes = rows(conn, "SELECT id, code FROM size WHERE active AND NOT is_system ORDER BY sort")
     colors = rows(conn, "SELECT id, name FROM color WHERE active AND NOT is_system ORDER BY sort")
     items = rows(conn, "SELECT id, color_id, size_id, on_hand, min_qty FROM stock_item WHERE garment_type_id = ? AND location_id = ?",
                  [garment_type_id, location_id])
     by_key = {(i["color_id"], i["size_id"]): i for i in items}
+    flows: dict[int, dict[str, int]] = {}
+    since = until = None
+    if day:
+        since = until = day
+    elif days:
+        from .trends import day_range
+        rng = day_range(days, now or now_utc())
+        since, until = rng[0], rng[-1]
+    if since:
+        for r in rows(conn, """SELECT dl.stock_item_id AS id, SUM(dl.qty_current) AS n FROM delivery d JOIN delivery_line dl ON dl.delivery_id = d.id
+                                JOIN stock_item si ON si.id = dl.stock_item_id
+                               WHERE si.garment_type_id = ? AND si.location_id = ? AND d.received_day BETWEEN ? AND ? GROUP BY dl.stock_item_id""",
+                      [garment_type_id, location_id, since, until]):
+            flows.setdefault(r["id"], {})["delivered"] = r["n"]
+        for r in rows(conn, """SELECT ii.stock_item_id AS id, COUNT(*) AS n FROM issue_import ii JOIN stock_item si ON si.id = ii.stock_item_id
+                               WHERE si.garment_type_id = ? AND si.location_id = ? AND ii.issued_day BETWEEN ? AND ?
+                                 AND ii.status IN ('applied','before_start') GROUP BY ii.stock_item_id""",
+                      [garment_type_id, location_id, since, until]):
+            flows.setdefault(r["id"], {})["issued"] = r["n"]
     out_rows = []
     for s in sizes:
         cells = []
         for c in colors:
             it = by_key.get((c["id"], s["id"]))
-            cells.append({"stockItemId": it["id"], "colorId": c["id"], "onHand": it["on_hand"], "min": it["min_qty"],
-                          "status": stock_status(it["on_hand"], it["min_qty"])} if it else
-                         {"stockItemId": None, "colorId": c["id"], "onHand": 0, "min": None, "status": "not_stocked"})
+            cell = ({"stockItemId": it["id"], "colorId": c["id"], "onHand": it["on_hand"], "min": it["min_qty"],
+                     "status": stock_status(it["on_hand"], it["min_qty"])} if it else
+                    {"stockItemId": None, "colorId": c["id"], "onHand": 0, "min": None, "status": "not_stocked"})
+            if since:
+                f = flows.get(it["id"], {}) if it else {}
+                cell.update(delivered=f.get("delivered", 0), issued=f.get("issued", 0))
+            cells.append(cell)
         out_rows.append({"sizeId": s["id"], "size": s["code"], "cells": cells})
-    return {"sizes": sizes, "colors": colors, "rows": out_rows}
+    return {"sizes": sizes, "colors": colors, "rows": out_rows, **({"since": since, "until": until} if since else {})}
 
 
 def stock_item_detail(conn: Connection, item_id: int, now: datetime | None = None) -> dict:

@@ -7,6 +7,15 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-20
 
+### Trends: delivered and issued per size and color, one day at a time
+- **New in Trends › Breakdown: "By size and color"**, a grid like Stock › Grid. For one garment type and location, each cell shows what was **delivered (+, blue)** and **issued (−, pink)** on a single day, with the day's totals above it (in the garment's unit).
+  - The day has its own control: ‹ / › for the previous / next day, a date field to jump to any day, and **Today**. It starts on today ("so far").
+  - **Decision:** this view belongs in Trends, not in Stock › Grid, which keeps showing only what is on hand now. (A Sum / Delivered-Issued switch was first planned for Stock › Grid and dropped.)
+  - Unregistered garments are not in the grid, because their size and color are unknown.
+  - The GitHub demo has the last 14 days.
+- The API: `/api/stock/grid?…&day=YYYY-MM-DD` (or `&days=N`) adds `delivered` and `issued` to each cell.
+- Tested here: 59 backend tests pass (1 new). Browser check on laptop and phone: today, previous days, back to Today, other garments and locations.
+
 ### Trends: Delivered moved to Breakdown; issued charts in pink
 - **Decision: the "Delivered" chart was removed from Trends › Over time**, because its daily bars repeated the top half of "Deliveries vs issues"; it moved to Breakdown.
 - **Trends › Breakdown now starts with "Delivered per day"**, with the range total, P1 / P2 bars, and the same hover read-out as the other charts (per location, per garment, total). "Issued per day" follows below.

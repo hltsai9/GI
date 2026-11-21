@@ -7,6 +7,7 @@ import json
 import logging
 import threading
 from urllib.parse import unquote
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
@@ -171,9 +172,10 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
         return {**s, "sync": sync_status()}
 
     @app.get("/api/stock/grid", dependencies=[user])
-    def grid(garmentTypeId: int = Query(..., ge=1), locationId: int = Query(..., ge=1)):  # noqa: N803
+    def grid(garmentTypeId: int = Query(..., ge=1), locationId: int = Query(..., ge=1), days: int | None = Query(None, ge=1, le=366),  # noqa: N803
+             day: date | None = None):
         with connect() as c:
-            return stock.stock_grid(c, garmentTypeId, locationId)
+            return stock.stock_grid(c, garmentTypeId, locationId, days, day=day.isoformat() if day else None)
 
     @app.get("/api/stock/items/{item_id}", dependencies=[user])
     def item(item_id: int):

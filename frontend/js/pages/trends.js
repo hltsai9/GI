@@ -190,6 +190,7 @@ function BreakdownView(days, meta) {
       h('div', { class: 'note', style: { marginTop: 6 } }, `Per garment type the read-out shows ${ilocs.join(' / ')}.`,
         unreg > 0 ? ` Includes ${fmtNum(unreg)} unregistered garments (type, size and color unknown).` : '')),
     Seg({ label: 'Metric', value: metric, onChange: setMetric, options: [{ value: 'delivered', label: `Delivered, ${days} days` }, { value: 'issued', label: `Issued, ${days} days` }] }),
+    SizeColorGrid(meta),
     b && [
       h('div', null,
         h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 } },
@@ -207,4 +208,61 @@ function BreakdownView(days, meta) {
           h('span', null, h('b', null, codeA), ` ${fmtNum(locA)}`), h('span', null, h('b', null, codeB), ` ${fmtNum(locB)}`))),
     ],
   ];
+}
+
+// Site time is Phoenix (UTC−7 all year), so a site day is the UTC date of "now − 7 h".
+const siteToday = () => new Date(Date.now() - 7 * 3600_000).toISOString().slice(0, 10);
+const shiftDay = (day, n) => new Date(Date.parse(`${day}T12:00:00Z`) + n * 86400_000).toISOString().slice(0, 10);
+
+/** Delivered (+, blue) and issued (−, pink) per size × color on one day, for one garment type and location.
+ *  Paths must match backend/gi/cli/export_demo.py (the demo has the last 14 days). */
+function SizeColorGrid(meta) {
+  const [typeId, setTypeId] = state('trends.gridType', meta.types[0].id);
+  const [locId, setLocId] = state('trends.gridLoc', meta.locations[0].id);
+  const today = siteToday();
+  const [day, setDay] = state('trends.gridDay', today);
+  const g = load(`/stock/grid?garmentTypeId=${typeId}&locationId=${locId}&day=${day}`, 'trends.grid');
+  const t = meta.types.find((x) => x.id === typeId) ?? meta.types[0];
+  const cols = `44px repeat(${g.data?.colors.length ?? 4}, minmax(0, 1fr))`;
+  const cellsAll = g.data?.rows.flatMap((r) => r.cells) ?? [];
+  const tot = (k) => cellsAll.reduce((a, c) => a + (c[k] ?? 0), 0);
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 } },
+      h('h4', { style: { margin: 0 } }, 'By size and color'),
+      g.data && h('span', { class: 'num', style: { fontSize: 13, color: 'var(--color-neutral-700)' } },
+        h('b', { style: { color: 'var(--color-accent-700)' } }, `+${fmtNum(tot('delivered'))}`), ' delivered · ',
+        h('b', { style: { color: 'var(--color-accent-2-700)' } }, `−${fmtNum(tot('issued'))}`), ` issued (${t.unit})`)),
+    // One day at a time: back / forward a day, jump to a date, or back to today.
+    h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+      h('button', { type: 'button', class: 'btn btn-secondary btn-icon stepbtn', 'aria-label': 'Previous day', onClick: () => setDay(shiftDay(day, -1)) }, '‹'),
+      h('label', { class: 'qty', style: { flex: '0 1 220px' } },
+        h('span', { class: 'dd-label' }, `Day${day === today ? ' · today (so far)' : ''}`),
+        h('input', { type: 'date', value: day, max: today, onChange: (e) => e.target.value && setDay(e.target.value > today ? today : e.target.value) })),
+      h('button', { type: 'button', class: 'btn btn-secondary btn-icon stepbtn', 'aria-label': 'Next day', disabled: day >= today, onClick: () => setDay(shiftDay(day, 1)) }, '›'),
+      day !== today && h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => setDay(today), style: { minHeight: 44 } }, 'Today'),
+      h('span', { style: { fontSize: 14, fontWeight: 600 } }, fmtDayLong(day))),
+    h('div', { style: { display: 'flex', gap: 8 } },
+      Seg({ label: 'Grid garment', style: { flex: 1 }, optStyle: { padding: '7px 2px', gap: 4, fontSize: 12.5 }, value: typeId, onChange: setTypeId,
+        options: meta.types.map((x) => ({ value: x.id, label: x.plural, icon: x.icon })) }),
+      Seg({ label: 'Grid location', optStyle: { flex: 'none', padding: '7px 8px' }, value: locId, onChange: setLocId,
+        options: meta.locations.map((l) => ({ value: l.id, label: l.code })) })),
+    ErrorNote(g.error),
+    g.data && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'table', 'aria-label': 'Delivered and issued by size and color' },
+      h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--color-neutral-700)' } },
+        h('span'), g.data.colors.map((c) => h('span', { style: { textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis' } }, c.name))),
+      g.data.rows.map((r) => h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4 } },
+        h('span', { style: { fontSize: 12, fontWeight: 600, alignSelf: 'center' } }, r.size),
+        r.cells.map((c) => {
+          const quiet = !c.delivered && !c.issued;
+          return h('div', {
+            class: 'num', 'aria-label': `${r.size} ${g.data.colors.find((x) => x.id === c.colorId)?.name}: ${c.delivered ?? 0} delivered, ${c.issued ?? 0} issued`,
+            style: { minHeight: 40, borderRadius: 'var(--radius-md)', background: quiet ? 'transparent' : 'var(--color-surface)', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', justifyContent: 'center', lineHeight: 1.15, fontSize: 14, fontWeight: 600, padding: '3px 2px' },
+          }, c.stockItemId || !quiet
+            ? [h('span', { style: { color: c.delivered ? 'var(--color-accent-700)' : 'var(--color-neutral-500)' } }, `+${c.delivered ?? 0}`),
+              h('span', { style: { color: c.issued ? 'var(--color-accent-2-700)' : 'var(--color-neutral-500)' } }, `−${c.issued ?? 0}`)]
+            : h('span', { style: { color: 'var(--color-neutral-500)' } }, '—'));
+        }))),
+      h('div', { style: { fontSize: 12, color: 'var(--color-neutral-700)', marginTop: 2 } },
+        `+ delivered, − issued on ${fmtDayLong(day)}${day === today ? ' (so far)' : ''}. Unregistered garments are not included (their size and color are unknown).`)));
 }

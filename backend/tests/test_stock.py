@@ -9,6 +9,7 @@ from gi.ledger import invariant_violations
 from gi.services.counts import CorrectionInput, CountLine, StartingCountInput, save_correction, save_starting_count
 from gi.services.deliveries import CorrectionInput as DCorrection
 from gi.services.deliveries import DeliveryInput, DeliveryLine, correct_delivery, post_delivery
+from gi.services import stock
 from gi.services.stock import stock_summary
 
 pytestmark = pytest.mark.usefixtures("fresh_db")
@@ -86,3 +87,18 @@ def test_reorder_list(ids):
     assert all(r["on_hand"] < r["min_qty"] for r in s["reorder"])
     assert s["belowMinCount"] == 90
     assert next(t for t in s["totals"] if t["name"] == "Gown")["onHand"] == 3
+
+
+def test_grid_with_delivered_and_issued(ids):
+    post_delivery(DeliveryInput(receivedAt="2026-11-20T14:00:00Z", lines=[line(ids, 30)]), "d1", user_id("dev-floor"), NOW)
+    ten_days_ago = datetime(2026, 11, 10, 15, 0, tzinfo=timezone.utc)
+    post_delivery(DeliveryInput(lines=[line(ids, 8)]), "d2", user_id("dev-floor"), ten_days_ago)
+    with connect() as c:
+        def cell(days):
+            g = stock.stock_grid(c, ids["type"]["GOWN"], ids["loc"]["P1"], days, NOW)
+            return next(x for r in g["rows"] if r["size"] == "LG" for x in r["cells"] if x["colorId"] == ids["color"]["White"])
+        assert "delivered" not in cell(None)
+        assert (cell(1)["delivered"], cell(1)["issued"], cell(1)["onHand"]) == (30, 0, 38)   # today only
+        assert cell(30)["delivered"] == 38                                                   # both deliveries
+        one_day = stock.stock_grid(c, ids["type"]["GOWN"], ids["loc"]["P1"], day="2026-11-10")
+        assert next(x for r in one_day["rows"] if r["size"] == "LG" for x in r["cells"] if x["colorId"] == ids["color"]["White"])["delivered"] == 8
