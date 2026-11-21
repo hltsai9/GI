@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from ..app import build_app
 from ..db import connect, rows
+from ..services.trends import day_range
 
 OUT = Path(__file__).resolve().parents[3] / "frontend" / "demo-data"
 
@@ -22,9 +23,12 @@ def main() -> None:
         types = rows(c, "SELECT id FROM garment_type WHERE active AND NOT is_system")
         locations = rows(c, "SELECT id FROM location")
         items = rows(c, "SELECT id FROM stock_item")
+    recent_days = day_range(14)
     paths = ["/me", "/meta", "/deliveries?limit=30", "/stock/summary", "/starting-counts", "/corrections", "/oracle-values",
              "/data-quality?days=30", "/data-quality/unregistered.csv", "/data-quality/conflicts.csv", "/sync/status", "/sync/runs", "/alerts",
              *(f"/stock/grid?garmentTypeId={t['id']}&locationId={l['id']}" for t in types for l in locations),
+             # Trends › Breakdown › By size and color, one day at a time (frontend/js/pages/trends.js): the last 14 days.
+             *(f"/stock/grid?garmentTypeId={t['id']}&locationId={l['id']}&day={d}" for t in types for l in locations for d in recent_days),
              *(f"/stock/items/{i['id']}" for i in items)]
     # Must match the requests in frontend/js/pages/trends.js.
     for days in (7, 14, 30, 90):
