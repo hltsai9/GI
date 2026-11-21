@@ -17,13 +17,17 @@ const sign = (n) => `${n >= 0 ? '+' : '−'}${fmtNum(Math.abs(n))}`;
 export function Trends({ meta }) {
   const [view, setView] = state('trends.view', 'time');
   const [days, setDays] = state('trends.days', 14);
+  const sites = meta.locations.map((l) => l.code).join(' + ');
+  const head = { time: [`Trends · ${sites}`, 'Over time'], breakdown: [`Trends · last ${days} days`, 'Breakdown'], grid: [`Trends · ${sites}`, 'Daily grid'] }[view];
   return [
-    PageHead({ kicker: view === 'time' ? `Trends · ${meta.locations.map((l) => l.code).join(' + ')}` : `Trends · last ${days} days`, title: view === 'time' ? 'Over time' : 'Breakdown' }),
+    PageHead({ kicker: head[0], title: head[1] }),
     h('div', { class: 'p-seg' },
-      Seg({ label: 'Trends view', value: view, onChange: setView, options: [{ value: 'time', label: 'Over time' }, { value: 'breakdown', label: 'Breakdown' }] })),
+      Seg({ label: 'Trends view', value: view, onChange: setView,
+        options: [{ value: 'time', label: 'Over time' }, { value: 'breakdown', label: 'Breakdown' }, { value: 'grid', label: 'Daily grid' }] })),
     h('div', { class: 'p-body' },
-      Seg({ label: 'Range', value: days, onChange: setDays, options: [7, 14, 30, 90].map((d) => ({ value: d, label: `${d} days` })) }),
-      view === 'time' ? OverTime(days) : BreakdownView(days, meta)),
+      // The daily grid picks a single day itself, so the range switch is only for the other two views.
+      view !== 'grid' && Seg({ label: 'Range', value: days, onChange: setDays, options: [7, 14, 30, 90].map((d) => ({ value: d, label: `${d} days` })) }),
+      view === 'time' ? OverTime(days) : view === 'breakdown' ? BreakdownView(days, meta) : SizeColorGrid(meta)),
   ];
 }
 
@@ -190,7 +194,6 @@ function BreakdownView(days, meta) {
       h('div', { class: 'note', style: { marginTop: 6 } }, `Per garment type the read-out shows ${ilocs.join(' / ')}.`,
         unreg > 0 ? ` Includes ${fmtNum(unreg)} unregistered garments (type, size and color unknown).` : '')),
     Seg({ label: 'Metric', value: metric, onChange: setMetric, options: [{ value: 'delivered', label: `Delivered, ${days} days` }, { value: 'issued', label: `Issued, ${days} days` }] }),
-    SizeColorGrid(meta),
     b && [
       h('div', null,
         h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginBottom: 8 } },
@@ -228,7 +231,7 @@ function SizeColorGrid(meta) {
   const tot = (k) => cellsAll.reduce((a, c) => a + (c[k] ?? 0), 0);
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 } },
-      h('h4', { style: { margin: 0 } }, 'By size and color'),
+      h('h4', { style: { margin: 0 } }, 'Delivered and issued by size and color'),
       g.data && h('span', { class: 'num', style: { fontSize: 13, color: 'var(--color-neutral-700)' } },
         h('b', { style: { color: 'var(--color-accent-700)' } }, `+${fmtNum(tot('delivered'))}`), ' delivered · ',
         h('b', { style: { color: 'var(--color-accent-2-700)' } }, `−${fmtNum(tot('issued'))}`), ` issued (${t.unit})`)),
