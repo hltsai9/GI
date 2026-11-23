@@ -47,9 +47,12 @@ def test_rejects_the_whole_file_when_a_row_is_bad():
     assert "nothing was imported" in str(e.value) and e.value.problems[0].startswith("Line 3:")
 
 
-def test_missing_columns_are_named():
-    with pytest.raises(CsvError, match="RECTIME"):
-        parse(b"SUIT_BARCODE,SUIT_TYPE,SUIT_COLOR,SUIT_SIZE,SUIT_LEVEL,INSERT_TIME\nG-1,GOWN,WHITE,L,FAB1,2026-11-20 09:00:00\n")
+def test_missing_columns_are_named_and_rectime_is_not_needed():
+    with pytest.raises(CsvError, match="INSERT_TIME"):
+        parse(b"SUIT_BARCODE,SUIT_TYPE,SUIT_COLOR,SUIT_SIZE,SUIT_LEVEL,RECTIME\nG-1,GOWN,WHITE,L,FAB1,2026-11-20 09:00:00\n")
+    got, _ = parse(b"SUIT_BARCODE,SUIT_TYPE,SUIT_COLOR,SUIT_SIZE,SUIT_LEVEL,INSERT_TIME\nG-1,GOWN,WHITE,L,FAB1,2026-11-20 09:00:00\n")
+    assert got == [{"SUIT_BARCODE": "G-1", "SUIT_TYPE": "GOWN", "SUIT_COLOR": "WHITE", "SUIT_SIZE": "L", "SUIT_LEVEL": "FAB1",
+                    "INSERT_TIME": "2026-11-20 09:00:00"}]
 
 
 @pytest.mark.usefixtures("fresh_db")
@@ -72,7 +75,6 @@ def test_rows_already_in_gi_are_not_imported_again():
     assert on_hand("GOWN", "White", "LG", "P1") == -3
     with connect() as c:
         runs = rows(c, "SELECT kind, note, rows_new FROM sync_run ORDER BY id")
-        assert one(c, "SELECT COUNT(*) AS n FROM sync_watermark")["n"] == 0  # type: ignore[index]
     assert runs[-1] == {"kind": "upload", "note": "export-2.csv", "rows_new": 1}
 
 

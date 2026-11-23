@@ -51,14 +51,13 @@ class Config:
     ORACLE_ISSUE_TABLE: str | None = None
     ORACLE_SUIT_TABLE: str | None = None
     ORACLE_POLL_SECONDS: int = 300
-    ORACLE_OVERLAP_MINUTES: int = 10
+    ORACLE_LOOKBACK_HOURS: int = 24  # each import re-reads this far back from the newest scan (late entries)
     ORACLE_MAX_ROWS: int = 5000
     ORACLE_SWEEP_DAYS: int = 3
     ORACLE_TIME_TOLERANCE_MINUTES: int = 10
     ORACLE_BACKFILL_FROM: str = "2026-10-01 00:00:00"
     SITE_TIMEZONE: str = "America/Phoenix"
-    ORACLE_INSERT_TIME_ZONE: str = "Asia/Taipei"
-    ORACLE_RECTIME_ZONE: str = "America/Phoenix"
+    ORACLE_INSERT_TIME_ZONE: str = "America/Phoenix"  # INSERT_TIME is Phoenix local time
     PORT: int = 8000
     STATIC_DIR: str | None = None  # the web page to serve; default: ../frontend next to this package
     DEV_AUTH: bool = False
@@ -84,14 +83,13 @@ def load_config() -> Config:
         ORACLE_ISSUE_TABLE=_env("ORACLE_ISSUE_TABLE"),
         ORACLE_SUIT_TABLE=_env("ORACLE_SUIT_TABLE"),
         ORACLE_POLL_SECONDS=_int("ORACLE_POLL_SECONDS", 300, 60, 43_200),
-        ORACLE_OVERLAP_MINUTES=_int("ORACLE_OVERLAP_MINUTES", 10, 0),
+        ORACLE_LOOKBACK_HOURS=_int("ORACLE_LOOKBACK_HOURS", 24, 1, 24 * 14),
         ORACLE_MAX_ROWS=_int("ORACLE_MAX_ROWS", 5000, 1),
         ORACLE_SWEEP_DAYS=_int("ORACLE_SWEEP_DAYS", 3, 1),
         ORACLE_TIME_TOLERANCE_MINUTES=_int("ORACLE_TIME_TOLERANCE_MINUTES", 10, 0),
         ORACLE_BACKFILL_FROM=_env("ORACLE_BACKFILL_FROM", "2026-10-01 00:00:00"),  # type: ignore[arg-type]
         SITE_TIMEZONE=_env("SITE_TIMEZONE", "America/Phoenix"),  # type: ignore[arg-type]
-        ORACLE_INSERT_TIME_ZONE=_env("ORACLE_INSERT_TIME_ZONE", "Asia/Taipei"),  # type: ignore[arg-type]
-        ORACLE_RECTIME_ZONE=_env("ORACLE_RECTIME_ZONE", "America/Phoenix"),  # type: ignore[arg-type]
+        ORACLE_INSERT_TIME_ZONE=_env("ORACLE_INSERT_TIME_ZONE", "America/Phoenix"),  # type: ignore[arg-type]
         PORT=_int("PORT", 8000),
         STATIC_DIR=_env("STATIC_DIR"),
         DEV_AUTH=(_env("DEV_AUTH", "false") or "false").lower() == "true",

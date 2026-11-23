@@ -23,5 +23,5 @@ data:
   DEV_AUTH: "true"
   # The Admin passcode (ADMIN_PASSCODE) is a secret: it comes from the Secret gi-secrets, not from here.
   SITE_TIMEZONE: "America/Phoenix"
-  ORACLE_INSERT_TIME_ZONE: "Asia/Taipei"
-  ORACLE_RECTIME_ZONE: "America/Phoenix"
+  # INSERT_TIME (the scan time) is Phoenix local time. RECTIME is not used.
+  ORACLE_INSERT_TIME_ZONE: "America/Phoenix"

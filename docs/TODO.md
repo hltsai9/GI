@@ -25,14 +25,11 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 
 ## Check with the vendor / Oracle DBA
 
-- [x] **`INSERT_TIME` vs `RECTIME`** — `INSERT_TIME` = scan/issue time (Taipei), `RECTIME` = record entered (Phoenix); they can be on different days. → ORA-03, ORA-12
-- [x] **Delay between scan and record** — usually within about 15 hours. → catch-up sweep window 3 days
-- [x] **Check the 15 hours** — measured after converting to Phoenix time: delays are spread over single-digit hours up to 13–14 hours, so records really are entered up to ~15 hours after the scan. → ORA-12
-- [x] **Is `INSERT_TIME` really Taipei time?** — consistent with the delay check: if `INSERT_TIME` were Phoenix time, every converted delay would be 15 hours or more; if it were UTC, 8 hours or more. Delays of a few hours rule both out. → ORA-12
-- [x] **`RECTIME` earlier than `INSERT_TIME` (rare)** — seen about two months ago with gaps beyond −130 hours (over 5 days), not since. Assumed fixed; GI imports such rows and alerts the admin every time one appears. → ORA-13
-- [ ] **Where is `RECTIME` set** — by the database server when the row is inserted, or by the recording app/PC at each location? If by each location's PC, clock differences would explain both the out-of-order times across locations and the rare `RECTIME` before scan. → ORA-03, ORA-13
-- [x] **Column types** — `DATE` (the delay query returned plain numbers; `TIMESTAMP` columns would have returned intervals). To be certain: `SELECT column_name, data_type FROM all_tab_columns WHERE table_name = '<ISSUE_TABLE>' AND column_name IN ('INSERT_TIME','RECTIME')`. → ORA-12
-- [ ] **Index** — are there indexes on `(STATE, SUIT_LEVEL, RECTIME)` and `(STATE, INSERT_TIME)` in the issue table? If not, can they be added, or a view provided? → ORA-10
+- [x] **`INSERT_TIME` vs `RECTIME`** — answered 2026-11-23: `INSERT_TIME` = scan/issue time in **Phoenix time**; `RECTIME` is not used. (The earlier reading of `INSERT_TIME` as Taipei time is withdrawn.) → ORA-03, ORA-12
+- [x] **Delay between scan and record** — usually within about 15 hours. → 24-hour look-back, catch-up sweep window 3 days
+- [x] **`RECTIME` earlier than `INSERT_TIME`; where `RECTIME` is set** — no longer relevant: GI ignores `RECTIME`. The time check now only flags scans in the future. → ORA-13
+- [x] **Column types** — `DATE` (the delay query returned plain numbers; `TIMESTAMP` columns would have returned intervals). To be certain: `SELECT column_name, data_type FROM all_tab_columns WHERE table_name = '<ISSUE_TABLE>' AND column_name = 'INSERT_TIME'`. → ORA-12
+- [ ] **Index** — is there an index on `(STATE, INSERT_TIME)` in the issue table? If not, can one be added, or a view provided? → ORA-10
 - [x] **Cancellations in Oracle** — not needed (no cancellations). → ORA-06
 - [ ] **Late registration** — when a garment is issued with an unregistered barcode (GOWN / OTHER / OTHER), is that barcode registered in the suit master later? If yes, GI can move its earlier issues to the right size and color (DQ-08). If barcodes are never registered afterwards, DQ-08 is dropped. → DQ-08
 

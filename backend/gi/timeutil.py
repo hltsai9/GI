@@ -1,5 +1,5 @@
-"""Time zones. Oracle DATE columns have no zone: INSERT_TIME is Taipei time, RECTIME is Phoenix time
-(ORA-12). GI converts them explicitly and stores UTC."""
+"""Time zones. Oracle DATE columns have no zone: INSERT_TIME, the scan (= issue) time, is Phoenix local time
+(ORA-12; setting ORACLE_INSERT_TIME_ZONE). GI converts it explicitly and stores UTC; RECTIME is not used."""
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
@@ -59,10 +59,10 @@ def parse_iso(s: str) -> datetime:
     return d.astimezone(UTC)
 
 
-def issue_times(insert_time: str, rectime: str) -> tuple[datetime, datetime, str]:
+def issue_time(insert_time: str) -> tuple[datetime, str]:
+    """INSERT_TIME (naive, Oracle's zone) → (issued_at in UTC, the site day the issue counts on)."""
     issued_at = local_to_utc(insert_time, config.ORACLE_INSERT_TIME_ZONE)
-    recorded_at = local_to_utc(rectime, config.ORACLE_RECTIME_ZONE)
-    return issued_at, recorded_at, site_day(issued_at)
+    return issued_at, site_day(issued_at)
 
 
 def shift_naive(naive: str, minutes: int) -> str:

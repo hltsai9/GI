@@ -7,13 +7,29 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-23
 
+### INSERT_TIME is Phoenix time; RECTIME is no longer used
+- **Answered:** `INSERT_TIME` (the scan time = issue time) is in **Phoenix time**, not Taipei time. **Decision:** GI uses only `INSERT_TIME` and ignores `RECTIME` completely (URD ORA-03, ORA-12, ORA-13; TODO ticked).
+- **How the import finds new rows now** (ORA-03): each run reads every scan from the newest one already in GI **minus 24 hours** (setting `ORACLE_LOOKBACK_HOURS`, 1–336), so a record that reaches Oracle hours after its scan is still picked up. Rows already in GI are skipped as before (same barcode + `INSERT_TIME`). The **daily sweep** still re-reads the last 3 days and alerts you if it found anything the regular import missed (records more than 24 hours late).
+  - The per-location bookmarks (watermarks), the "discovery" query for new locations and the 10-minute overlap are gone; they were only needed because of `RECTIME`.
+- **Time check** (ORA-13): now only flags a scan time in the future (more than 10 minutes ahead). The "record before scan" check needed `RECTIME` and was removed.
+- **Days are counted by the Phoenix day of `INSERT_TIME`**, without any conversion from Taipei. Issues that were shown on the previous day before (because of the 15-hour Taipei difference) now land on the right day.
+- **CSV export:** the query no longer needs `RECTIME` (updated in both deployment guides). Old exports that still have a `RECTIME` column work; the column is ignored.
+- **Data quality page:** the unregistered-barcode list has one "Last scan (INSERT_TIME)" column.
+- **Database set-up consolidated:** the ten step-by-step database migrations were merged into two files (`001_schema.sql`, `002_reference_data.sql`). **You must start from an empty database:** a database from an earlier version is refused at start-up with the message "This database was set up by an older GI version…".
+- **What to do before deploying this version:**
+  1. Drop and re-create the `gi` database, empty (`DROP DATABASE gi; CREATE DATABASE gi CHARACTER SET utf8mb4;` — the `gi` user's grants on `gi.*` stay).
+  2. In the ConfigMap, set `ORACLE_INSERT_TIME_ZONE: "America/Phoenix"` (or delete the line; Phoenix is the default) and remove `ORACLE_RECTIME_ZONE` and `ORACLE_OVERLAP_MINUTES` if they are there. Optional new setting: `ORACLE_LOOKBACK_HOURS: "24"`.
+  3. Run the pipeline. GI sets up the tables by itself.
+  4. Enter the settings again (Oracle values, minimums, starting counts) and upload the CSV exports again.
+- Tested here: 61 backend tests pass (rewritten import tests, plus a test that an old database is refused). The demo data was regenerated.
+
 ### Faster with tens of thousands of issues
 - **Problem reported:** with about 40,000 issue rows (one week), the Daily grid and the data quality page loaded slowly.
 - **Measured here** on a test database shaped like that week (39,000 issues, 20,000 different barcodes, 2,200 unregistered), then improved:
   - **Data quality:** 282 ms → 74 ms, and the response 247 KB → 44 KB.
     - The conflicting-barcodes check no longer re-groups every issue on each visit (219 ms → 15 ms); it reads one index and fetches details only for the barcodes it finds.
     - The page now gets the 200 most issued unregistered barcodes instead of all of them; **Find a barcode** searches the server, so any barcode can still be found. The CSV downloads still have everything.
-  - **Database indexes** for the day and barcode lookups used by the Daily grid, Trends, Stock and Data quality (migration `010`, automatic; it takes a few seconds on start-up). Stock summary 96 ms → 36 ms, issued per day 77 ms → 27 ms.
+  - **Database indexes** for the day and barcode lookups used by the Daily grid, Trends, Stock and Data quality (now part of the consolidated schema, see below). Stock summary 96 ms → 36 ms, issued per day 77 ms → 27 ms.
   - **First page load** 1.0 s → 0.5 s: the browser now fetches all script files at once.
   - In the browser, on the test database: Data quality opens in 0.3 s and the Daily grid in 0.13 s.
 - **To find what is still slow on the company site:** every response now carries its server time (`Server-Timing`, visible in the browser's developer tools, Network tab). Any request over 1 second is written to the pod log as `slow request: GET /api/… took N s`; look for it with `kubectl -n gi-test logs deploy/gi -c gi | grep "slow request"`.

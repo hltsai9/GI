@@ -16,7 +16,7 @@ Web app with phone and laptop layouts (chosen by device type) that replaces manu
 
 ```
 backend/    Python API (FastAPI), MariaDB, Oracle issue import
-  gi/         API, stock ledger, import (classify, per-location watermarks, sweep), mock Oracle data
+  gi/         API, stock ledger, import (classify, look-back by INSERT_TIME, sweep), mock Oracle data
   db/         SQL migrations and the development seed
   tests/      pytest tests (run against a separate gi_test database)
 frontend/   the web page: plain HTML, CSS and JavaScript modules, no build step;
@@ -55,7 +55,7 @@ In development there is no SSO yet: choose the user (floor staff, lead, admin, v
 
 ### Mock Oracle data
 
-With `ISSUE_SOURCE=mock` the backend generates rows that behave like the real issue table: `INSERT_TIME` in Taipei time and `RECTIME` in Phoenix time, records entered in batches up to ~15 hours after the scan, `RECTIME` ordered only within a location, about 3 % unregistered barcodes reported as GOWN / OTHER / OTHER, an unmapped size code (`5XL`), an ignored `TEST` location, other `STATE`s, and now and then a row with a bad clock. Rows scanned "in the future" become visible as time passes, so a running server keeps importing new issues. The rows for a given day are always the same, so several servers import identical data.
+With `ISSUE_SOURCE=mock` the backend generates rows that behave like the real issue table: `INSERT_TIME` (scan time) in Phoenix time, records reaching the database in batches up to ~15 hours after the scan (and now and then ~30 hours, beyond the import's look-back, for the daily sweep to find), about 3 % unregistered barcodes reported as GOWN / OTHER / OTHER, an unmapped size code (`5XL`), an ignored `TEST` location, and other `STATE`s. Rows scanned "in the future" become visible as time passes, so a running server keeps importing new issues. The rows for a given day are always the same, so several servers import identical data.
 
 The rows are generated in memory (45 days back, 2 ahead, regenerated each day). To look at them, write them to files: `python -m gi.mock_oracle --out mock-oracle-data` (the server then reads `MOCK_ORACLE_DIR/issues.ndjson` instead).
 

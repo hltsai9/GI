@@ -1,5 +1,6 @@
 -- GI schema (MariaDB 10.11+ / 11.4 LTS). All DATETIME columns hold UTC unless noted.
--- See docs/BUILD_PLAN.md §2 for the design.
+-- See docs/BUILD_PLAN.md §2 for the design. Consolidated on 2026-11-23 (earlier migrations 003–010 merged in;
+-- an older database must be dropped and re-created, see docs/RELEASE_NOTES.md).
 
 -- ---------------------------------------------------------------- reference data
 CREATE TABLE garment_type (
@@ -7,6 +8,7 @@ CREATE TABLE garment_type (
   code       VARCHAR(32)  NOT NULL UNIQUE,
   name       VARCHAR(64)  NOT NULL,
   plural     VARCHAR(64)  NOT NULL,
+  unit       VARCHAR(16)  NOT NULL DEFAULT 'pieces',   -- how it is counted: pieces; boots in pairs
   icon       VARCHAR(64)  NULL,
   sort       INT          NOT NULL DEFAULT 0,
   active     BOOLEAN      NOT NULL DEFAULT TRUE,
@@ -160,25 +162,23 @@ CREATE TABLE dq_pattern (
   UNIQUE KEY uq_dq (suit_type, suit_color, suit_size)
 ) ENGINE=InnoDB;
 
-CREATE TABLE sync_watermark (
-  suit_level    VARCHAR(64) PRIMARY KEY,
-  last_rectime  DATETIME NOT NULL,                      -- raw RECTIME (Phoenix local time)
-  updated_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
-) ENGINE=InnoDB;
-
 CREATE TABLE sync_run (
   id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  kind                    ENUM('poll','sweep','backfill') NOT NULL,
+  kind                    ENUM('poll','sweep','backfill','upload') NOT NULL,
+  note                    VARCHAR(255) NULL,            -- e.g. the uploaded file's name
   started_at              DATETIME(6) NOT NULL,
   finished_at             DATETIME(6) NULL,
   rows_read               INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_total              INT UNSIGNED NULL,            -- CSV upload: issue rows in the file (progress)
+  rows_other_state        INT UNSIGNED NULL,            -- CSV upload: rows skipped for another STATE
   rows_new                INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_conflicts          INT UNSIGNED NOT NULL DEFAULT 0, -- same scan as a stored issue, other values
   rows_applied            INT UNSIGNED NOT NULL DEFAULT 0,
   rows_held               INT UNSIGNED NOT NULL DEFAULT 0,
   rows_ignored            INT UNSIGNED NOT NULL DEFAULT 0,
   rows_before_start       INT UNSIGNED NOT NULL DEFAULT 0,
   rows_incomplete         INT UNSIGNED NOT NULL DEFAULT 0,
-  rows_time_check_failed  INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_time_check_failed  INT UNSIGNED NOT NULL DEFAULT 0, -- scans in the future (ORA-13)
   first_issued_day        DATE NULL,
   last_issued_day         DATE NULL,
   status                  ENUM('running','ok','failed') NOT NULL DEFAULT 'running',
@@ -187,30 +187,59 @@ CREATE TABLE sync_run (
 
 CREATE TABLE issue_import (
   id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  suit_barcode   VARCHAR(64) NOT NULL,
-  insert_time    DATETIME NOT NULL,                     -- raw Oracle DATE, Taipei local time
-  rectime        DATETIME NOT NULL,                     -- raw Oracle DATE, Phoenix local time
+  -- exactly as in Oracle (case, leading and inner spaces); trailing padding removed
+  suit_barcode   VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,
+  insert_time    DATETIME NOT NULL,                     -- raw Oracle DATE: the scan (= issue) time, Phoenix local time
   suit_type      VARCHAR(64) NOT NULL,
   suit_color     VARCHAR(64) NOT NULL,
   suit_size      VARCHAR(64) NOT NULL,
   suit_level     VARCHAR(64) NOT NULL,
   issued_at      DATETIME(6) NOT NULL,                  -- INSERT_TIME in UTC
-  recorded_at    DATETIME(6) NOT NULL,                  -- RECTIME in UTC
-  issued_day     DATE NOT NULL,                         -- site-time day of issued_at
+  issued_day     DATE NOT NULL,                         -- site-time (Phoenix) day of the scan
   location_id    BIGINT UNSIGNED NULL,
   stock_item_id  BIGINT UNSIGNED NULL,
   quality        ENUM('complete','incomplete','recovered') NOT NULL,
   status         ENUM('applied','held_unmapped','before_start','ignored') NOT NULL,
   sync_run_id    BIGINT UNSIGNED NULL,
   imported_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  UNIQUE KEY uq_issue (suit_barcode, insert_time),
-  KEY ix_issue_day (issued_day),
+  UNIQUE KEY uq_issue (suit_barcode, insert_time),      -- ORA-02: each scan once
+  KEY ix_issue_insert_time (insert_time),               -- the import resumes from the newest scan
   KEY ix_issue_at (issued_at),
   KEY ix_issue_status (status),
-  KEY ix_issue_barcode (suit_barcode),
+  -- each index below holds every column its query needs (Daily grid, Trends, Stock, Data quality)
+  KEY ix_issue_day_status_item (issued_day, status, stock_item_id),
+  KEY ix_issue_barcode_values (suit_barcode, suit_type, suit_color, suit_size),
+  KEY ix_issue_quality_barcode (quality, suit_barcode, issued_at, suit_level),
   CONSTRAINT fk_ii_loc  FOREIGN KEY (location_id)   REFERENCES location(id),
   CONSTRAINT fk_ii_item FOREIGN KEY (stock_item_id) REFERENCES stock_item(id),
   CONSTRAINT fk_ii_run  FOREIGN KEY (sync_run_id)   REFERENCES sync_run(id)
+) ENGINE=InnoDB;
+
+-- A row with the same SUIT_BARCODE and INSERT_TIME as an issue already imported is the same scan and is not
+-- counted again (ORA-02). If its type, color, size or level differ, it is recorded here for the data quality report.
+CREATE TABLE issue_import_conflict (
+  id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+  issue_import_id  BIGINT UNSIGNED NOT NULL,          -- the row that was kept (and counted)
+  suit_type        VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,
+  suit_color       VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,
+  suit_size        VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,
+  suit_level       VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,
+  times            INT UNSIGNED NOT NULL DEFAULT 1,   -- how often this version was seen (uploads, re-reads)
+  sync_run_id      BIGINT UNSIGNED NULL,
+  first_seen_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  UNIQUE KEY uq_conflict (issue_import_id, suit_type, suit_color, suit_size, suit_level),
+  CONSTRAINT fk_conflict_issue FOREIGN KEY (issue_import_id) REFERENCES issue_import(id) ON DELETE CASCADE,
+  CONSTRAINT fk_conflict_run   FOREIGN KEY (sync_run_id)     REFERENCES sync_run(id)
+) ENGINE=InnoDB;
+
+-- Unregistered barcodes the lead or admin chose to leave out of the issued numbers, one by one (dirty data).
+-- Their issues get status 'ignored' (stock movements reversed); removing the row counts them again.
+CREATE TABLE excluded_barcode (
+  suit_barcode  VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL PRIMARY KEY,
+  note          VARCHAR(255) NULL,
+  excluded_by   BIGINT UNSIGNED NULL,
+  excluded_at   DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+  CONSTRAINT fk_excl_user FOREIGN KEY (excluded_by) REFERENCES app_user(id)
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------- stock history (append-only)
@@ -231,7 +260,7 @@ CREATE TABLE ledger_entry (
   stock_correction_id     BIGINT UNSIGNED NULL,
   written_at              DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   KEY ix_le_item_at (stock_item_id, at),
-  KEY ix_le_day (day),
+  KEY ix_le_day_item (day, stock_item_id, delta),
   CONSTRAINT ck_le_user CHECK ((source = 'user') = (user_id IS NOT NULL)),
   CONSTRAINT ck_le_after CHECK (qty_after = qty_before + delta),
   CONSTRAINT ck_le_cause CHECK (CASE kind
@@ -266,7 +295,7 @@ CREATE TABLE audit_log (
 CREATE TABLE admin_alert (
   id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   at               DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-  kind             ENUM('time_check','sweep_found_rows','import_stale','import_failed') NOT NULL,
+  kind             ENUM('time_check','sweep_found_rows','import_stale','import_failed','data_conflict') NOT NULL,
   message          VARCHAR(500) NOT NULL,
   details          JSON NULL,
   acknowledged_by  BIGINT UNSIGNED NULL,

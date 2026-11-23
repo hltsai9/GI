@@ -1,1 +1,1 @@
-{"id":84,"on_hand":28,"min_qty":20,"garment":"Hood","color":"White","size":"2XLG","location":"P2","status":"close_to_min","issuedToday":0,"lastDelivery":{"at":"2026-11-22T13:40:00.000Z","qty":5}}
+{"id":84,"on_hand":27,"min_qty":20,"garment":"Hood","color":"White","size":"2XLG","location":"P2","status":"close_to_min","issuedToday":1,"lastDelivery":{"at":"2026-11-22T13:40:00.000Z","qty":5}}

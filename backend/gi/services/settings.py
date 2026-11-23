@@ -169,9 +169,8 @@ def set_mapping(map_id: int, inp: MappingInput, user_id: int) -> dict:
 # ---- data quality (DQ-05)
 def unregistered_barcodes(conn: Connection, limit: int | None = None, find: str | None = None) -> list[dict]:
     """One line per unregistered barcode, most issued first (`limit`: only the first ones; `find`: barcodes
-    containing that text). first_seen / last_seen are scan times (INSERT_TIME converted to UTC; the page shows
-    them in Phoenix time); last_insert_time is the latest INSERT_TIME exactly as in Oracle (Taipei time), to
-    search for in an Oracle export."""
+    containing that text). first_seen / last_seen are scan times in UTC; last_insert_time is the latest INSERT_TIME
+    exactly as in Oracle (Phoenix local time), to search for in an Oracle export."""
     where, params = "ii.quality = 'incomplete'", []
     if find:
         where += " AND ii.suit_barcode LIKE ?"
