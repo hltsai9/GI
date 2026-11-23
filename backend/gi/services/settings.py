@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy.engine import Connection
 
 from ..auth import HttpError
-from ..db import execute, one, rows, with_tx
+from ..db import execute, marks, one, rows, with_tx
 from ..importing.importer import reclassify
 from ..timeutil import iso, now_utc, to_db
 
@@ -167,64 +167,96 @@ def set_mapping(map_id: int, inp: MappingInput, user_id: int) -> dict:
 
 
 # ---- data quality (DQ-05)
-def unregistered_barcodes(conn: Connection) -> list[dict]:
-    """One line per unregistered barcode. first_seen / last_seen are scan times (INSERT_TIME converted to UTC; the
-    page shows them in Phoenix time); last_insert_time is the latest INSERT_TIME exactly as in Oracle (Taipei
-    time), to search for in an Oracle export."""
-    rs = rows(conn, """SELECT ii.suit_barcode AS barcode, COUNT(*) AS times, MIN(ii.issued_at) AS first_seen, MAX(ii.issued_at) AS last_seen,
-                              MAX(ii.insert_time) AS last_insert_time,
-                              GROUP_CONCAT(DISTINCT ii.suit_level ORDER BY ii.suit_level) AS locations,
-                              MAX(e.suit_barcode IS NOT NULL) AS excluded, MAX(e.note) AS excluded_note
-                         FROM issue_import ii LEFT JOIN excluded_barcode e ON e.suit_barcode = ii.suit_barcode
-                        WHERE ii.quality = 'incomplete' GROUP BY ii.suit_barcode ORDER BY times DESC, barcode""")
+def unregistered_barcodes(conn: Connection, limit: int | None = None, find: str | None = None) -> list[dict]:
+    """One line per unregistered barcode, most issued first (`limit`: only the first ones; `find`: barcodes
+    containing that text). first_seen / last_seen are scan times (INSERT_TIME converted to UTC; the page shows
+    them in Phoenix time); last_insert_time is the latest INSERT_TIME exactly as in Oracle (Taipei time), to
+    search for in an Oracle export."""
+    where, params = "ii.quality = 'incomplete'", []
+    if find:
+        where += " AND ii.suit_barcode LIKE ?"
+        params.append("%" + find.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%")
+    rs = rows(conn, f"""SELECT ii.suit_barcode AS barcode, COUNT(*) AS times, MIN(ii.issued_at) AS first_seen, MAX(ii.issued_at) AS last_seen,
+                               MAX(ii.insert_time) AS last_insert_time,
+                               GROUP_CONCAT(DISTINCT ii.suit_level ORDER BY ii.suit_level) AS locations,
+                               MAX(e.suit_barcode IS NOT NULL) AS excluded, MAX(e.note) AS excluded_note
+                          FROM issue_import ii LEFT JOIN excluded_barcode e ON e.suit_barcode = ii.suit_barcode
+                         WHERE {where} GROUP BY ii.suit_barcode ORDER BY times DESC, barcode {'LIMIT ' + str(int(limit)) if limit else ''}""", params)
     return [{**r, "excluded": bool(r["excluded"]), "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
              "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S") if r["last_insert_time"] else None} for r in rs]
 
 
-def conflicting_barcodes(conn: Connection) -> list[dict]:
+def _conflict_candidates(conn: Connection) -> list[str]:
+    """Barcodes seen with more than one type / color / size: from the issues themselves (read from the
+    ix_issue_barcode_values index only) and from rows of the same scan that were recorded as conflicts."""
+    found = {r["b"] for r in rows(conn, """SELECT suit_barcode AS b FROM issue_import GROUP BY suit_barcode
+                                            HAVING COUNT(DISTINCT BINARY suit_type, BINARY suit_color, BINARY suit_size) > 1""")}
+    found |= {r["b"] for r in rows(conn, """SELECT DISTINCT ii.suit_barcode AS b FROM issue_import_conflict k JOIN issue_import ii ON ii.id = k.issue_import_id
+                                             WHERE BINARY k.suit_type <> BINARY ii.suit_type OR BINARY k.suit_color <> BINARY ii.suit_color
+                                                OR BINARY k.suit_size <> BINARY ii.suit_size""")}
+    return sorted(found)
+
+
+def conflicting_barcodes(conn: Connection, limit: int | None = None) -> list[dict]:
     """Barcodes seen with more than one SUIT_TYPE / SUIT_COLOR / SUIT_SIZE combination. A barcode means one
     garment, so these show suit master problems (a barcode re-used or re-labelled). Includes rows that were not
     counted because the same barcode and INSERT_TIME was already imported with other values (same scan,
     issue_import_conflict; "notCounted"). Unregistered rows (GOWN / OTHER / OTHER) are included: a barcode
     that is sometimes unregistered and sometimes not shows a registration that came later. Values are compared
-    exactly (case and spaces)."""
-    seen = """SELECT ii.suit_barcode, ii.suit_type, ii.suit_color, ii.suit_size, ii.suit_level, ii.quality, ii.insert_time,
-                     ii.issued_at, 1 AS times, 0 AS not_counted FROM issue_import ii
-              UNION ALL
-              SELECT ii.suit_barcode, k.suit_type, k.suit_color, k.suit_size, k.suit_level,
-                     IF((k.suit_type, k.suit_color, k.suit_size) IN (SELECT suit_type, suit_color, suit_size FROM dq_pattern), 'incomplete', 'complete'),
-                     ii.insert_time, ii.issued_at, k.times, 1
-                FROM issue_import_conflict k JOIN issue_import ii ON ii.id = k.issue_import_id"""
-    rs = rows(conn, f"""SELECT s.suit_barcode AS barcode, s.suit_type, s.suit_color, s.suit_size, MAX(s.quality) AS quality,
-                              SUM(s.times) AS times, MAX(s.not_counted) AS not_counted, MIN(s.not_counted) AS all_not_counted,
-                              MIN(s.insert_time) AS first_insert_time, MAX(s.insert_time) AS last_insert_time,
-                              MIN(s.issued_at) AS first_seen, MAX(s.issued_at) AS last_seen,
-                              GROUP_CONCAT(DISTINCT s.suit_level ORDER BY s.suit_level) AS locations
-                         FROM ({seen}) s
-                         JOIN (SELECT suit_barcode FROM ({seen}) a GROUP BY suit_barcode
-                                HAVING COUNT(DISTINCT BINARY suit_type, BINARY suit_color, BINARY suit_size) > 1) x
-                           ON x.suit_barcode = s.suit_barcode
-                        GROUP BY s.suit_barcode, BINARY s.suit_type, BINARY s.suit_color, BINARY s.suit_size
-                        ORDER BY s.suit_barcode, last_insert_time, not_counted""")
+    exactly (case and spaces). The details are read only for the candidate barcodes, so the cost stays small
+    however many issues there are. `limit`: only the barcodes with the most issues."""
     out: dict[str, dict] = {}
-    for r in rs:
-        b = out.setdefault(r["barcode"], {"barcode": r["barcode"], "times": 0, "combinations": []})
-        b["times"] += r["times"]
-        b["combinations"].append({
-            "type": r["suit_type"], "color": r["suit_color"], "size": r["suit_size"], "unregistered": r["quality"] == "incomplete",
-            # True when every row of this version had the same barcode and INSERT_TIME as another version (not counted).
-            "notCounted": bool(r["all_not_counted"]),
-            "times": r["times"], "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
-            "first_insert_time": r["first_insert_time"].strftime("%Y-%m-%d %H:%M:%S"),
-            "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S"), "locations": r["locations"]})
-    return sorted(out.values(), key=lambda b: (-b["times"], b["barcode"]))
+    cands = _conflict_candidates(conn)
+    for i in range(0, len(cands), 500):
+        chunk = cands[i:i + 500]
+        ph = marks(len(chunk))
+        seen = f"""SELECT ii.suit_barcode, ii.suit_type, ii.suit_color, ii.suit_size, ii.suit_level, ii.quality, ii.insert_time,
+                          ii.issued_at, 1 AS times, 0 AS not_counted FROM issue_import ii WHERE ii.suit_barcode IN ({ph})
+                   UNION ALL
+                   SELECT ii.suit_barcode, k.suit_type, k.suit_color, k.suit_size, k.suit_level,
+                          IF((k.suit_type, k.suit_color, k.suit_size) IN (SELECT suit_type, suit_color, suit_size FROM dq_pattern), 'incomplete', 'complete'),
+                          ii.insert_time, ii.issued_at, k.times, 1
+                     FROM issue_import_conflict k JOIN issue_import ii ON ii.id = k.issue_import_id WHERE ii.suit_barcode IN ({ph})"""
+        rs = rows(conn, f"""SELECT s.suit_barcode AS barcode, s.suit_type, s.suit_color, s.suit_size, MAX(s.quality) AS quality,
+                                   SUM(s.times) AS times, MAX(s.not_counted) AS not_counted, MIN(s.not_counted) AS all_not_counted,
+                                   MIN(s.insert_time) AS first_insert_time, MAX(s.insert_time) AS last_insert_time,
+                                   MIN(s.issued_at) AS first_seen, MAX(s.issued_at) AS last_seen,
+                                   GROUP_CONCAT(DISTINCT s.suit_level ORDER BY s.suit_level) AS locations
+                              FROM ({seen}) s
+                             GROUP BY s.suit_barcode, BINARY s.suit_type, BINARY s.suit_color, BINARY s.suit_size
+                             ORDER BY s.suit_barcode, last_insert_time, not_counted""", chunk + chunk)
+        for r in rs:
+            b = out.setdefault(r["barcode"], {"barcode": r["barcode"], "times": 0, "combinations": []})
+            b["times"] += int(r["times"])
+            b["combinations"].append({
+                "type": r["suit_type"], "color": r["suit_color"], "size": r["suit_size"], "unregistered": r["quality"] == "incomplete",
+                # True when every row of this version had the same barcode and INSERT_TIME as another version (not counted).
+                "notCounted": bool(r["all_not_counted"]),
+                "times": int(r["times"]), "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
+                "first_insert_time": r["first_insert_time"].strftime("%Y-%m-%d %H:%M:%S"),
+                "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S"), "locations": r["locations"]})
+    # A barcode found only through a level difference has a single type/color/size: not a conflict here.
+    result = sorted((b for b in out.values() if len(b["combinations"]) > 1), key=lambda b: (-b["times"], b["barcode"]))
+    return result[:limit] if limit else result
+
+
+UNREGISTERED_SHOWN = 200
+CONFLICTS_SHOWN = 100
 
 
 def data_quality(conn: Connection, days: int) -> dict:
+    """The data quality page. The barcode lists hold the most frequent ones only (the page shows 50 and finds
+    others with /api/data-quality/unregistered?find=); the CSV downloads have all of them."""
     per_day = rows(conn, """SELECT issued_day AS day, l.code AS location, SUM(quality = 'incomplete') AS incomplete, COUNT(*) AS total
                               FROM issue_import ii LEFT JOIN location l ON l.id = ii.location_id
                              WHERE issued_day >= CURDATE() - INTERVAL ? DAY AND status <> 'ignored'
                              GROUP BY issued_day, l.code ORDER BY issued_day""", [days])
-    return {"perDay": [{**r, "day": r["day"].isoformat()} for r in per_day], "unregisteredBarcodes": unregistered_barcodes(conn),
-            "conflictingBarcodes": conflicting_barcodes(conn),
+    totals = one(conn, """SELECT COUNT(DISTINCT ii.suit_barcode) AS n, COUNT(DISTINCT e.suit_barcode) AS excluded
+                            FROM issue_import ii LEFT JOIN excluded_barcode e ON e.suit_barcode = ii.suit_barcode
+                           WHERE ii.quality = 'incomplete'""") or {"n": 0, "excluded": 0}
+    conflicts = conflicting_barcodes(conn)
+    return {"perDay": [{**r, "day": r["day"].isoformat()} for r in per_day],
+            "unregisteredBarcodes": unregistered_barcodes(conn, UNREGISTERED_SHOWN),
+            "unregisteredTotal": totals["n"], "unregisteredExcluded": totals["excluded"],
+            "conflictingBarcodes": conflicts[:CONFLICTS_SHOWN], "conflictingTotal": len(conflicts),
             "patterns": rows(conn, "SELECT id, suit_type, suit_color, suit_size, active FROM dq_pattern ORDER BY id")}

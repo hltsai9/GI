@@ -169,3 +169,16 @@ def test_trends_split_by_location():
         assert f["byLocation"]["P1"]["issued"] == 5 and f["issued"] == 5
         b = trends.breakdown(c, 7, "issued", NOW)
         assert sum(x["byLocation"]["P1"] for x in b["bySize"]) == 5
+
+
+def test_find_unregistered_barcodes_and_timing_header():
+    setup_rows()
+    from gi.app import build_app
+    c = TestClient(build_app())
+    h = {"x-dev-user": "dev-lead"}
+    r = c.get("/api/data-quality/unregistered?find=X  1", headers=h)
+    assert [b["barcode"] for b in r.json()] == [" X  12", "X  12"]          # case and spaces as stored
+    assert c.get("/api/data-quality/unregistered?find=%25", headers=h).json() == []   # % is searched literally
+    assert r.headers["server-timing"].startswith("app;dur=")
+    dq = c.get("/api/data-quality?days=30", headers=h).json()
+    assert dq["unregisteredTotal"] == 3 and dq["conflictingTotal"] == 0

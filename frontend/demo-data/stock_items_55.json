@@ -1,1 +1,1 @@
-{"id":55,"on_hand":8,"min_qty":4,"garment":"Gown","color":"Black","size":"XLG","location":"P1","status":"plenty","issuedToday":2,"lastDelivery":{"at":"2026-11-19T13:40:00.000Z","qty":5}}
+{"id":55,"on_hand":10,"min_qty":4,"garment":"Gown","color":"Black","size":"XLG","location":"P1","status":"plenty","issuedToday":2,"lastDelivery":{"at":"2026-11-22T13:40:00.000Z","qty":5}}

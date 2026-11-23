@@ -1,1 +1,1 @@
-{"id":86,"on_hand":4,"min_qty":4,"garment":"Boots","color":"Black","size":"2XLG","location":"P2","status":"close_to_min","issuedToday":1,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":5}}
+{"id":86,"on_hand":2,"min_qty":4,"garment":"Boots","color":"Black","size":"2XLG","location":"P2","status":"below_min","issuedToday":0,"lastDelivery":{"at":"2026-11-18T13:40:00.000Z","qty":5}}

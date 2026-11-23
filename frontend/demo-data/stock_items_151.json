@@ -1,1 +1,1 @@
-{"id":151,"on_hand":2,"min_qty":2,"garment":"Gown","color":"Blue","size":"4XLG","location":"P2","status":"close_to_min","issuedToday":1,"lastDelivery":{"at":"2026-11-10T13:40:00.000Z","qty":5}}
+{"id":151,"on_hand":-113,"min_qty":null,"garment":"Unregistered","color":"Unregistered","size":"Unregistered","location":"P2","status":"negative","issuedToday":1,"lastDelivery":null}

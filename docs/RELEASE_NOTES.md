@@ -5,6 +5,22 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ---
 
+## 2026-11-23
+
+### Faster with tens of thousands of issues
+- **Problem reported:** with about 40,000 issue rows (one week), the Daily grid and the data quality page loaded slowly.
+- **Measured here** on a test database shaped like that week (39,000 issues, 20,000 different barcodes, 2,200 unregistered), then improved:
+  - **Data quality:** 282 ms → 74 ms, and the response 247 KB → 44 KB.
+    - The conflicting-barcodes check no longer re-groups every issue on each visit (219 ms → 15 ms); it reads one index and fetches details only for the barcodes it finds.
+    - The page now gets the 200 most issued unregistered barcodes instead of all of them; **Find a barcode** searches the server, so any barcode can still be found. The CSV downloads still have everything.
+  - **Database indexes** for the day and barcode lookups used by the Daily grid, Trends, Stock and Data quality (migration `010`, automatic; it takes a few seconds on start-up). Stock summary 96 ms → 36 ms, issued per day 77 ms → 27 ms.
+  - **First page load** 1.0 s → 0.5 s: the browser now fetches all script files at once.
+  - In the browser, on the test database: Data quality opens in 0.3 s and the Daily grid in 0.13 s.
+- **To find what is still slow on the company site:** every response now carries its server time (`Server-Timing`, visible in the browser's developer tools, Network tab). Any request over 1 second is written to the pod log as `slow request: GET /api/… took N s`; look for it with `kubectl -n gi-test logs deploy/gi -c gi | grep "slow request"`.
+  - If the logged times are small but pages are still slow, the delay is outside GI (network, Ingress).
+  - If they are large, the pod may be short of CPU (the example manifest asks for 0.1 CPU; a CPU limit in the company template would slow everything down) or the database server is far away.
+- Tested here: 60 backend tests pass (1 new), plus a check that every script file is preloaded.
+
 ## 2026-11-20
 
 ### Trends: delivered and issued per size and color, one day at a time

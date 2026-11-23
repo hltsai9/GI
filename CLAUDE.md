@@ -20,4 +20,5 @@ questions), add it to `docs/RELEASE_NOTES.md`:
   `requirements.txt`), and a no-build web page (`frontend/`: plain HTML, CSS and JavaScript modules).
   Do not add Node.js, npm or a frontend build step; the company CI builds the image from a Python base image.
 - Tests: `cd backend && python -m pytest` (needs the `gi_test` MariaDB database);
-  `node --test frontend/tests/device.test.mjs` is an optional check.
+  `node --test frontend/tests/*.test.mjs` is an optional check. A new file in `frontend/js` must also be
+  added to the `modulepreload` list in `frontend/index.html` (a test checks it).
