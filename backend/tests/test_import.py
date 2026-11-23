@@ -47,7 +47,7 @@ def violations():
 
 
 def test_imports_each_row_once():
-    data = [row("2026-11-20 08:00:00", "2026-11-19 18:00:00", SUIT_BARCODE="G-1")]
+    data = [row("2026-11-20 08:00:00", SUIT_BARCODE="G-1")]
     assert poll(src(data), NOW)["new"] == 1
     assert poll(src(data), NOW)["new"] == 0
     assert sweep(src(data), NOW)["new"] == 0
@@ -56,8 +56,8 @@ def test_imports_each_row_once():
 
 
 def test_starting_count_reclassifies_issues_scanned_after_it():
-    data = [row("2026-11-20 20:00:00", "2026-11-20 05:30:00", SUIT_BARCODE="G-early"),  # 05:00 PHX
-            row("2026-11-20 22:00:00", "2026-11-20 07:30:00", SUIT_BARCODE="G-late")]  # 07:00 PHX
+    # Count finished 06:00 Phoenix (13:00 UTC); issues scanned at 05:00 and 07:00 Phoenix.
+    data = [row("2026-11-20 05:00:00", SUIT_BARCODE="G-early"), row("2026-11-20 07:00:00", SUIT_BARCODE="G-late")]
     poll(src(data), NOW)
     assert status("G-early")["status"] == "before_start"
     assert status("G-late")["status"] == "before_start"
@@ -68,36 +68,33 @@ def test_starting_count_reclassifies_issues_scanned_after_it():
     assert violations() == []
 
 
-def test_watermark_per_location():
+def test_finds_records_entered_late_within_the_look_back():
     start_count("P1", "2026-11-19T00:00:00Z")
-    start_count("P2", "2026-11-19T00:00:00Z")
-    data = [row("2026-11-21 00:00:00", "2026-11-20 10:30:00", SUIT_BARCODE="G-f1"),
-            row("2026-11-20 23:00:00", "2026-11-20 10:05:00", SUIT_BARCODE="G-f2", SUIT_LEVEL="FAB2", VISIBLE_AT="2026-11-20 10:50:00"),
-            row("2026-11-20 20:00:00", "2026-11-20 06:00:00", SUIT_BARCODE="G-f2old", SUIT_LEVEL="FAB2")]
-    poll(src(data, utc("2026-11-20T17:40:00Z")), NOW)  # 10:40 PHX: f2 not visible yet
-    assert not exists("G-f2")
-    poll(src(data, utc("2026-11-20T18:00:00Z")), NOW)
-    assert status("G-f2")["status"] == "applied"
+    on_time = row("2026-11-20 09:00:00", SUIT_BARCODE="G-on-time")
+    late = row("2026-11-20 08:00:00", SUIT_BARCODE="G-late", VISIBLE_AT="2026-11-20 20:00:00")  # entered 12 h after the scan
+    poll(src([on_time, late], utc("2026-11-20T17:00:00Z")), NOW)        # 10:00 Phoenix: the late one is not there yet
+    assert exists("G-on-time") and not exists("G-late")
+    poll(src([on_time, late], utc("2026-11-21T04:00:00Z")), NOW)        # 21:00 Phoenix
+    assert status("G-late")["status"] == "applied"
+    assert str(status("G-late")["issued_day"]) == "2026-11-20"           # counted on the day of the scan
 
 
-def test_pages_through_rows_sharing_a_rectime():
+def test_pages_through_rows_sharing_an_insert_time():
     start_count("P1", "2026-11-19T00:00:00Z")
     config.ORACLE_MAX_ROWS = 2
-    data = [row("2026-11-21 00:00:00", "2026-11-20 10:00:00", SUIT_BARCODE=f"G-{b}") for b in "ABCDE"]
+    data = [row("2026-11-20 10:00:00", SUIT_BARCODE=f"G-{b}") for b in "ABCDE"]
     assert poll(src(data), NOW)["new"] == 5
 
 
-def test_late_record_counts_on_the_scan_day():
+def test_counts_on_the_phoenix_day_of_insert_time():
     start_count("P1", "2026-11-18T00:00:00Z")
-    # Scan 23:50 on 19 Nov Phoenix (= 14:50 on 20 Nov Taipei), entered 14:40 on 20 Nov Phoenix
-    t = utc("2026-11-20T21:41:00Z")
-    poll(src([row("2026-11-20 14:50:00", "2026-11-20 14:40:00", SUIT_BARCODE="G-late")], t), t)
-    assert str(status("G-late")["issued_day"]) == "2026-11-19"
+    poll(src([row("2026-11-19 23:50:00", SUIT_BARCODE="G-night")]), NOW)
+    assert str(status("G-night")["issued_day"]) == "2026-11-19"
 
 
 def test_holds_unmapped_values_until_mapped():
     start_count("P1", "2026-11-19T00:00:00Z")
-    poll(src([row("2026-11-21 00:00:00", "2026-11-20 09:30:00", SUIT_BARCODE="G-5xl", SUIT_SIZE="5XL")]), NOW)
+    poll(src([row("2026-11-20 09:30:00", SUIT_BARCODE="G-5xl", SUIT_SIZE="5XL")]), NOW)
     assert status("G-5xl")["status"] == "held_unmapped"
     with connect() as c:
         m = one(c, "SELECT id FROM oracle_value_map WHERE oracle_column = 'SUIT_SIZE' AND oracle_value = '5XL'")
@@ -108,40 +105,40 @@ def test_holds_unmapped_values_until_mapped():
 
 
 def test_ignores_ignored_location_and_other_states():
-    poll(src([row("2026-11-21 00:00:00", "2026-11-20 09:30:00", SUIT_BARCODE="G-test", SUIT_LEVEL="TEST"),
-              row("2026-11-21 00:00:00", "2026-11-20 09:30:00", SUIT_BARCODE="G-ret", STATE="EMPLOYEE GOWN RETURN")]), NOW)
+    poll(src([row("2026-11-20 09:30:00", SUIT_BARCODE="G-test", SUIT_LEVEL="TEST"),
+              row("2026-11-20 09:30:00", SUIT_BARCODE="G-ret", STATE="EMPLOYEE GOWN RETURN")]), NOW)
     assert status("G-test")["status"] == "ignored"
     assert not exists("G-ret")
 
 
 def test_unregistered_bucket():
     start_count("P2", "2026-11-19T00:00:00Z")
-    poll(src([row("2026-11-21 00:00:00", "2026-11-20 09:30:00", SUIT_BARCODE="X-1", SUIT_LEVEL="FAB2",
-                  SUIT_COLOR="OTHER", SUIT_SIZE="OTHER")]), NOW)
+    poll(src([row("2026-11-20 09:30:00", SUIT_BARCODE="X-1", SUIT_LEVEL="FAB2", SUIT_COLOR="OTHER", SUIT_SIZE="OTHER")]), NOW)
     s = status("X-1")
     assert (s["status"], s["quality"]) == ("applied", "incomplete")
     assert on_hand("UNREGISTERED", "Unregistered", "Unregistered", "P2") == -1
     assert on_hand("GOWN", "Other", "Other", "P2") == 0
 
 
-def test_bad_clock_alerts_and_sweep_finds_it():
+def test_sweep_finds_very_late_records_and_future_scans_alert():
     start_count("P1", "2026-11-15T00:00:00Z")
-    normal = row("2026-11-21 00:00:00", "2026-11-20 09:30:00", SUIT_BARCODE="G-n")
-    poll(src([normal]), NOW)
-    # RECTIME 140 h before the scan, far behind the FAB1 watermark
-    bad = row("2026-11-21 01:00:00", "2026-11-14 15:00:00", SUIT_BARCODE="G-bad", VISIBLE_AT="2026-11-20 10:00:00")
-    assert poll(src([normal, bad]), NOW)["new"] == 0
-    s = sweep(src([normal, bad]), NOW)
+    newest = row("2026-11-20 10:00:00", SUIT_BARCODE="G-n")
+    poll(src([newest]), NOW)
+    # Scanned 18 Nov, entered only now: older than the look-back (24 h before the newest scan), so the poll misses it.
+    very_late = row("2026-11-18 09:00:00", SUIT_BARCODE="G-very-late", VISIBLE_AT="2026-11-20 11:00:00")
+    future = row("2026-11-21 09:00:00", SUIT_BARCODE="G-future", VISIBLE_AT="2026-11-20 11:00:00")  # wrong clock
+    data = [newest, very_late, future]
+    assert poll(src(data), NOW)["new"] == 1                               # only the future scan is in the window
+    s = sweep(src(data), NOW)
     assert s["new"] == 1
-    assert s["timeCheckFailed"] == 1
     with connect() as c:
         assert [a["kind"] for a in rows(c, "SELECT kind FROM admin_alert ORDER BY id")] == ["time_check", "sweep_found_rows"]
-    assert status("G-bad")["status"] == "applied"
+    assert status("G-very-late")["status"] == "applied"
 
 
 def test_end_to_end_ledger_intact():
-    data = [row(f"2026-11-20 {i % 24:02d}:00:00", f"2026-11-20 {i % 24:02d}:10:00", SUIT_BARCODE=f"G-{i}",
-                SUIT_LEVEL="FAB1" if i % 3 else "FAB2", SUIT_SIZE=["S", "M", "L", "XL"][i % 4]) for i in range(300)]
+    data = [row(f"2026-11-20 {i % 24:02d}:00:00", SUIT_BARCODE=f"G-{i}", SUIT_LEVEL="FAB1" if i % 3 else "FAB2",
+                SUIT_SIZE=["S", "M", "L", "XL"][i % 4]) for i in range(300)]
     start_count("P1", "2026-11-19T00:00:00Z")
     assert poll(src(data, utc("2026-11-21T12:00:00Z")), NOW)["new"] == 300
     assert violations() == []
@@ -156,7 +153,7 @@ def test_generated_mock_source_is_the_same_on_every_replica():
 
 def test_mapping_one_value_reports_rows_still_waiting_for_others():
     # Two unmapped values on the same rows: the first mapping releases nothing, the second releases both rows.
-    poll(src([row("2026-11-21 00:00:00", "2026-11-20 09:30:00", SUIT_BARCODE=f"G-{i}", SUIT_SIZE="5XL", SUIT_COLOR="GREY") for i in range(2)]), NOW)
+    poll(src([row("2026-11-20 09:30:00", SUIT_BARCODE=f"G-{i}", SUIT_SIZE="5XL", SUIT_COLOR="GREY") for i in range(2)]), NOW)
     ids = ref_ids()
     with connect() as c:
         size = one(c, "SELECT id FROM oracle_value_map WHERE oracle_column = 'SUIT_SIZE' AND oracle_value = '5XL'")["id"]  # type: ignore[index]

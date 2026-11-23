@@ -111,3 +111,23 @@ def test_floor_staff_settings_rights_locations_and_units():
     # Viewers still cannot change anything; data quality stays lead/admin.
     assert c.post("/api/colors", json={"value": "Mint"}, headers={"x-dev-user": "dev-viewer"}).status_code == 403
     assert c.put("/api/data-quality/excluded", json={"barcode": "x", "excluded": True}, headers=floor).status_code == 403
+
+
+def test_refuses_a_database_from_before_the_consolidation():
+    import pymysql
+    from gi.migrate import OLD_DATABASE, migrate
+    root = pymysql.connect(host="localhost", user="root", autocommit=True, unix_socket="/run/mysqld/mysqld.sock")
+    with root.cursor() as cur:
+        cur.execute("DROP DATABASE IF EXISTS gi_old_test")
+        cur.execute("CREATE DATABASE gi_old_test")
+        cur.execute("GRANT ALL ON gi_old_test.* TO 'gi'@'localhost'")
+        cur.execute("CREATE TABLE gi_old_test.schema_migration (name VARCHAR(191) PRIMARY KEY, applied_at DATETIME(6) NULL)")
+        cur.execute("INSERT INTO gi_old_test.schema_migration (name) VALUES ('001_schema.sql'), ('003_csv_upload.sql')")
+    try:
+        with pytest.raises(RuntimeError, match="older GI version"):
+            migrate("mysql://gi:gi@localhost:3306/gi_old_test")
+        assert "Drop and re-create" in OLD_DATABASE
+    finally:
+        with root.cursor() as cur:
+            cur.execute("DROP DATABASE gi_old_test")
+        root.close()

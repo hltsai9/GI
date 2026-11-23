@@ -25,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Check the device detection
-        run: node --test frontend/tests/device.test.mjs
+        run: node --test frontend/tests/device.test.mjs frontend/tests/modules.test.mjs
       - name: Prepare the demo site
         run: |
           mkdir _site

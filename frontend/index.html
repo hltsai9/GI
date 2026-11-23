@@ -10,6 +10,18 @@
     <link rel="stylesheet" href="css/app.css" />
     <!-- Plain HTML, CSS and JavaScript modules: no build step. config.js switches on the read-only demo. -->
     <script src="config.js"></script>
+    <!-- Fetch all modules at once instead of one import level at a time (faster first load on slow networks). -->
+    <link rel="modulepreload" href="js/api.js" />
+    <link rel="modulepreload" href="js/app.js" />
+    <link rel="modulepreload" href="js/device.js" />
+    <link rel="modulepreload" href="js/dom.js" />
+    <link rel="modulepreload" href="js/hover.js" />
+    <link rel="modulepreload" href="js/icons.js" />
+    <link rel="modulepreload" href="js/pages/receive.js" />
+    <link rel="modulepreload" href="js/pages/settings.js" />
+    <link rel="modulepreload" href="js/pages/stock.js" />
+    <link rel="modulepreload" href="js/pages/trends.js" />
+    <link rel="modulepreload" href="js/ui.js" />
     <script type="module" src="js/app.js"></script>
   </head>
   <body>

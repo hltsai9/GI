@@ -1,5 +1,5 @@
-"""Behaves like the Oracle issue table for the queries GI runs, including rows that only appear later
-(records entered up to ~15 h after the scan) and RECTIME that is only in order within a location."""
+"""Behaves like the Oracle issue table for the query GI runs (by INSERT_TIME), including rows that only appear
+later: records reach the database up to ~15 h after the scan (VISIBLE_AT, mock only)."""
 from __future__ import annotations
 
 import json
@@ -9,21 +9,17 @@ from typing import Callable
 
 from ..config import config
 from ..timeutil import now_utc, utc_to_local
-from .source import ISSUE_STATE, InsertKey, OracleIssueRow, RectimeKey
+from .source import ISSUE_STATE, InsertKey, OracleIssueRow
 
-_FIELDS = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL", "INSERT_TIME", "RECTIME")
+_FIELDS = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL", "INSERT_TIME")
 
 
 def _strip(rs: list[dict]) -> list[OracleIssueRow]:
     return [{k: r[k] for k in _FIELDS} for r in rs]  # type: ignore[misc]
 
 
-def _after_key(r: dict, k: RectimeKey) -> bool:
-    return r["RECTIME"] > k["rectime"] or (r["RECTIME"] == k["rectime"] and r["SUIT_BARCODE"] > k["barcode"])
-
-
 class MockIssueSource:
-    """Rows carry STATE and VISIBLE_AT (Phoenix time the row is committed; invisible before)."""
+    """Rows carry STATE and VISIBLE_AT (Phoenix time the row reaches the database; invisible before)."""
 
     def __init__(self, data: list[dict], now: Callable[[], datetime] = now_utc):
         self.data = data
@@ -41,16 +37,8 @@ class MockIssueSource:
         return _GeneratedSource()
 
     def _visible(self) -> list[dict]:
-        now_phx = utc_to_local(self.now(), config.ORACLE_RECTIME_ZONE)
-        return [r for r in self.data if r["STATE"] == ISSUE_STATE and r["VISIBLE_AT"] <= now_phx]
-
-    def by_level(self, level: str, after: RectimeKey, limit: int) -> list[OracleIssueRow]:
-        rs = [r for r in self._visible() if r["SUIT_LEVEL"] == level and _after_key(r, after)]
-        return _strip(sorted(rs, key=lambda r: (r["RECTIME"], r["SUIT_BARCODE"]))[:limit])
-
-    def other_levels(self, known: list[str], after: RectimeKey, limit: int) -> list[OracleIssueRow]:
-        rs = [r for r in self._visible() if r["SUIT_LEVEL"] not in known and _after_key(r, after)]
-        return _strip(sorted(rs, key=lambda r: (r["RECTIME"], r["SUIT_BARCODE"]))[:limit])
+        now_phx = utc_to_local(self.now(), config.SITE_TIMEZONE)
+        return [r for r in self.data if r["STATE"] == ISSUE_STATE and r.get("VISIBLE_AT", r["INSERT_TIME"]) <= now_phx]
 
     def by_insert_time(self, start: str, after: InsertKey | None, limit: int) -> list[OracleIssueRow]:
         rs = [r for r in self._visible() if r["INSERT_TIME"] >= start and (
@@ -71,7 +59,7 @@ class _GeneratedSource(MockIssueSource):
         from ..mock_oracle import generate
 
         now = self.now()
-        day = utc_to_local(now, config.ORACLE_RECTIME_ZONE)[:10]
+        day = utc_to_local(now, config.SITE_TIMEZONE)[:10]
         if day != self._day:
             self.data, _ = generate(now=now)
             self._day = day

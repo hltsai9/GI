@@ -148,14 +148,13 @@ When GI cannot reach Oracle yet (for example on a test site), export the issue r
 2. Export from Oracle, e.g. in SQL Developer (Run the query, then right-click the result › **Export** › format **csv**):
    ```sql
    SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL, STATE,
-          TO_CHAR(INSERT_TIME, 'YYYY-MM-DD HH24:MI:SS') AS INSERT_TIME,
-          TO_CHAR(RECTIME,     'YYYY-MM-DD HH24:MI:SS') AS RECTIME
+          TO_CHAR(INSERT_TIME, 'YYYY-MM-DD HH24:MI:SS') AS INSERT_TIME
      FROM SCHEMA.ISSUE_TABLE
     WHERE STATE = 'EMPLOYEE GOWN ISSUE'
       AND INSERT_TIME >= TO_DATE('2026-11-01', 'YYYY-MM-DD')
     ORDER BY INSERT_TIME;
    ```
-   - The first line must be the column names; extra columns are ignored, and other `STATE`s are skipped.
+   - The first line must be the column names; extra columns (such as `RECTIME`) are ignored, and other `STATE`s are skipped. `INSERT_TIME` is read as Phoenix time.
    - Comma, semicolon or tab separators work.
    - Dates like `20-NOV-26 09.15.30 AM` (Oracle's default) are also read, but **times must include seconds**. Don't open and save the file in Excel. Excel drops the seconds, and it keeps only 15 digits of a number, so a 16-digit barcode like `2399600002641084` becomes `2399600002641080`. Opening it in Excel only to look also shows the changed number; use a text editor, or import the column as Text.
 3. Upload the file. A progress bar shows the upload, then "Importing N of M rows". The import runs on the server, so a large file doesn't hit request time limits. If the pod restarts during an import, the rows done so far are kept: upload the file again to finish. Rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`) are skipped, so uploading the same file twice, or files whose date ranges overlap, never counts an issue twice. If any row can't be read, nothing is imported and the problem lines are listed.
@@ -183,6 +182,8 @@ Later, with `ISSUE_SOURCE=oracle`, the rows already uploaded are recognised and 
 | Log: `Access denied for user 'gi'` | Wrong password, or user not allowed from the cluster's addresses | Check `GI_DB_PASSWORD` and the `'gi'@'<host>'` grant |
 | `CreateContainerConfigError`, "secret gi-secrets not found" | The Secret step did not run, or ran in another namespace | Check the pipeline's namespace and the createSecret step |
 | `ImagePullBackOff` | Image name or registry credentials | Check `image:` in `deployment.yaml` and `imagePullSecrets` |
+| Log: `This database was set up by an older GI version …` | The database was created before the 2026-11-23 schema consolidation | Drop and re-create the empty `gi` database (`DROP DATABASE gi; CREATE DATABASE gi CHARACTER SET utf8mb4;`, keep the `gi` user's grants), then restart the pods. Re-enter settings and starting counts, and upload the CSV exports again. |
 | Log repeats `could not get the migration lock` | Another replica held the migration lock for over 5 minutes | Look at the other replica's log for the real error |
 | Password with special characters not accepted by the createSecret step | Shell quoting in `secretArguments` | Use letters, digits and `-_.` in the password, or create the Secret with a script step: `kubectl create secret generic gi-secrets --from-literal=MARIADB_PASSWORD="$DB_PASSWORD" --dry-run=client -o yaml \| kubectl apply -f -` with `env: { DB_PASSWORD: $(GI_DB_PASSWORD) }` |
 | "Import is running right now" in Settings | Another replica is importing | Wait a minute and retry |
+| Pages load slowly | The database, the pod's CPU, or the network | `kubectl -n gi-test logs deploy/gi -c gi \| grep "slow request"` lists requests over 1 s with their time. Large times: give the pod more CPU (`resources.requests.cpu`, and no low CPU limit) or check the database server. Small times: the delay is in the network or Ingress. The browser's developer tools (Network tab) show each request's `Server-Timing`. |

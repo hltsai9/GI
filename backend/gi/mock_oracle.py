@@ -1,10 +1,11 @@
 """Mock Oracle issue data that behaves like the real issuing system:
 - one row per garment issued; STATE = 'EMPLOYEE GOWN ISSUE' (plus other states to filter out)
-- INSERT_TIME = scan time in Taipei time; RECTIME = entry time in Phoenix time, 0–15 h later
-- records are entered in batches per location, so RECTIME is ordered within a location only;
-  Fab2's batches become visible up to 40 min after their RECTIME (out of order across locations)
+- INSERT_TIME = scan (= issue) time, Phoenix local time; there is no RECTIME (GI does not use it)
+- records reach the database in batches per location, 0–15 h after the scan (VISIBLE_AT, mock only), so a
+  scan appears in "Oracle" later than it happened; FAB2's batches arrive up to 40 min later still, and every
+  30th day one row arrives ~30 h late (beyond the import's look-back: the daily sweep finds it)
 - ~3 % of barcodes are not registered in the suit master → reported as GOWN / OTHER / OTHER
-- a new size code "5XL" (unmapped), a "TEST" location (ignored), and now and then a row with a bad clock
+- a new size code "5XL" (unmapped) and a "TEST" location (ignored)
 
 Deterministic per calendar day: the rows for a given day are identical whenever and wherever they are
 generated, so several replicas (each generating its own copy) import the same data.
@@ -23,7 +24,6 @@ from typing import Callable
 from zoneinfo import ZoneInfo
 
 PHX = ZoneInfo("America/Phoenix")
-TPE = ZoneInfo("Asia/Taipei")
 FMT = "%Y-%m-%d %H:%M:%S"
 _M = 0xFFFFFFFF
 
@@ -147,18 +147,18 @@ def generate(days: int = 45, ahead: int = 2, now: datetime | None = None) -> tup
                         "SUIT_COLOR": gm.color if gm.registered else "OTHER",
                         "SUIT_SIZE": gm.size if gm.registered else "OTHER",
                         "SUIT_LEVEL": level,
-                        "INSERT_TIME": at.astimezone(TPE).strftime(FMT),
-                        "RECTIME": entered.strftime(FMT),
+                        "INSERT_TIME": at.strftime(FMT),
                         "STATE": state,
                         "VISIBLE_AT": visible.strftime(FMT),
                     })
-            # Every 30th day, one FAB1 row has a bad clock: RECTIME ~150 h before the scan (ORA-13).
+            # Every 30th day, one FAB1 row reaches the database ~30 h after the scan: more than the import's
+            # look-back (24 h), so only the daily catch-up sweep finds it (ORA-03a).
             if level == "FAB1" and epoch_day % 30 == 0:
-                day_tpe = day.astimezone(TPE).strftime(FMT)
-                bad = next((r for r in rows if r["SUIT_LEVEL"] == "FAB1" and r["STATE"] == "EMPLOYEE GOWN ISSUE"
-                            and r["INSERT_TIME"] >= day_tpe), None)
-                if bad:
-                    bad["RECTIME"] = (datetime.strptime(bad["RECTIME"], FMT) - timedelta(hours=150)).strftime(FMT)
+                day_s = day.strftime(FMT)
+                late = next((r for r in rows if r["SUIT_LEVEL"] == "FAB1" and r["STATE"] == "EMPLOYEE GOWN ISSUE"
+                             and r["INSERT_TIME"] >= day_s), None)
+                if late:
+                    late["VISIBLE_AT"] = (datetime.strptime(late["INSERT_TIME"], FMT) + timedelta(hours=30)).strftime(FMT)
     # Keep unique (SUIT_BARCODE, INSERT_TIME), as in Oracle.
     seen: set[str] = set()
     unique = []

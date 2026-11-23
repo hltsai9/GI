@@ -44,14 +44,14 @@ def ref_ids() -> dict[str, dict[str, int]]:
             "size": q("SELECT code k, id FROM size"), "loc": q("SELECT code k, id FROM location")}
 
 
-def row(INSERT_TIME: str, RECTIME: str, **p) -> dict:  # noqa: N803
-    """A mock Oracle row. Times are naive: INSERT_TIME = Taipei, RECTIME = Phoenix."""
+def row(INSERT_TIME: str, **p) -> dict:  # noqa: N803
+    """A mock Oracle row. INSERT_TIME is naive Phoenix time; VISIBLE_AT (when it reaches the database) defaults to it."""
     return {
         "SUIT_BARCODE": p.get("SUIT_BARCODE") or "G-" + "".join(random.choices(string.ascii_lowercase + string.digits, k=7)),
         "SUIT_TYPE": p.get("SUIT_TYPE", "GOWN"), "SUIT_COLOR": p.get("SUIT_COLOR", "WHITE"),
         "SUIT_SIZE": p.get("SUIT_SIZE", "L"), "SUIT_LEVEL": p.get("SUIT_LEVEL", "FAB1"),
-        "STATE": p.get("STATE", "EMPLOYEE GOWN ISSUE"), "INSERT_TIME": INSERT_TIME, "RECTIME": RECTIME,
-        "VISIBLE_AT": p.get("VISIBLE_AT", RECTIME),
+        "STATE": p.get("STATE", "EMPLOYEE GOWN ISSUE"), "INSERT_TIME": INSERT_TIME,
+        "VISIBLE_AT": p.get("VISIBLE_AT", INSERT_TIME),
     }
 
 

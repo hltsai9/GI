@@ -38,8 +38,8 @@
 
 ### Without an Oracle connection
 With `ISSUE_SOURCE=mock` (the default), the app generates realistic mock issue data inside its own container and imports it like real Oracle rows. The mock data has the real system's quirks:
-- scan time in Taipei time, record time in Phoenix time;
-- records entered up to ~15 hours late;
+- scan time (`INSERT_TIME`) in Phoenix time;
+- records reaching the database up to ~15 hours after the scan (now and then ~30 hours, which the daily sweep finds);
 - unregistered barcodes reported as GOWN / OTHER / OTHER.
 
 No Oracle access, account or network route is needed. Switching to the real Oracle later is a configuration change (§8.3).
@@ -199,14 +199,13 @@ When GI cannot reach Oracle yet (for example on a test site), export the issue r
 2. Export from Oracle, e.g. in SQL Developer (Run the query, then right-click the result › **Export** › format **csv**):
    ```sql
    SELECT SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL, STATE,
-          TO_CHAR(INSERT_TIME, 'YYYY-MM-DD HH24:MI:SS') AS INSERT_TIME,
-          TO_CHAR(RECTIME,     'YYYY-MM-DD HH24:MI:SS') AS RECTIME
+          TO_CHAR(INSERT_TIME, 'YYYY-MM-DD HH24:MI:SS') AS INSERT_TIME
      FROM SCHEMA.ISSUE_TABLE
     WHERE STATE = 'EMPLOYEE GOWN ISSUE'
       AND INSERT_TIME >= TO_DATE('2026-11-01', 'YYYY-MM-DD')
     ORDER BY INSERT_TIME;
    ```
-   - The first line must be the column names; extra columns are ignored, and other `STATE`s are skipped.
+   - The first line must be the column names; extra columns (such as `RECTIME`) are ignored, and other `STATE`s are skipped. `INSERT_TIME` is read as Phoenix time.
    - Comma, semicolon or tab separators work.
    - Dates like `20-NOV-26 09.15.30 AM` (Oracle's default) are also read, but **times must include seconds**. Don't open and save the file in Excel. Excel drops the seconds, and it keeps only 15 digits of a number, so a 16-digit barcode like `2399600002641084` becomes `2399600002641080`. Opening it in Excel only to look also shows the changed number; use a text editor, or import the column as Text.
 3. Upload the file. A progress bar shows the upload, then "Importing N of M rows". The import runs on the server, so a large file doesn't hit request time limits. If the pod restarts during an import, the rows done so far are kept: upload the file again to finish. Rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`) are skipped, so uploading the same file twice, or files whose date ranges overlap, never counts an issue twice. If any row can't be read, nothing is imported and the problem lines are listed.
@@ -288,7 +287,7 @@ What to watch:
 - **Settings › Import** shows alerts:
   - the import failed or has not run for twice the import interval;
   - the daily sweep found rows the regular import missed;
-  - a record's `RECTIME` is earlier than its scan time.
+  - a record's scan time (`INSERT_TIME`) is in the future.
 
   Mark them checked once handled.
 - After a host reboot, containers come back by themselves (`restart: unless-stopped`).
@@ -315,6 +314,7 @@ What to watch:
 | Stock does not change although issues are imported | No starting count yet for that fab | §8.1 |
 | Many rows "held" in **Settings › Import** | Oracle values not mapped yet | **Settings › Oracle values** (§8.2 step 2) |
 | "Issues up to" is hours behind | Normal: records are entered up to ~15 h after the scan | If no import ran for twice the interval, an alert appears; check `docker compose logs app` |
+| `app` restarts; log says `This database was set up by an older GI version …` | The database was created before the 2026-11-23 schema consolidation | `docker compose down`, `docker volume rm` the MariaDB volume (or drop and re-create the `gi` database), then `docker compose up -d`. Re-enter settings and starting counts. |
 | Port already in use on `up` | Something else uses `HTTP_PORT` | Change `HTTP_PORT` in `.env` |
 
 ## 15. Reference
@@ -330,10 +330,11 @@ What to watch:
 | `ISSUE_SOURCE` | `mock` | `mock` (generated test data), `oracle` (read Oracle), or `csv` (no automatic import; upload Oracle exports, §8.4) |
 | `ORACLE_CONNECT_STRING`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_ISSUE_TABLE`, `ORACLE_SUIT_TABLE` | — | Oracle access (read-only), only for `oracle` |
 | `ORACLE_POLL_SECONDS` | `300` | Import interval, 300–43200 s |
-| `ORACLE_BACKFILL_FROM` | `2026-10-01 00:00:00` | First `RECTIME` (Phoenix time) read on a fresh install |
+| `ORACLE_BACKFILL_FROM` | `2026-10-01 00:00:00` | First `INSERT_TIME` (Phoenix time) read on a fresh install |
+| `ORACLE_LOOKBACK_HOURS` | `24` | Each import re-reads scans this far back, to catch records that reach Oracle late (1–336) |
 | `DEV_AUTH` | `true` | Choose the user in the app (no SSO yet) |
 | `ADMIN_PASSCODE` | — | Passcode needed to switch to Admin (secret); empty = Admin locked |
-| `SITE_TIMEZONE`, `ORACLE_INSERT_TIME_ZONE`, `ORACLE_RECTIME_ZONE` | Phoenix, Taipei, Phoenix | Time zones (URD ORA-12) |
+| `SITE_TIMEZONE`, `ORACLE_INSERT_TIME_ZONE` | `America/Phoenix`, `America/Phoenix` | Time zones (URD ORA-12) |
 | `HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`, `BUILD_NETWORK`, `PIP_INDEX_URL`, `COMPANY_CA_FILE`, `PYTHON_IMAGE`, `MARIADB_IMAGE` | — | Building on company networks (§5.2) |
 
 ### 15.2 Health endpoints

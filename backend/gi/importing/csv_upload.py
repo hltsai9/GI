@@ -1,7 +1,7 @@
 """Import of issue rows from a CSV export of the Oracle issue table (Settings › Import), for environments
 that cannot reach Oracle. The rows go through the same import as the Oracle connection, so a row whose
 SUIT_BARCODE + INSERT_TIME is already in GI is skipped: uploading the same or an overlapping file
-again adds nothing twice. Watermarks are not touched, so a later Oracle connection is unaffected.
+again adds nothing twice, and a later Oracle connection simply skips rows already imported.
 
 The file is checked completely first; if any row is invalid, nothing is imported.
 """
@@ -19,7 +19,7 @@ from ..timeutil import now_utc
 from .importer import _Counters, _exclusive, _finish_run, _import_batch, _start_run
 from .source import ISSUE_STATE, OracleIssueRow, clean_barcode
 
-REQUIRED = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL", "INSERT_TIME", "RECTIME")
+REQUIRED = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL", "INSERT_TIME")  # other columns (RECTIME …) are ignored
 MAX_ERRORS = 20
 BATCH = 500  # rows per transaction; progress is saved after each batch
 
@@ -104,7 +104,7 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
             # Trailing padding removed; leading and inner spaces kept, the same as the live Oracle import.
             out.append({"SUIT_BARCODE": barcode, "SUIT_TYPE": get("SUIT_TYPE"), "SUIT_COLOR": get("SUIT_COLOR"),
                         "SUIT_SIZE": get("SUIT_SIZE"), "SUIT_LEVEL": get("SUIT_LEVEL"),
-                        "INSERT_TIME": parse_time(get("INSERT_TIME")), "RECTIME": parse_time(get("RECTIME"))})
+                        "INSERT_TIME": parse_time(get("INSERT_TIME"))})
         except ValueError as e:
             bad += 1
             if len(problems) < MAX_ERRORS:

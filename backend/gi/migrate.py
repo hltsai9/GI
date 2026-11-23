@@ -26,6 +26,23 @@ def _run_script(conn: pymysql.connections.Connection, sql: str) -> None:
             pass
 
 
+OLD_DATABASE = ("This database was set up by an older GI version (before 2026-11-23, when the schema was consolidated and "
+                "RECTIME dropped). Drop and re-create the gi database (empty), then restart GI: it sets everything up again.")
+
+
+def _refuse_old_schema(cur, applied: set[str]) -> None:
+    """The migrations were consolidated into 001/002 on 2026-11-23. A database set up before that has other
+    migration names or the old RECTIME column; it must be re-created rather than half-updated."""
+    known = {f.name for f in (DB_DIR / "migrations").glob("*.sql")}
+    if applied - known:
+        raise RuntimeError(OLD_DATABASE)
+    if "001_schema.sql" in applied:
+        cur.execute("""SELECT COUNT(*) FROM information_schema.columns
+                        WHERE table_schema = DATABASE() AND table_name = 'issue_import' AND column_name = 'rectime'""")
+        if cur.fetchone()[0]:
+            raise RuntimeError(OLD_DATABASE)
+
+
 def migrate(url: str | None = None, seed_dev: bool = False) -> list[str]:
     conn = _connect(url)
     try:
@@ -38,6 +55,7 @@ def migrate(url: str | None = None, seed_dev: bool = False) -> list[str]:
                 name VARCHAR(191) PRIMARY KEY, applied_at DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6)) ENGINE=InnoDB""")
             cur.execute("SELECT name FROM schema_migration")
             applied = {r[0] for r in cur.fetchall()}
+            _refuse_old_schema(cur, applied)
         ran = []
         for f in sorted((DB_DIR / "migrations").glob("*.sql")):
             if f.name in applied:

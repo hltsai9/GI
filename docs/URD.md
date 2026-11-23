@@ -144,11 +144,11 @@ Priority: **M** = must (v1), **S** = should, **C** = could.
 | `SUIT_LEVEL` | → location, Fab1 / Fab2 (value mapping) |
 | `STATE` | Filter: only `'EMPLOYEE GOWN ISSUE'` is imported |
 | `INOUT_CATEGORY`, `INOUT_ACTION` | Not imported — always the same for `EMPLOYEE GOWN ISSUE` rows |
-| `INSERT_TIME` | When the barcode was scanned = **when the garment was issued**, in **Taipei time** (`Asia/Taipei`, UTC+8). Part of the issue key; → "issued at" for issued-per-day, Trends and the starting-count cut-off. |
-| `RECTIME` | When staff put the record into the database, in **Phoenix time** (`America/Phoenix`, UTC−7). → incremental import key (ORA-03). |
+| `INSERT_TIME` | When the barcode was scanned = **when the garment was issued**, in **Phoenix time** (`America/Phoenix`, UTC−7). Part of the issue key; → "issued at" for issued-per-day, Trends and the starting-count cut-off; also the incremental import key (ORA-03). |
+| `RECTIME` | **Not used** (decided 2026-11-23). GI ignores it completely. |
 | `EMPLOYEE_ID`, `INSERT_USER` | **Not imported** — GI only needs counts (data minimization). **[OPEN]** unless per-employee reports are wanted |
 
-Rows are **never edited or deleted** after they are written, and `SUIT_BARCODE` + `INSERT_TIME` is unique. A record can be entered some time after the scan, usually within about 15 hours, and the two times are in different time zones 15 hours apart, so `INSERT_TIME` and `RECTIME` often fall on **different calendar days** (e.g. a scan at 09:00 on 20 Nov in Taipei time is 18:00 on 19 Nov in Phoenix). Both fabs are in **Phoenix**, so GI shows and counts days in Phoenix time. `RECTIME` increases in arrival order **within a location** (`SUIT_LEVEL`), but not across locations. In rare cases `RECTIME` is earlier than `INSERT_TIME` (cause unknown — TODO). Neither zone uses daylight saving time, so conversion is a fixed offset. `EMPLOYEE GOWN ISSUE` covers **all garment types** (gowns, hoods, boots).
+Rows are **never edited or deleted** after they are written, and `SUIT_BARCODE` + `INSERT_TIME` is unique. A record can reach the database some time after the scan (usually within about 15 hours), still carrying its scan time. Both fabs are in **Phoenix**, so GI shows and counts days in Phoenix time, and `INSERT_TIME` is already Phoenix time. Phoenix does not use daylight saving time, so conversion to UTC is a fixed offset (−7 h). `EMPLOYEE GOWN ISSUE` covers **all garment types** (gowns, hoods, boots).
 
 The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`) is **not needed** for the import: a registered barcode's issue rows already carry its real type, color and size, and an unregistered barcode is missing from it. It is only useful if barcodes are registered later (DQ-08).
 
@@ -156,17 +156,17 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 |---|---|---|
 | ORA-01 | GI reads rows with `STATE = 'EMPLOYEE GOWN ISSUE'` from the Oracle database over a **read-only** account, on a configurable interval from 5 minutes to 12 hours (default 5 minutes; **[OPEN]** confirm). Issues are always counted on the day they happened, whatever the interval; a longer interval only delays when today's numbers and stock are complete. | M |
 | ORA-02 | Each row is **one garment issued** (quantity 1). Each row is imported **exactly once**, keyed by `SUIT_BARCODE` + `INSERT_TIME` (barcode alone is not unique, as garments are reused); re-running an import never double-counts. (Confirmed unique; rows are never edited or deleted.) | M |
-| ORA-03 | Import is incremental on **`RECTIME`** (when the record reached the database), with a **separate watermark per location** (`SUIT_LEVEL`) and an overlap window (e.g. 10 minutes) for late-committed rows. Not on `INSERT_TIME`: a record entered late carries an old scan time and would be skipped. Not one shared watermark: `RECTIME` is only in order within a location. | M |
-| ORA-03a | **Daily catch-up sweep**: once a day, re-check all rows scanned in the last 3 days (`INSERT_TIME`) and import any the regular imports missed; alert the admin if any were found. | M |
-| ORA-12 | **Time zones**: `INSERT_TIME` is read as Taipei time and `RECTIME` as Phoenix time (both configurable), and both are stored in UTC. Issues are counted on the **Phoenix-time day of `INSERT_TIME`**, never the day of `RECTIME` or of the import. A record that arrives late is added to the day it was issued, and that day's figures are updated. | M |
-| ORA-13 | **Time check**: a row whose `RECTIME` (in UTC) is earlier than its `INSERT_TIME` (in UTC) by more than a tolerance (default 10 minutes, configurable) — or whose `INSERT_TIME` is in the future — is still imported (counted on its `INSERT_TIME` day), and **the admin is alerted every time it happens**: one alert per import run listing each row (barcode, location, both times, gap in hours). The admin screen keeps the full list. (Seen once in history, about two months ago, with gaps beyond −130 hours; assumed fixed since.) Rows found during the historic backfill go into one summary, not one alert each. | M |
+| ORA-03 | Import is incremental on **`INSERT_TIME`** with a **look-back window**: each run reads every row scanned since the newest imported `INSERT_TIME` minus a look-back (default 24 hours, configurable 1–336 hours), so a record that reaches the database late, with an older scan time, is still found. Rows already imported are skipped (ORA-02). | M |
+| ORA-03a | **Daily catch-up sweep**: once a day, re-check all rows scanned in the last 3 days (`INSERT_TIME`) and import any the regular imports missed (records that arrived later than the look-back); alert the admin if any were found. | M |
+| ORA-12 | **Time zones**: `INSERT_TIME` is read as Phoenix time (configurable) and stored in UTC. Issues are counted on the **Phoenix-time day of `INSERT_TIME`**, never the day of the import. A record that arrives late is added to the day it was issued, and that day's figures are updated. | M |
+| ORA-13 | **Time check**: a row whose `INSERT_TIME` is in the future (later than now plus a tolerance, default 10 minutes, configurable) is still imported (counted on its `INSERT_TIME` day), and **the admin is alerted every time it happens**: one alert per import run listing each row (barcode, location, scan time). The admin screen keeps the full list. Rows found during the historic backfill go into one summary, not one alert each. | M |
 | ORA-04 | Each row's `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL` are translated through the value mapping (§6.10) to a GI stock item, whose on hand is reduced by 1. Incomplete rows follow §6.4. | M |
 | ORA-05 | A row containing a value not yet in the value mapping (e.g. a new size code) is **held**: it does not affect stock, is listed under Settings › Oracle values with a count, and is applied as soon as the value is mapped. | M |
 | ORA-06 | ~~Reversals~~ — **not needed**: issues are never made by mistake (staff check the input), and rows are never edited or deleted. An unusual case is fixed with a stock correction. | — |
 | ORA-07 | Sync status is visible on Stock and Trends: "Issues up to HH:MM". If there has been no successful import for more than twice the interval, a warning is shown and admins are notified. | M |
 | ORA-08 | Admin screen: connection test, last runs (time, rows read, applied, held, incomplete, errors), and "Run now". | M |
 | ORA-09 | Historic backfill from a chosen start date, **for Trends only** — issues before the starting count do not change stock (rule 7.8). | S |
-| ORA-10 | The Oracle load stays small: one query per location per run (plus the daily sweep), with bind variables, filtered on `STATE`, `SUIT_LEVEL` and `RECTIME` (indexes advisable — **[OPEN]** TODO), row limit per run. | M |
+| ORA-10 | The Oracle load stays small: one paged query per run (plus the daily sweep), with bind variables, filtered on `STATE` and `INSERT_TIME` (an index on `(STATE, INSERT_TIME)` is advisable), row limit per page. | M |
 | ORA-11 | Oracle connection details, credentials and table names are **configuration**, set at installation, never in source code. Table names are validated as plain identifiers before use. | M |
 
 ### 6.4 Data quality — incomplete issue rows
@@ -304,7 +304,7 @@ The **suit master** table (`SUIT_BARCODE`, `SUIT_CATEGORY`, `SUIT_TYPE`, `SUIT_C
 - After posting, Stock and Trends show the new quantities without reload.
 - An issue recorded in Oracle appears in GI (issued today, on hand reduced) within the agreed freshness window.
 - A garment scanned at 23:50 Phoenix time and entered the next morning is counted on the day it was scanned, and that day's chart total goes up by one when it arrives.
-- A Fab2 record that arrives after a Fab1 record but carries an earlier `RECTIME` is still imported.
+- A record that reaches Oracle 20 hours after its scan is imported by the next regular import (within the look-back); one that arrives 30 hours late is found by the daily sweep, and the admin is alerted.
 - Re-running the import for an already imported period changes nothing.
 - A row with a new, unmapped value is held and does not change stock; once the value is mapped, its held rows are applied.
 - A GOWN / OTHER / OTHER row is booked to the location's unregistered bucket (not to Gowns), and its barcode appears in the unregistered-barcode list.
@@ -322,9 +322,9 @@ All open questions are tracked as a checklist in [`TODO.md`](./TODO.md).
 
 - Issue data comes from Oracle rows with `STATE = 'EMPLOYEE GOWN ISSUE'`, which covers all garment types; `SUIT_LEVEL` is the location; one row per garment.
 - `SUIT_BARCODE` + `INSERT_TIME` is unique; rows are never edited or deleted.
-- `INSERT_TIME` = scan time = issue time (Taipei time); `RECTIME` = time the record was entered (Phoenix time). They can fall on different days. Records are usually entered within about 15 hours of the scan.
+- `INSERT_TIME` = scan time = issue time, in **Phoenix time**. `RECTIME` is **not used** (decided 2026-11-23). Records usually reach the database within about 15 hours of the scan.
 - Both fabs are in Phoenix; days are counted and shown in Phoenix time.
-- `RECTIME` is in arrival order only within a location, so the import keeps one watermark per location, plus a daily 3-day catch-up sweep.
+- The import reads by `INSERT_TIME` with a 24-hour look-back, plus a daily 3-day catch-up sweep.
 - `INOUT_CATEGORY` and `INOUT_ACTION` are constant for these rows and are not needed.
 - The suit master table is not needed for the import. GOWN / OTHER / OTHER means the barcode is not registered in it, so a barcode never has a complete row followed by an incomplete one — recovery from issue history is not possible and was removed.
 - A barcode's type, color and size never change.
@@ -336,4 +336,4 @@ All open questions are tracked as a checklist in [`TODO.md`](./TODO.md).
 - Tablets use the laptop layout.
 - No reversals / cancellations: issues are not made by mistake.
 - v1 garment types: gowns, hoods, boots; more may follow after the first release.
-- `INSERT_TIME` and `RECTIME` are Oracle `DATE` columns (seconds, no time zone stored).
+- `INSERT_TIME` is an Oracle `DATE` column (seconds, no time zone stored).

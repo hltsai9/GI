@@ -1,5 +1,7 @@
-"""Issue import: per-location RECTIME watermarks, discovery of new locations, daily catch-up sweep,
-time check (ORA-13), held/ignored rows and re-classification (BUILD_PLAN §3)."""
+"""Issue import (BUILD_PLAN §3): reads Oracle rows by INSERT_TIME (the scan time, Phoenix local time), each run
+from ORACLE_LOOKBACK_HOURS before the newest scan already imported, so records entered into Oracle late are still
+found; rows already imported are skipped (ORA-02). A daily catch-up sweep re-reads the last ORACLE_SWEEP_DAYS.
+Also: the future-scan check (ORA-13), held/ignored rows and re-classification. RECTIME is not used."""
 from __future__ import annotations
 
 import json
@@ -13,9 +15,9 @@ from sqlalchemy.engine import Connection
 from ..config import config
 from ..db import connect, execute, one, rows, with_tx
 from ..ledger import Movement, apply_movements
-from ..timeutil import from_db, iso, issue_times, naive_str, now_utc, shift_naive, to_db, utc_to_local
+from ..timeutil import from_db, iso, issue_time, naive_str, now_utc, shift_naive, to_db, utc_to_local
 from .classify import ClassifyContext, classify_issue, note_values_seen
-from .source import InsertKey, IssueSource, OracleIssueRow, RectimeKey
+from .source import InsertKey, IssueSource, OracleIssueRow
 
 
 @dataclass
@@ -31,8 +33,8 @@ class _Counters:
     time_alerts: list[dict] = field(default_factory=list)
 
 
-def _key_of(r: OracleIssueRow) -> RectimeKey:
-    return {"rectime": r["RECTIME"], "barcode": r["SUIT_BARCODE"]}
+def _key_of(r: OracleIssueRow) -> InsertKey:
+    return {"insert_time": r["INSERT_TIME"], "barcode": r["SUIT_BARCODE"]}
 
 
 def _import_batch(batch: list[OracleIssueRow], run_id: int, c: _Counters, now: datetime) -> None:
@@ -45,28 +47,34 @@ def _import_batch(batch: list[OracleIssueRow], run_id: int, c: _Counters, now: d
         seen: dict[tuple[str, str], int] = {}
         movements: list[Movement] = []
         tol = timedelta(minutes=config.ORACLE_TIME_TOLERANCE_MINUTES)
+        # Rows already imported for this batch's time span, looked up once (ORA-02: each scan exactly once).
+        times = [r["INSERT_TIME"] for r in batch]
+        kept = {(e["suit_barcode"], naive_str(e["insert_time"])): e for e in rows(conn,
+                """SELECT id, suit_barcode, insert_time, suit_type, suit_color, suit_size, suit_level FROM issue_import
+                    WHERE insert_time BETWEEN ? AND ?""", [min(times), max(times)])}
         for r in batch:
             c.read += 1
             for col in ("SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL"):
                 seen[(col, r[col])] = seen.get((col, r[col]), 0) + 1  # type: ignore[literal-required]
-            kept = one(conn, """SELECT id, suit_type, suit_color, suit_size, suit_level FROM issue_import
-                                  WHERE suit_barcode = ? AND insert_time = ?""", [r["SUIT_BARCODE"], r["INSERT_TIME"]])
-            if kept:  # ORA-02: each scan exactly once
-                if (kept["suit_type"], kept["suit_color"], kept["suit_size"], kept["suit_level"]) != \
+            k = kept.get((r["SUIT_BARCODE"], r["INSERT_TIME"]))
+            if k:
+                if (k["suit_type"], k["suit_color"], k["suit_size"], k["suit_level"]) != \
                         (r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"]):
                     # The same scan with other values: not counted again, but recorded for the data quality report.
                     c.conflicts += 1
-                    execute(conn, """INSERT INTO issue_import_conflict (issue_import_id, suit_type, suit_color, suit_size, suit_level, rectime, sync_run_id)
-                                      VALUES (?,?,?,?,?,?,?) ON DUPLICATE KEY UPDATE times = times + 1""",
-                            [kept["id"], r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"], r["RECTIME"], run_id])
+                    execute(conn, """INSERT INTO issue_import_conflict (issue_import_id, suit_type, suit_color, suit_size, suit_level, sync_run_id)
+                                      VALUES (?,?,?,?,?,?) ON DUPLICATE KEY UPDATE times = times + 1""",
+                            [k["id"], r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"], run_id])
                 continue
-            issued_at, recorded_at, issued_day = issue_times(r["INSERT_TIME"], r["RECTIME"])
+            issued_at, issued_day = issue_time(r["INSERT_TIME"])
             cls = classify_issue(conn, ctx, r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"], issued_at, r["SUIT_BARCODE"])
-            res = execute(conn, """INSERT INTO issue_import (suit_barcode, insert_time, rectime, suit_type, suit_color, suit_size, suit_level,
-                     issued_at, recorded_at, issued_day, location_id, stock_item_id, quality, status, sync_run_id)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                          [r["SUIT_BARCODE"], r["INSERT_TIME"], r["RECTIME"], r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"],
-                           to_db(issued_at), to_db(recorded_at), issued_day, cls.location_id, cls.stock_item_id, cls.quality, cls.status, run_id])
+            res = execute(conn, """INSERT INTO issue_import (suit_barcode, insert_time, suit_type, suit_color, suit_size, suit_level,
+                     issued_at, issued_day, location_id, stock_item_id, quality, status, sync_run_id)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                          [r["SUIT_BARCODE"], r["INSERT_TIME"], r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"], r["SUIT_LEVEL"],
+                           to_db(issued_at), issued_day, cls.location_id, cls.stock_item_id, cls.quality, cls.status, run_id])
+            kept[(r["SUIT_BARCODE"], r["INSERT_TIME"])] = {"id": res.lastrowid, "suit_type": r["SUIT_TYPE"], "suit_color": r["SUIT_COLOR"],
+                                                         "suit_size": r["SUIT_SIZE"], "suit_level": r["SUIT_LEVEL"]}
             c.new += 1
             c.by_status[cls.status] = c.by_status.get(cls.status, 0) + 1
             if cls.quality == "incomplete":
@@ -75,13 +83,11 @@ def _import_batch(batch: list[OracleIssueRow], run_id: int, c: _Counters, now: d
             c.max_day = issued_day if c.max_day is None or issued_day > c.max_day else c.max_day
             if cls.status == "applied":
                 movements.append(Movement(cls.stock_item_id, -1, issued_at, "issue", issue_import_id=res.lastrowid))  # type: ignore[arg-type]
-            # ORA-13: RECTIME before the scan (beyond tolerance) or a scan in the future
-            gap = recorded_at - issued_at
-            future = issued_at > now + tol
-            if gap < -tol or future:
+            # ORA-13: a scan time in the future means a wrong clock on the scanner or in Oracle.
+            if issued_at > now + tol:
                 c.time_check_failed += 1
                 c.time_alerts.append({"barcode": r["SUIT_BARCODE"], "level": r["SUIT_LEVEL"], "insertTime": r["INSERT_TIME"],
-                                      "rectime": r["RECTIME"], "gapHours": round(gap.total_seconds() / 3600, 2), "futureScan": future})
+                                      "hoursAhead": round((issued_at - now).total_seconds() / 3600, 2)})
         note_values_seen(conn, seen, now)
         apply_movements(conn, movements)
 
@@ -112,10 +118,10 @@ def _finish_run(run_id: int, kind: str, c: _Counters, error: BaseException | Non
     elif c.time_alerts:
         # One alert per run listing every row (ORA-13); the history load only summarises.
         if kind in ("backfill", "upload"):
-            alert("time_check", f"{'History load' if kind == 'backfill' else 'CSV upload'}: {len(c.time_alerts)} rows have RECTIME before the scan or a scan in the future",
+            alert("time_check", f"{'History load' if kind == 'backfill' else 'CSV upload'}: {len(c.time_alerts)} rows have a scan time (INSERT_TIME) in the future",
                   {"runId": run_id, "count": len(c.time_alerts), "examples": c.time_alerts[:20]})
         else:
-            alert("time_check", f"{len(c.time_alerts)} issue rows have RECTIME before the scan or a scan in the future",
+            alert("time_check", f"{len(c.time_alerts)} issue rows have a scan time (INSERT_TIME) in the future",
                   {"runId": run_id, "rows": c.time_alerts})
     if c.conflicts:
         alert("data_conflict", f"{c.conflicts} rows had the same barcode and INSERT_TIME as an issue already imported but another "
@@ -137,51 +143,33 @@ def _exclusive(fn):
         _running.release()
 
 
-def _set_watermark(level: str, rectime: str) -> None:
-    with connect() as conn:
-        execute(conn, """INSERT INTO sync_watermark (suit_level, last_rectime) VALUES (?, ?)
-                 ON DUPLICATE KEY UPDATE last_rectime = GREATEST(last_rectime, VALUES(last_rectime))""", [level, rectime])
+def _read_from(source: IssueSource, start: str, run_id: int, c: _Counters, now: datetime) -> None:
+    """Reads every row with INSERT_TIME >= start, a page at a time, keyset-paged on (INSERT_TIME, SUIT_BARCODE):
+    many rows share a second, and paging on the time alone would skip the rest of such a group."""
+    after: InsertKey | None = None
+    while True:
+        batch = source.by_insert_time(start, after, config.ORACLE_MAX_ROWS)
+        _import_batch(batch, run_id, c, now)
+        if len(batch) < config.ORACLE_MAX_ROWS:
+            break
+        after = _key_of(batch[-1])
 
 
 def poll(source: IssueSource, now: datetime | None = None, kind: str = "poll") -> dict:
-    """Regular import (ORA-03): one query per known SUIT_LEVEL from its own RECTIME watermark, plus
-    discovery of levels without a watermark. Watermarks move only after each batch commits."""
+    """Regular import (ORA-03): reads from ORACLE_LOOKBACK_HOURS before the newest scan already imported (or from
+    ORACLE_BACKFILL_FROM on a new database). Records entered into Oracle up to that many hours after the scan are
+    still found; rows already imported are skipped."""
     now = now or now_utc()
 
     def run() -> dict:
         run_id = _start_run(kind)
         c = _Counters()
         try:
-            overlap = -config.ORACLE_OVERLAP_MINUTES
-            mx = config.ORACLE_MAX_ROWS
             with connect() as conn:
-                marks = [{"level": r["suit_level"], "rectime": naive_str(r["last_rectime"])}
-                         for r in rows(conn, "SELECT suit_level, last_rectime FROM sync_watermark")]
-            for m in marks:
-                after: RectimeKey = {"rectime": shift_naive(m["rectime"], overlap), "barcode": ""}
-                while True:
-                    batch = source.by_level(m["level"], after, mx)
-                    _import_batch(batch, run_id, c, now)
-                    if batch:
-                        _set_watermark(m["level"], batch[-1]["RECTIME"])
-                    if len(batch) < mx:
-                        break
-                    after = _key_of(batch[-1])
-            # Discovery: levels GI has never seen, read from the oldest watermark (or the backfill start).
-            known = [m["level"] for m in marks]
-            after = {"rectime": shift_naive(min(m["rectime"] for m in marks), overlap) if marks else config.ORACLE_BACKFILL_FROM, "barcode": ""}
-            while True:
-                batch = source.other_levels(known, after, mx)
-                _import_batch(batch, run_id, c, now)
-                last: dict[str, str] = {}
-                for r in batch:
-                    if r["SUIT_LEVEL"] not in last or r["RECTIME"] > last[r["SUIT_LEVEL"]]:
-                        last[r["SUIT_LEVEL"]] = r["RECTIME"]
-                for lvl, rect in last.items():
-                    _set_watermark(lvl, rect)
-                if len(batch) < mx:
-                    break
-                after = _key_of(batch[-1])
+                newest = one(conn, "SELECT MAX(insert_time) AS t FROM issue_import")
+            start = (shift_naive(naive_str(newest["t"]), -60 * config.ORACLE_LOOKBACK_HOURS) if newest and newest["t"]
+                     else config.ORACLE_BACKFILL_FROM)
+            _read_from(source, start, run_id, c, now)
             return _finish_run(run_id, kind, c)
         except Exception as e:  # noqa: BLE001
             _finish_run(run_id, kind, c, e)
@@ -191,8 +179,9 @@ def poll(source: IssueSource, now: datetime | None = None, kind: str = "poll") -
 
 
 def sweep(source: IssueSource, now: datetime | None = None) -> dict:
-    """Daily catch-up sweep (ORA-03a): re-reads every row scanned in the last ORACLE_SWEEP_DAYS, with no
-    upper limit, and imports any the polls missed. Alerts if it found any."""
+    """Daily catch-up sweep (ORA-03a): re-reads every row scanned in the last ORACLE_SWEEP_DAYS, with no upper
+    limit, and imports any the polls missed (e.g. entered into Oracle more than ORACLE_LOOKBACK_HOURS late).
+    Alerts if it found any."""
     now = now or now_utc()
 
     def run() -> dict:
@@ -200,20 +189,14 @@ def sweep(source: IssueSource, now: datetime | None = None) -> dict:
         c = _Counters()
         try:
             start = utc_to_local(now - timedelta(days=config.ORACLE_SWEEP_DAYS), config.ORACLE_INSERT_TIME_ZONE)
-            after: InsertKey | None = None
-            while True:
-                batch = source.by_insert_time(start, after, config.ORACLE_MAX_ROWS)
-                _import_batch(batch, run_id, c, now)
-                if len(batch) < config.ORACLE_MAX_ROWS:
-                    break
-                after = {"insert_time": batch[-1]["INSERT_TIME"], "barcode": batch[-1]["SUIT_BARCODE"]}
+            _read_from(source, start, run_id, c, now)
             summary = _finish_run(run_id, "sweep", c)
             if c.new:
                 with connect() as conn:
-                    found = rows(conn, """SELECT suit_barcode AS barcode, suit_level AS level, insert_time AS insertTime, rectime
+                    found = rows(conn, """SELECT suit_barcode AS barcode, suit_level AS level, insert_time AS insertTime
                                             FROM issue_import WHERE sync_run_id = ? LIMIT 50""", [run_id])
                 alert("sweep_found_rows", f"Catch-up sweep found {c.new} issue rows the regular import missed",
-                      {"runId": run_id, "rows": [{**f, "insertTime": naive_str(f["insertTime"]), "rectime": naive_str(f["rectime"])} for f in found]})
+                      {"runId": run_id, "rows": [{**f, "insertTime": naive_str(f["insertTime"])} for f in found]})
             return summary
         except Exception as e:  # noqa: BLE001
             _finish_run(run_id, "sweep", c, e)
@@ -267,5 +250,5 @@ def sync_status(now: datetime | None = None) -> dict:
         "stale": config.ISSUE_SOURCE != "csv" and (last_ok is None or now - last_ok > stale_after),
         "source": config.ISSUE_SOURCE,
         "pollSeconds": config.ORACLE_POLL_SECONDS,
-        "nowPhoenix": utc_to_local(now, config.ORACLE_RECTIME_ZONE),
+        "nowPhoenix": utc_to_local(now, config.SITE_TIMEZONE),
     }

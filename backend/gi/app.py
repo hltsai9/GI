@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import threading
+import time
 from urllib.parse import unquote
 from datetime import date
 from pathlib import Path
@@ -61,6 +62,7 @@ class OrderInput(BaseModel):
 
 
 MAX_UPLOAD_BYTES = 50_000_000
+SLOW_MS = 1000  # requests slower than this are logged
 
 
 def _automatic_source() -> None:
@@ -105,6 +107,17 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
     floor_or_lead = Depends(require_role("floor", "lead"))  # floor staff, lead (and admin)
     admin = Depends(require_role("admin"))
     user = Depends(current_user)
+
+    @app.middleware("http")
+    async def timing(request: Request, call_next):
+        """Server-Timing header on every response, and a log line for slow requests, to find what is slow."""
+        start = time.perf_counter()
+        response = await call_next(request)
+        ms = (time.perf_counter() - start) * 1000
+        response.headers["Server-Timing"] = f"app;dur={ms:.0f}"
+        if ms > SLOW_MS and not request.url.path.startswith(("/api/health", "/healthz")):
+            log.warning("slow request: %s %s took %.1f s", request.method, request.url.path + (f"?{request.url.query}" if request.url.query else ""), ms / 1000)
+        return response
 
     @app.exception_handler(HttpError)
     async def _http_error(_req: Request, e: HttpError):
@@ -264,6 +277,12 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
     def data_quality(days: int = Days):
         with connect() as c:
             return settings.data_quality(c, days)
+
+    @app.get("/api/data-quality/unregistered", dependencies=[user])
+    def find_unregistered(find: str = Query("", max_length=255), limit: int = Query(50, ge=1, le=500)):
+        """Unregistered barcodes containing `find` (the page's "Find a barcode" box)."""
+        with connect() as c:
+            return settings.unregistered_barcodes(c, limit, find or None)
 
     @app.get("/api/data-quality/unregistered.csv", dependencies=[user])
     def unregistered_csv():

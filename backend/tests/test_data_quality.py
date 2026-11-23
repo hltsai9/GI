@@ -27,10 +27,10 @@ def setup_rows():
             c.exec_driver_sql(f"INSERT INTO oracle_value_map (oracle_column, oracle_value, {fk}) VALUES (%s, %s, %s) ON DUPLICATE KEY UPDATE {fk} = VALUES({fk})",
                               (col, val, target))
     save_starting_count(StartingCountInput(locationId=ids["loc"]["P1"], asOf="2026-11-19T00:00:00Z", counts=[]), user_id())
-    # Two registered gowns and three unregistered rows (GOWN / OTHER / OTHER), scanned 20 Nov in Taipei = 19 Nov in Phoenix.
-    data = (HEADER + csv_line("G-1", "2026-11-20 09:00:00") + csv_line("G-2", "2026-11-20 09:01:00")
-            + csv_line("X  12", "2026-11-20 09:02:00", "OTHER", "OTHER") + csv_line("x  12", "2026-11-20 09:03:00", "OTHER", "OTHER")
-            + csv_line(" X  12 ", "2026-11-20 09:04:00", "OTHER", "OTHER"))
+    # Two registered gowns and three unregistered rows (GOWN / OTHER / OTHER), scanned 19 Nov (Phoenix time).
+    data = (HEADER + csv_line("G-1", "2026-11-19 09:00:00") + csv_line("G-2", "2026-11-19 09:01:00")
+            + csv_line("X  12", "2026-11-19 09:02:00", "OTHER", "OTHER") + csv_line("x  12", "2026-11-19 09:03:00", "OTHER", "OTHER")
+            + csv_line(" X  12 ", "2026-11-19 09:04:00", "OTHER", "OTHER"))
     r = import_csv(data.encode())
     assert r["new"] == 5
 
@@ -50,8 +50,8 @@ def test_barcodes_are_kept_exactly():
     # Case, leading and inner spaces are kept, so these are three different barcodes (trailing padding is removed).
     assert sorted(b["barcode"] for b in dq) == [" X  12", "X  12", "x  12"]
     b = next(b for b in dq if b["barcode"] == "X  12")
-    assert b["last_insert_time"] == "2026-11-20 09:02:00"   # as in Oracle (Taipei)
-    assert b["last_seen"] == "2026-11-20T01:02:00.000Z"    # the same moment in UTC (18:02 on 19 Nov in Phoenix)
+    assert b["last_insert_time"] == "2026-11-19 09:02:00"   # as in Oracle (Phoenix)
+    assert b["last_seen"] == "2026-11-19T16:02:00.000Z"    # the same moment in UTC
 
 
 def test_unregistered_barcodes_can_be_left_out_one_by_one():
@@ -169,3 +169,16 @@ def test_trends_split_by_location():
         assert f["byLocation"]["P1"]["issued"] == 5 and f["issued"] == 5
         b = trends.breakdown(c, 7, "issued", NOW)
         assert sum(x["byLocation"]["P1"] for x in b["bySize"]) == 5
+
+
+def test_find_unregistered_barcodes_and_timing_header():
+    setup_rows()
+    from gi.app import build_app
+    c = TestClient(build_app())
+    h = {"x-dev-user": "dev-lead"}
+    r = c.get("/api/data-quality/unregistered?find=X  1", headers=h)
+    assert [b["barcode"] for b in r.json()] == [" X  12", "X  12"]          # case and spaces as stored
+    assert c.get("/api/data-quality/unregistered?find=%25", headers=h).json() == []   # % is searched literally
+    assert r.headers["server-timing"].startswith("app;dur=")
+    dq = c.get("/api/data-quality?days=30", headers=h).json()
+    assert dq["unregisteredTotal"] == 3 and dq["conflictingTotal"] == 0

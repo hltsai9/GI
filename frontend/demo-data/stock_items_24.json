@@ -1,1 +1,1 @@
-{"id":24,"on_hand":36,"min_qty":20,"garment":"Gown","color":"White","size":"MED","location":"P2","status":"plenty","issuedToday":8,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":10}}
+{"id":24,"on_hand":40,"min_qty":20,"garment":"Gown","color":"White","size":"MED","location":"P2","status":"plenty","issuedToday":3,"lastDelivery":{"at":"2026-11-23T13:40:00.000Z","qty":10}}

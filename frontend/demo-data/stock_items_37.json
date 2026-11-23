@@ -1,1 +1,1 @@
-{"id":37,"on_hand":12,"min_qty":4,"garment":"Gown","color":"Black","size":"LG","location":"P1","status":"plenty","issuedToday":2,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":5}}
+{"id":37,"on_hand":14,"min_qty":4,"garment":"Gown","color":"Black","size":"LG","location":"P1","status":"plenty","issuedToday":0,"lastDelivery":{"at":"2026-11-22T13:40:00.000Z","qty":5}}

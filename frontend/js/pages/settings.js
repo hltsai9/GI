@@ -253,9 +253,15 @@ function DataQuality(meta, canEdit) {
       setRowMsg({ barcode: b.barcode, error: e.message });
     }
   };
-  const all = data?.unregisteredBarcodes ?? [];
-  const leftOut = all.filter((b) => b.excluded).length;
-  const shown = all.filter((b) => !find || b.barcode.toLowerCase().includes(find.toLowerCase())).slice(0, 50);
+  // The page gets the most issued barcodes; any other one is found on the server (the demo searches the ones it has).
+  const top = data?.unregisteredBarcodes ?? [];
+  const total = data?.unregisteredTotal ?? top.length;
+  const leftOut = data?.unregisteredExcluded ?? top.filter((b) => b.excluded).length;
+  const term = find.trim();
+  const found = term && !DEMO ? load(`/data-quality/unregistered?find=${encodeURIComponent(term)}&limit=50`, 'quality.found') : null;
+  const shown = term
+    ? (DEMO ? top.filter((b) => b.barcode.toLowerCase().includes(term.toLowerCase())) : found?.data ?? []).slice(0, 50)
+    : top.slice(0, 50);
   const m = new Map();
   for (const r of data?.perDay ?? []) {
     const x = m.get(r.day) ?? { incomplete: 0, total: 0 };
@@ -268,6 +274,7 @@ function DataQuality(meta, canEdit) {
     Object.assign(document.createElement('a'), { href: url, download: name }).click();
   };
   const conflicts = data?.conflictingBarcodes ?? [];
+  const conflictTotal = data?.conflictingTotal ?? conflicts.length;
   const combo = (k) => `${k.type} / ${k.color} / ${k.size}`;
   return [
     h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color, but they count as issued. A barcode that is only dirty data can be left out of the issued numbers below (Leave out); its issues then no longer count anywhere, now and in future imports, until you count it again.'),
@@ -277,36 +284,35 @@ function DataQuality(meta, canEdit) {
       h('tbody', null, days.map(([d, v]) => h('tr', null, h('td', null, d), h('td', { style: right }, v.incomplete), h('td', { style: right }, fmtNum(v.total)),
         h('td', { style: right }, v.total ? ((v.incomplete / v.total) * 100).toFixed(1) : '0'))))),
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8 } },
-      h('h4', { style: { margin: 0 } }, 'Unregistered barcodes ', h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(all.length)} for the vendor to register${leftOut ? ` · ${fmtNum(leftOut)} left out` : ''}`)),
+      h('h4', { style: { margin: 0 } }, 'Unregistered barcodes ', h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(total)} for the vendor to register${leftOut ? ` · ${fmtNum(leftOut)} left out` : ''}`)),
       h('button', { class: 'btn btn-secondary', onClick: () => download('/data-quality/unregistered.csv', 'unregistered-barcodes.csv'), style: { minHeight: 44 } }, 'Download CSV')),
     h('input', { class: 'input', placeholder: 'Find a barcode', 'aria-label': 'Find a barcode', value: find, onInput: (e) => setFind(e.target.value), style: { minHeight: 44, maxWidth: 360 } }),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', { style: right }, 'Times'),
-        h('th', { title: 'Time of the latest scan, in Phoenix time' }, 'Last scan (Phoenix)'),
-        h('th', { title: 'INSERT_TIME of the latest scan exactly as in Oracle (Taipei time): search for this in an Oracle export' }, 'INSERT_TIME (Oracle)'),
+        h('th', { title: 'INSERT_TIME of the latest scan, exactly as in Oracle (Phoenix time): search for this in an Oracle export' }, 'Last scan (INSERT_TIME)'),
         h('th', null, 'Where'), h('th', { style: right }, 'Issued count'))),
       // white-space: pre keeps runs of spaces in barcodes visible exactly as stored (HTML would merge them).
       h('tbody', null, shown.flatMap((b) => [h('tr', { style: b.excluded ? { color: 'var(--color-neutral-600)' } : null },
         h('td', { style: { whiteSpace: 'pre', textDecoration: b.excluded ? 'line-through' : null }, title: JSON.stringify(b.barcode) }, b.barcode), h('td', { style: right }, b.times),
-        h('td', null, fmtWhen(b.last_seen)), h('td', null, b.last_insert_time ?? ''), h('td', null, b.locations),
+        h('td', null, b.last_insert_time ?? ''), h('td', null, b.locations),
         h('td', { style: { ...right, whiteSpace: 'nowrap' } },
           b.excluded && h('span', { class: 'tag tag-neutral', style: { marginRight: 6 } }, 'left out'),
           canEdit && h('button', { class: 'btn btn-ghost', onClick: () => toggle(b), style: { minHeight: 36, padding: '0 6px' } }, b.excluded ? 'Count again' : 'Leave out'))),
-        rowMsg && rowMsg.barcode === b.barcode && h('tr', null, h('td', { colspan: 6, role: 'status' },
+        rowMsg && rowMsg.barcode === b.barcode && h('tr', null, h('td', { colspan: 5, role: 'status' },
           rowMsg.error ? Warn(rowMsg.error) : Msg({ tag: 'Saved', text: rowMsg.text })))]))),
-    find && !shown.length && h('div', { class: 'note' }, 'No unregistered barcode contains that text.'),
-    all.length > 50 && !find && h('div', { class: 'note' }, `Showing the 50 barcodes issued most often; find a barcode to see any of the ${fmtNum(all.length)}.`),
-    h('div', { class: 'note' }, 'Last scan is shown in Phoenix time. INSERT_TIME is the same moment as stored in Oracle (Taipei time, 15 hours ahead), to search for in your export. Hover a barcode to see it with its exact spaces.'),
+    term && !shown.length && (DEMO || found?.data) && h('div', { class: 'note' }, 'No unregistered barcode contains that text.'),
+    total > 50 && !term && h('div', { class: 'note' }, `Showing the 50 barcodes issued most often; find a barcode to see any of the ${fmtNum(total)}.`),
+    h('div', { class: 'note' }, 'Last scan is INSERT_TIME exactly as in Oracle (Phoenix time), to search for in your export. Hover a barcode to see it with its exact spaces.'),
     // One barcode is one garment, so its type, color and size should never change.
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginTop: 8 } },
       h('h4', { style: { margin: 0 } }, 'Barcodes with conflicting values ',
-        h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(conflicts.length)} barcodes`)),
+        h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(conflictTotal)} barcodes`)),
       h('button', { class: 'btn btn-secondary', disabled: !conflicts.length, onClick: () => download('/data-quality/conflicts.csv', 'barcodes-with-conflicting-values.csv'), style: { minHeight: 44 } }, 'Download CSV')),
     h('div', { class: 'note' }, 'The same barcode was issued with different type, color or size. Each combination is listed with how often and when it was seen. "unregistered" marks GOWN / OTHER / OTHER rows; a barcode that is unregistered first and complete later was registered in between. "same scan, not counted" marks rows with the same barcode and INSERT_TIME as another row: only the first one counts.'),
     conflicts.length
       ? h('table', { class: 'table num' },
         h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', null, 'Type / color / size'), h('th', { style: right }, 'Times'),
-          h('th', { title: 'First and last INSERT_TIME exactly as in Oracle (Taipei time)' }, 'INSERT_TIME (Oracle)'), h('th', null, 'Where'))),
+          h('th', { title: 'First and last INSERT_TIME exactly as in Oracle (Phoenix time)' }, 'INSERT_TIME'), h('th', null, 'Where'))),
         h('tbody', null, conflicts.slice(0, 50).flatMap((b) => b.combinations.map((k, i) => h('tr', null,
           h('td', { style: { whiteSpace: 'pre', fontWeight: 600, borderBottomColor: i < b.combinations.length - 1 ? 'transparent' : null }, title: JSON.stringify(b.barcode) }, i === 0 ? b.barcode : ''),
           h('td', { style: { whiteSpace: 'pre' } }, combo(k),
@@ -316,7 +322,7 @@ function DataQuality(meta, canEdit) {
           h('td', null, k.first_insert_time === k.last_insert_time ? k.last_insert_time : `${k.first_insert_time} – ${k.last_insert_time}`),
           h('td', null, k.locations))))))
       : h('div', { class: 'note' }, data ? 'None found: every barcode always came with the same type, color and size.' : ''),
-    conflicts.length > 50 && h('div', { class: 'note' }, `Showing the 50 barcodes with the most issues; Download CSV has all ${fmtNum(conflicts.length)}.`),
+    conflictTotal > 50 && h('div', { class: 'note' }, `Showing the 50 barcodes with the most issues; Download CSV has all ${fmtNum(conflictTotal)}.`),
   ];
 }
 
@@ -361,8 +367,8 @@ function CsvUpload(isAdmin) {
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
     h('h4', { class: 'sec', style: { margin: 0 } }, 'Upload an Oracle export'),
     h('div', { class: 'note' }, 'A CSV file of the Oracle issue table, with the column names in the first line (',
-      h('code', null, 'SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL, STATE, INSERT_TIME, RECTIME'),
-      '). Only rows with STATE = EMPLOYEE GOWN ISSUE are used. Rows already in GI (same barcode and INSERT_TIME) are skipped, so uploading the same or an overlapping file again is safe. Do not open and save the file in Excel: it drops the seconds from times and changes barcodes longer than 15 digits (2399600002641084 becomes 2399600002641080). To look at an export, use a text editor.'),
+      h('code', null, 'SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL, STATE, INSERT_TIME'),
+      '). INSERT_TIME is the scan time in Phoenix time; other columns (RECTIME and so on) are ignored. Only rows with STATE = EMPLOYEE GOWN ISSUE are used. Rows already in GI (same barcode and INSERT_TIME) are skipped, so uploading the same or an overlapping file again is safe. Do not open and save the file in Excel: it drops the seconds from times and changes barcodes longer than 15 digits (2399600002641084 becomes 2399600002641080). To look at an export, use a text editor.'),
     isAdmin
       ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
         h('label', { class: 'btn btn-secondary', style: { position: 'relative', minHeight: 44, cursor: 'pointer' } },
