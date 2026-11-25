@@ -7,6 +7,29 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Phone layout: phase 1 of the UX plan
+Built from [UX_PLAN.md](./UX_PLAN.md) phase 1; nothing changes on laptops except where noted.
+- **No more zooming on iPhones:** every text and number field is 16 px on phones. iPhones zoom the page into smaller fields.
+- **Bigger small text:** tab labels, section labels, table headers and notes are 13 px or more on phones.
+- **Stock › Grid and Trends › Daily grid:**
+  - Sizes and colors with nothing in them are hidden, with **Show all sizes and colors (N hidden)** to bring them back.
+  - Column names are written out in full (no more "WHI…").
+  - Below minimum and close to minimum also carry a mark (▼ / ▽), not only a color.
+- **Stock › Grid on phones:** tapping a number opens its details and minimum in a panel that slides up from the bottom. Before, they appeared below the grid, off-screen. Laptops still show them under the grid.
+- **Receive:**
+  - The phone remembers the last garment, color, size, location and quantity.
+  - After choosing a size or color, the quantity is selected, so typing replaces it.
+  - **Decision:** the quantity is selected after choosing a size or color, not after **Add line**, so the keyboard does not cover the form after every line.
+- **Opening tab:** on a phone, floor staff open on Receive; the lead, viewers and admins on Stock. Laptops still open on Stock; a link to a tab still opens that tab.
+- **Correct stock:**
+  - Recent corrections show the 5 latest, with **Show more**.
+  - Starting-count rows are left out. There is one per item, so they filled the list; Full count already says when the starting count was done.
+- **Settings › Import and Data quality:**
+  - Long explanations are folded behind **How this works** or **File format**.
+  - On phones the wide tables (unregistered barcodes, conflicting values, waiting scans, recent runs) become one card per row, each value with its name.
+  - **Data quality shows locations as P1 / P2** instead of the Oracle codes (also in the CSV downloads); a code not mapped yet is shown as it is.
+- Tested here: 70 backend tests and the frontend checks pass. Checked on an iPhone-sized screen as floor staff, lead and admin, and on a laptop. The demo data was refreshed.
+
 ### Database set-up consolidated again (drop and re-create the database)
 - **Decision:** the owner will drop the database and redeploy, so today's database changes (barcode master, colors ESD / UNI, empty `RECTIME`) were merged back into the two base files `001_schema.sql` and `002_reference_data.sql`. A new database is built in one step.
 - **You must start from an empty database.** A database from before this is refused at start-up with "This database was set up by an older GI version…". That includes one created yesterday, which has no barcode master table.

@@ -4,6 +4,7 @@ import { ph } from '../icons.js';
 import { attempt, Dropdown, ErrorNote, errorOf, GIcon, Msg, PageHead, QtyField, Seg, Stepper } from '../ui.js';
 
 const DRAFT_KEY = 'gi.deliveryDraft';
+const FORM_KEY = 'gi.receiveForm'; // the last garment, color, size, location and quantity used on this device
 
 function loadDraft() {
   try {
@@ -12,6 +13,29 @@ function loadDraft() {
     return [];
   }
 }
+
+/** The form as last used on this device, keeping only choices that still exist (and are not hidden). */
+function loadForm(meta, colors, sizes) {
+  const first = { garmentTypeId: meta.types[0].id, colorId: colors[0].id, sizeId: sizes[0].id, locationId: meta.locations[0].id, qty: '20' };
+  try {
+    const f = JSON.parse(localStorage.getItem(FORM_KEY) ?? '{}');
+    return {
+      garmentTypeId: meta.types.some((t) => t.id === f.garmentTypeId) ? f.garmentTypeId : first.garmentTypeId,
+      colorId: colors.some((c) => c.id === f.colorId) ? f.colorId : first.colorId,
+      sizeId: sizes.some((x) => x.id === f.sizeId) ? f.sizeId : first.sizeId,
+      locationId: meta.locations.some((l) => l.id === f.locationId) ? f.locationId : first.locationId,
+      qty: /^\d+$/.test(f.qty ?? '') ? f.qty : first.qty,
+    };
+  } catch {
+    return first;
+  }
+}
+
+/** Puts the cursor in the quantity with its digits selected, so typing replaces them. */
+const focusQty = () => requestAnimationFrame(() => {
+  const el = document.getElementById('rcv-qty');
+  if (el) { el.focus(); el.select(); }
+});
 
 export function Receive({ meta, me }) {
   const [view, setView] = state('receive.view', 'new');
@@ -31,13 +55,21 @@ export const perUnit = (items) => {
   for (const { unit, qty } of items) sums.set(unit || 'pieces', (sums.get(unit || 'pieces') ?? 0) + qty);
   return [...sums].map(([u, n]) => `${fmtNum(n)} ${n === 1 ? u.replace(/s$/, '') : u}`).join(' · ') || '0 items';
 };
-const Unit = (unit) => h('span', { style: { width: 44, fontSize: 12, color: 'var(--color-neutral-700)' } }, unit);
+const Unit = (unit) => h('span', { style: { width: 44, fontSize: 13, color: 'var(--color-neutral-700)' } }, unit);
 const same = (a, b) => a.garmentTypeId === b.garmentTypeId && a.colorId === b.colorId && a.sizeId === b.sizeId && a.locationId === b.locationId;
 
 function NewDelivery({ meta, canPost }) {
   const colors = meta.colors.filter((c) => c.active);
   const sizes = meta.sizes.filter((s) => s.active);
-  const [form, setForm] = state('receive.form', () => ({ garmentTypeId: meta.types[0].id, colorId: colors[0].id, sizeId: sizes[0].id, locationId: meta.locations[0].id, qty: '20' }));
+  const [form, setFormRaw] = state('receive.form', () => loadForm(meta, colors, sizes));
+  const setForm = (f) => {
+    setFormRaw(f);
+    try {
+      localStorage.setItem(FORM_KEY, JSON.stringify(f));
+    } catch {
+      /* ignore */
+    }
+  };
   const [lines, setLinesRaw] = state('receive.lines', loadDraft);
   const [busy, setBusy] = state('receive.busy', false);
   const [posted, setPosted] = flash('receive.posted');
@@ -50,7 +82,10 @@ function NewDelivery({ meta, canPost }) {
       /* ignore */
     }
   };
-  const set = (k) => (v) => setForm({ ...form, [k]: v });
+  const set = (k) => (v) => {
+    setForm({ ...form, [k]: v });
+    if (k === 'sizeId' || k === 'colorId') focusQty(); // the quantity is what comes next
+  };
   const type = (l) => meta.types.find((t) => t.id === l.garmentTypeId);
   const unitOf = (l) => type(l)?.unit ?? 'pieces';
   const formUnit = meta.types.find((t) => t.id === form.garmentTypeId)?.unit ?? 'pieces';
@@ -86,7 +121,7 @@ function NewDelivery({ meta, canPost }) {
         Dropdown({ label: 'Color', value: form.colorId, onChange: set('colorId'), options: colors.map((c) => ({ value: c.id, label: c.name })) }),
         Dropdown({ label: 'Size', value: form.sizeId, onChange: set('sizeId'), options: sizes.map((s) => ({ value: s.id, label: s.code })) }),
         Dropdown({ label: 'Location', value: form.locationId, onChange: set('locationId'), options: meta.locations.map((l) => ({ value: l.id, label: l.code })) }),
-        QtyField({ label: `Quantity (${formUnit})`, value: form.qty, onChange: set('qty') }),
+        QtyField({ id: 'rcv-qty', label: `Quantity (${formUnit})`, value: form.qty, onChange: set('qty') }),
         h('div', { style: { display: 'flex', alignItems: 'flex-end' } },
           h('button', { class: 'btn btn-secondary', onClick: add, style: { width: '100%', minHeight: 54, borderRadius: 'var(--radius-lg)' } }, ph('plus', 18), 'Add line'))),
       h('div', { style: { display: 'flex', flexDirection: 'column' } },

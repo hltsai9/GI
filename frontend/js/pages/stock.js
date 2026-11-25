@@ -1,6 +1,6 @@
 import { h, state, load, reload } from '../dom.js';
 import { api, fmtClock, fmtNum, fmtWhen } from '../api.js';
-import { attempt, cellColors, ErrorNote, errorOf, GIcon, PageHead, Seg, statusText, Stepper, Warn } from '../ui.js';
+import { attempt, cellColors, ErrorNote, errorOf, GIcon, GridHead, isPhone, PageHead, Seg, Sheet, ShowAll, stateMark, statusText, Stepper, trimGrid, Warn } from '../ui.js';
 
 export function Stock({ meta, me }) {
   const [view, setView] = state('stock.view', 'summary');
@@ -81,8 +81,11 @@ function GridView({ meta, me }) {
   const [typeId, setTypeId] = state('stock.type', meta.types[0].id);
   const [locId, setLocId] = state('stock.loc', meta.locations[0].id);
   const [sel, setSel] = state('stock.sel', null);
+  const [showAll, setShowAll] = state('stock.showAll', false);
   const grid = load(`/stock/grid?garmentTypeId=${typeId}&locationId=${locId}`, 'stock.grid');
-  const firstId = grid.data?.rows.flatMap((r) => r.cells).find((c) => c.stockItemId)?.stockItemId ?? null;
+  const phone = isPhone();
+  // Laptop: the first item's details show below the grid until another is chosen. Phone: a sheet opens on tap.
+  const firstId = phone ? null : grid.data?.rows.flatMap((r) => r.cells).find((c) => c.stockItemId)?.stockItemId ?? null;
   const selected = sel ?? firstId;
   const detail = selected ? load(`/stock/items/${selected}`, 'stock.detail') : { data: undefined };
   const canEdit = me.role === 'lead' || me.role === 'admin';
@@ -93,43 +96,52 @@ function GridView({ meta, me }) {
       reload(`/stock/items/${selected}`, '/stock/grid', '/stock/summary');
     });
   };
-  const cols = `44px repeat(${grid.data?.colors.length ?? 4}, minmax(0, 1fr))`;
+  // Colors and sizes never stocked at this location are hidden (Show all brings them back).
+  const g = grid.data && trimGrid(grid.data, (c) => !!c.stockItemId, showAll);
+  const cols = `44px repeat(${g?.colors.length || 1}, minmax(0, 1fr))`;
   const d = detail.data;
   const low = d && (d.status === 'below_min' || d.status === 'negative');
-  const swatch = (bg, text) => h('span', { style: { display: 'flex', alignItems: 'center', gap: 5 } }, h('span', { style: { width: 10, height: 10, background: bg } }), text);
+  const swatch = (bg, mark, text) => h('span', { style: { display: 'flex', alignItems: 'center', gap: 5 } },
+    h('span', { style: { width: 14, height: 14, background: bg, fontSize: 9, display: 'grid', placeItems: 'center' } }, mark), text);
+  const details = d && [
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } },
+      !phone && h('h4', { style: { margin: 0 } }, `${d.garment} · ${d.color} · ${d.size}`),
+      h('span', { style: { fontSize: 14, fontWeight: 600, color: low ? 'var(--color-accent-2-700)' : 'var(--color-neutral-700)' } }, statusText(d.status))),
+    h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
+      h('div', { style: { flex: 1 } }, h('div', { class: 'num', style: { fontSize: 34, lineHeight: 1, fontWeight: 600 } }, d.on_hand), h('div', { class: 'small' }, 'on hand')),
+      h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 } },
+        h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+          canEdit ? Stepper({ label: 'minimum', min: 1, size: 20, width: 36, value: d.min_qty ?? 0, onChange: setMin })
+            : h('span', { class: 'num', style: { fontSize: 20, fontWeight: 600 } }, d.min_qty ?? '—')),
+        h('div', { class: 'small' }, 'Alert below'))),
+    h('div', { class: 'note' }, `${d.location} · Issued today ${d.issuedToday}`, d.lastDelivery && ` · Last delivery +${d.lastDelivery.qty} on ${fmtWhen(d.lastDelivery.at)}`),
+  ];
   return [
     h('div', { style: { display: 'flex', gap: 8 } },
-      Seg({ label: 'Garment', style: { flex: 1 }, optStyle: { padding: '7px 2px', gap: 4, fontSize: 12.5 }, value: typeId, onChange: (v) => { setTypeId(v); setSel(null); },
+      Seg({ label: 'Garment', style: { flex: 1 }, optStyle: { padding: '7px 2px', gap: 4, fontSize: 13.5 }, value: typeId, onChange: (v) => { setTypeId(v); setSel(null); },
         options: meta.types.map((t) => ({ value: t.id, label: t.plural, icon: t.icon })) }),
       Seg({ label: 'Location', optStyle: { flex: 'none', padding: '7px 8px' }, value: locId, onChange: (v) => { setLocId(v); setSel(null); },
         options: meta.locations.map((l) => ({ value: l.id, label: l.code })) })),
     ErrorNote(grid.error ?? errorOf('stock.min')),
-    grid.data && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'grid', 'aria-label': 'Stock by size and color' },
-      h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--color-neutral-700)' } },
-        h('span'), grid.data.colors.map((c) => h('span', { style: { textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis' } }, c.name))),
-      grid.data.rows.map((r) => h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4, alignItems: 'stretch' } },
-        h('span', { style: { fontSize: 12, fontWeight: 600, alignSelf: 'center' } }, r.size),
+    g && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'grid', 'aria-label': 'Stock by size and color' },
+      g.colors.length ? GridHead(g.colors, cols) : h('div', { class: 'note' }, 'Nothing stocked here yet.'),
+      g.rows.map((r) => h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4, alignItems: 'stretch' } },
+        h('span', { class: 'grid-size' }, r.size),
         r.cells.map((c) => {
           const { bg, fg } = cellColors(c.status);
+          const mark = c.stockItemId ? stateMark(c.status) : '';
           return h('button', {
             class: 'cell', disabled: !c.stockItemId, onClick: () => setSel(c.stockItemId),
             'aria-label': `${r.size}: ${c.stockItemId ? `${c.onHand} on hand, ${statusText(c.status)}` : 'not stocked'}`,
             style: { background: bg, color: fg, outline: c.stockItemId && c.stockItemId === selected ? '2px solid var(--color-text)' : 'none' },
-          }, c.stockItemId ? c.onHand : '—');
+          }, c.stockItemId ? [c.onHand, mark && h('span', { class: 'cell-mark', 'aria-hidden': 'true' }, mark)] : '—');
         }))),
-      h('div', { style: { display: 'flex', gap: 14, fontSize: 12, color: 'var(--color-neutral-700)', marginTop: 4 } },
-        swatch('var(--color-accent-2-200)', 'Below min'), swatch('var(--color-neutral-200)', 'Close to min'), swatch('var(--color-accent-100)', 'Plenty'))),
-    d && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
-      h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' } },
-        h('h4', { style: { margin: 0 } }, `${d.garment} · ${d.color} · ${d.size}`),
-        h('span', { style: { fontSize: 13, fontWeight: 600, color: low ? 'var(--color-accent-2-700)' : 'var(--color-neutral-700)' } }, statusText(d.status))),
-      h('div', { style: { display: 'flex', alignItems: 'center', gap: 12 } },
-        h('div', { style: { flex: 1 } }, h('div', { class: 'num', style: { fontSize: 34, lineHeight: 1, fontWeight: 600 } }, d.on_hand), h('div', { style: { fontSize: 12, color: 'var(--color-neutral-700)' } }, 'on hand')),
-        h('div', { style: { display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 2 } },
-          h('div', { style: { display: 'flex', alignItems: 'center', gap: 6 } },
-            canEdit ? Stepper({ label: 'minimum', min: 1, size: 20, width: 36, value: d.min_qty ?? 0, onChange: setMin })
-              : h('span', { class: 'num', style: { fontSize: 20, fontWeight: 600 } }, d.min_qty ?? '—')),
-          h('div', { style: { fontSize: 12, color: 'var(--color-neutral-700)' } }, 'Alert below'))),
-      h('div', { class: 'note' }, `${d.location} · Issued today ${d.issuedToday}`, d.lastDelivery && ` · Last delivery +${d.lastDelivery.qty} on ${fmtWhen(d.lastDelivery.at)}`)),
+      h('div', { style: { display: 'flex', gap: 14, flexWrap: 'wrap', fontSize: 13, color: 'var(--color-neutral-700)', marginTop: 4 } },
+        swatch('var(--color-accent-2-200)', '▼', 'Below min'), swatch('var(--color-neutral-200)', '▽', 'Close to min'), swatch('var(--color-accent-100)', '', 'Plenty')),
+      ShowAll(g.hidden, showAll, setShowAll),
+      phone && h('div', { class: 'note' }, 'Tap a number for its details and minimum.')),
+    d && (phone
+      ? Sheet({ title: `${d.garment} · ${d.color} · ${d.size}`, onClose: () => setSel(null), children: details })
+      : h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } }, details)),
   ];
 }

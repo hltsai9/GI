@@ -21,12 +21,18 @@ function setDevice(d) {
   document.documentElement.dataset.touch = String(isTouchOnly());
 }
 
+/** Where the app opens: floor staff on a phone start at Receive (the morning delivery); the lead, viewers and
+ *  admins at Stock, which is what they check first. Laptops start at Stock. */
+const firstTab = (device, role) => (device === 'phone' && role === 'floor' ? 'receive' : 'stock');
+
 function App() {
   // Chosen once by device type; resizing or rotating never switches the layout (NFR-01).
   const [device, setDeviceState] = state('app.device', currentDevice);
-  const [tab, setTabRaw] = state('app.tab', () => (TABS.some((t) => `#${t.id}` === location.hash) ? location.hash.slice(1) : device === 'phone' ? 'receive' : 'stock'));
+  // A link (#stock …) opens that tab; otherwise the first tab depends on the role (known once /me is loaded).
+  const [chosen, setTabRaw] = state('app.tab', () => (TABS.some((t) => `#${t.id}` === location.hash) ? location.hash.slice(1) : null));
   const [user, setUser] = state('app.user', devUser);
   const me = load('/me');
+  const tab = chosen ?? firstTab(device, me.data?.role);
   const meta = load('/meta');
   const now = new Date();
   const sites = meta.data ? meta.data.locations.map((l) => l.code).join(' + ') : '';
@@ -68,7 +74,7 @@ function App() {
       device === 'phone' && [
         h('div', { class: 'ph-head' },
           h('span', { style: { fontSize: 18, fontWeight: 600 } }, 'Garments'),
-          h('span', { style: { fontSize: 12, color: 'var(--color-neutral-700)' } }, `${sites} · ${fmtClock(now.toISOString())}`)),
+          h('span', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, `${sites} · ${fmtClock(now.toISOString())}`)),
         nav('ph-tabs'),
       ],
       DEMO && h('div', { class: 'p-seg', style: { paddingTop: 10 } },

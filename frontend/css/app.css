@@ -70,3 +70,43 @@ button, input, select { font: inherit; color: inherit; }
 h4.sec { margin: 0 0 6px; }
 .axis { display: flex; justify-content: space-between; font-size: 12px; color: var(--color-neutral-700); margin-top: 4px; }
 .cell { min-height: 40px; border: none; border-radius: var(--radius-md); font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; cursor: pointer; outline-offset: 1px; }
+
+/* ---- Phone readability (docs/UX_PLAN.md phase 1). iOS Safari zooms the page into any field under 16 px, so
+   every text field is 16 px on phones; small labels are at least 12–13 px. */
+[data-device="phone"] input:not([type="radio"]):not([type="checkbox"]), [data-device="phone"] select,
+[data-device="phone"] textarea, [data-device="phone"] .input, [data-device="phone"] .qty input { font-size: 16px; }
+[data-device="phone"] .ph-tabs button { font-size: 13px; }
+[data-device="phone"] .kicker { font-size: 12.5px; }
+[data-device="phone"] .dd-label { font-size: 12px; }
+[data-device="phone"] .dd-btn { font-size: 16px; }
+[data-device="phone"] .note, [data-device="phone"] .line-meta, [data-device="phone"] .axis { font-size: 13.5px; }
+[data-device="phone"] .table { font-size: 15px; }
+[data-device="phone"] .table th { font-size: 13px; letter-spacing: 0; text-transform: none; font-weight: 600; }
+.small { font-size: 13px; color: var(--color-neutral-700); }
+
+/* size × color grids: readable column names; bottom sheet for details on phones */
+.grid-head { display: grid; gap: 4px; font-size: 12.5px; font-weight: 600; line-height: 1.15; color: var(--color-neutral-700); align-items: end; }
+.grid-head span { text-align: center; overflow-wrap: anywhere; hyphens: auto; }
+.grid-size { font-size: 13px; font-weight: 600; align-self: center; }
+.cell-mark { font-size: 10px; margin-left: 2px; vertical-align: 2px; }
+.sheet-scrim { position: fixed; inset: 0; z-index: 30; background: color-mix(in srgb, var(--color-neutral-900) 35%, transparent); }
+.sheet { position: fixed; left: 0; right: 0; bottom: 0; z-index: 31; max-height: 80dvh; overflow: auto; display: flex; flex-direction: column; gap: 10px;
+  padding: 8px 20px calc(18px + env(safe-area-inset-bottom)); background: var(--color-bg); border-radius: 16px 16px 0 0; box-shadow: var(--shadow-lg);
+  animation: sheet-up .18s ease-out; }
+.sheet-grip { width: 40px; height: 4px; border-radius: 2px; background: var(--color-neutral-300); align-self: center; margin-bottom: 4px; }
+@keyframes sheet-up { from { transform: translateY(40px); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .sheet { animation: none; } }
+details.help summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-size: 14px; font-weight: 600; color: var(--color-accent-700); }
+details.help[open] summary { margin-bottom: 4px; }
+
+/* Wide tables become stacked cards on phones: one card per row, each value with its column name. */
+[data-device="phone"] .table.stack thead { display: none; }
+[data-device="phone"] .table.stack, [data-device="phone"] .table.stack tbody, [data-device="phone"] .table.stack tr,
+[data-device="phone"] .table.stack td { display: block; }
+[data-device="phone"] .table.stack tr { padding: 8px 0; border-bottom: 1px solid var(--color-divider); }
+[data-device="phone"] .table.stack td { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 3px 0; border: none; text-align: right !important; }
+[data-device="phone"] .table.stack td::before { content: attr(data-label); flex: none; font-size: 13px; color: var(--color-neutral-700); text-align: left; }
+[data-device="phone"] .table.stack td[data-label=""] { justify-content: flex-start; text-align: left !important; font-weight: 600; }
+[data-device="phone"] .table.stack td[data-label=""]::before { content: none; }
+[data-device="phone"] .table.stack td:empty { display: none; }
+[data-device="phone"] .table.stack td > div { text-align: right; }

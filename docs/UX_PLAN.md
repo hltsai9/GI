@@ -69,7 +69,13 @@ The design should favour the first row: it happens every day, under time pressur
 
 ## Plan
 
-### Phase 1 — quick fixes (about 2 days, no change to the mockup's layout)
+### Phase 1 — quick fixes (about 2 days, no change to the mockup's layout) — **done 2026-11-24**
+Built as planned, with these choices:
+- the quantity field is selected right after choosing a **size or color** (the next thing typed), not after
+  **Add line**, so the keyboard does not cover the form after each line;
+- Full count keeps every size and color (counting needs them all), but gets the readable column names;
+- the Daily grid's two numbers per cell stay for now (Phase 3.4).
+
 1. Inputs at 16 px on phones (stops the iPhone zoom).
 2. Text size: tab labels, section labels and table headers at least 13 px on phones.
 3. Grids: hide colors and sizes that are empty everywhere for that garment and location, with a "Show all" switch;

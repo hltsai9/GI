@@ -167,6 +167,14 @@ def set_mapping(map_id: int, inp: MappingInput, user_id: int) -> dict:
 
 
 # ---- data quality (DQ-05)
+def _location_names(conn: Connection):
+    """Turns a list of Oracle SUIT_LEVEL codes ("FAB1,FAB2") into GI locations ("P1, P2") through the value
+    mapping; a code not mapped yet is shown as it is."""
+    names = {r["oracle_value"]: r["code"] for r in rows(conn, """SELECT m.oracle_value, l.code FROM oracle_value_map m
+                                                                  JOIN location l ON l.id = m.location_id WHERE m.oracle_column = 'SUIT_LEVEL'""")}
+    return lambda codes: ", ".join(dict.fromkeys(names.get(c, c) for c in (codes or "").split(",") if c)) or None
+
+
 def unregistered_barcodes(conn: Connection, limit: int | None = None, find: str | None = None) -> list[dict]:
     """One line per unregistered barcode, most issued first (`limit`: only the first ones; `find`: barcodes
     containing that text). first_seen / last_seen are scan times in UTC; last_insert_time is the latest INSERT_TIME
@@ -181,7 +189,8 @@ def unregistered_barcodes(conn: Connection, limit: int | None = None, find: str 
                                MAX(e.suit_barcode IS NOT NULL) AS excluded, MAX(e.note) AS excluded_note
                           FROM issue_import ii LEFT JOIN excluded_barcode e ON e.suit_barcode = ii.suit_barcode
                          WHERE {where} GROUP BY ii.suit_barcode ORDER BY times DESC, barcode {'LIMIT ' + str(int(limit)) if limit else ''}""", params)
-    return [{**r, "excluded": bool(r["excluded"]), "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
+    loc = _location_names(conn)
+    return [{**r, "locations": loc(r["locations"]), "excluded": bool(r["excluded"]), "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
              "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S") if r["last_insert_time"] else None} for r in rs]
 
 
@@ -205,6 +214,7 @@ def conflicting_barcodes(conn: Connection, limit: int | None = None) -> list[dic
     exactly (case and spaces). The details are read only for the candidate barcodes, so the cost stays small
     however many issues there are. `limit`: only the barcodes with the most issues."""
     out: dict[str, dict] = {}
+    loc = _location_names(conn)
     cands = _conflict_candidates(conn)
     for i in range(0, len(cands), 500):
         chunk = cands[i:i + 500]
@@ -233,7 +243,7 @@ def conflicting_barcodes(conn: Connection, limit: int | None = None) -> list[dic
                 "notCounted": bool(r["all_not_counted"]),
                 "times": int(r["times"]), "first_seen": iso(r["first_seen"]), "last_seen": iso(r["last_seen"]),
                 "first_insert_time": r["first_insert_time"].strftime("%Y-%m-%d %H:%M:%S"),
-                "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S"), "locations": r["locations"]})
+                "last_insert_time": r["last_insert_time"].strftime("%Y-%m-%d %H:%M:%S"), "locations": loc(r["locations"])})
     # A barcode found only through a level difference has a single type/color/size: not a conflict here.
     result = sorted((b for b in out.values() if len(b["combinations"]) > 1), key=lambda b: (-b["times"], b["barcode"]))
     return result[:limit] if limit else result
