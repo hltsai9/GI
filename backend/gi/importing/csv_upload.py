@@ -32,8 +32,9 @@ _FORMATS = (
     "%m/%d/%Y %H:%M:%S", "%m/%d/%Y %I:%M:%S %p",
 )
 # "09.00.00" (Oracle NLS) → "09:00:00"; drops fractional seconds ("09:00:00.000000").
-# A long numeric barcode after a spreadsheet saved the file: "2.39960000264108E+15" (digits lost).
-_SCIENTIFIC = re.compile(r"^\s*\d+(\.\d+)?[eE][+-]?\d+\s*$")
+# A long numeric barcode after a spreadsheet saved the file: "2.39960000264108E+15" (digits lost). Spreadsheets
+# always write the exponent's sign, so a real barcode with a letter E in it ("996000027999E030") is not matched.
+_SCIENTIFIC = re.compile(r"^\s*\d+(\.\d+)?[eE][+-]\d+\s*$")
 _TIME = re.compile(r"(?<!\d)(\d{1,2})[.:](\d{2})[.:](\d{2})(?:[.,]\d+)?(?!\d)")
 
 

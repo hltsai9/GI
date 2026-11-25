@@ -7,6 +7,12 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Fix: barcodes with a letter E were refused as "scientific notation"
+- **Problem reported:** an upload was refused because `SUIT_BARCODE '996000027999E030'` was said to be in scientific notation (saved by Excel).
+- **Cause:** GI's check took any digits–E–digits text for a spreadsheet number. But spreadsheets always write a sign after the E (`2.39960000264108E+15`), and this barcode has none: it is a real barcode.
+- **Fix:** only values with a sign after the E are refused. `996000027999E030` now imports normally, in both issue uploads and barcode master uploads. Upload the same file again.
+- **Unchanged:** a barcode really damaged by a spreadsheet is still refused. Its last digits are lost and can't be recovered, so importing it would merge different garments into one barcode.
+
 ### Phone UX review and plan
 - Reviewed every screen on a phone-sized screen as floor staff and admin; findings and a 4-phase plan are in [UX_PLAN.md](./UX_PLAN.md), with screenshots in `docs/ux-review/`. Nothing is built yet.
 - Main findings:
