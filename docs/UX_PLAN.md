@@ -89,7 +89,7 @@ Built as planned, with these choices:
 9. Grid states also marked with a small icon or text, not only color.
 
 ### Phase 2 — faster deliveries (the biggest win; about 3–4 days)
-1. **Built 2026-11-24, to try out.** **Grid entry for deliveries**: choose garment and location once, then type quantities in a size × color grid
+1. **Built 2026-11-24, to try out.** After trying it: every size and color stays in the same place (none hidden, so staff learn where each box is), and the garment / location switches and color names stay pinned while scrolling. **Grid entry for deliveries**: choose garment and location once, then type quantities in a size × color grid
    (like Full count, with large steppers and only the usual sizes and colors shown). One garment type per screen,
    with a total; switch garment type without losing entries.
 2. **Usual sizes and colors first**: order the choices by how often they were delivered in the last 30 days.

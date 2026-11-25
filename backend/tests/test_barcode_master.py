@@ -144,12 +144,53 @@ def test_daily_sync_reads_the_whole_table_page_by_page():
         assert {x["suit_size"] for x in rows(c, "SELECT suit_size FROM barcode_master")} == {"L"}
 
 
+def wait_run(c, run_id):
+    import time
+    for _ in range(300):
+        r = c.get(f"/api/sync/runs/{run_id}", headers={"x-dev-user": "dev-lead"}).json()
+        if r["status"] != "running":
+            return r
+        time.sleep(0.05)
+    raise AssertionError("run did not finish")
+
+
+def test_large_upload_is_saved_in_batches_in_the_background():
+    from gi.app import build_app
+    c = TestClient(build_app())
+    body = (MASTER + "".join(version(f"G-{i:06d}", "L", "2026-10-14 15:30:00") for i in range(9000))).encode()
+    r = c.post("/api/barcode-master/upload", content=body, headers=admin_headers())
+    assert r.status_code == 202 and r.json()["total"] == 9000
+    run = wait_run(c, r.json()["runId"])
+    assert (run["status"], run["done"], run["total"], run["changed"]) == ("ok", 9000, 9000, 9000)
+    with connect() as conn:
+        assert one(conn, "SELECT COUNT(*) AS n FROM barcode_master")["n"] == 9000  # type: ignore[index]
+
+
+def test_daily_read_takes_only_rows_since_the_newest_rectime():
+    from gi.config import config
+    config.BARCODE_MASTER_LOOKBACK_HOURS = 24
+    row_ = lambda b, size, t: {"SUIT_BARCODE": b, "SUIT_CATEGORY": "C", "SUIT_TYPE": "GOWN", "SUIT_COLOR": "WHITE",  # noqa: E731
+                               "SUIT_SIZE": size, "RECTIME": t}
+    master = [row_("G-1", "M", "2026-10-01 10:00:00"), row_("G-2", "M", "2026-11-20 10:00:00")]
+    src = MockIssueSource([], lambda: NOW, master)
+    assert sync_master(src)["rows"] == 2                                   # first read: the whole table
+    master += [row_("G-1", "L", "2026-11-22 09:00:00"), row_("G-3", "S", "2026-11-19 12:00:00")]
+    r = sync_master(src)                                                    # since 2026-11-19 10:00 (newest minus 24 h)
+    assert (r["rows"], r["changed"]) == (3, 2)                              # G-2 again (no change), G-1 newer, G-3 new
+    with connect() as conn:
+        assert {x["suit_barcode"]: x["suit_size"] for x in rows(conn, "SELECT suit_barcode, suit_size FROM barcode_master")} == \
+            {"G-1": "L", "G-2": "M", "G-3": "S"}
+    master.append(row_("G-4", "S", "2026-11-01 08:00:00"))                 # an old row added late: only a full read finds it
+    assert sync_master(src)["rows"] == 1 and sync_master(src, full=True)["rows"] == 5
+
+
 def test_upload_endpoint_is_admin_only_and_reports_problems():
     c = TestClient(__import__("gi.app", fromlist=["build_app"]).build_app())
     body = (MASTER + version("G-1", "L", "2026-10-14 15:30:00")).encode()
     assert c.post("/api/barcode-master/upload", content=body, headers={"x-dev-user": "dev-lead"}).status_code == 403
     ok = c.post("/api/barcode-master/upload", content=body, headers=admin_headers())
-    assert ok.status_code == 200 and ok.json()["barcodes"] == 1
+    assert ok.status_code == 202 and ok.json()["total"] == 1
+    assert wait_run(c, ok.json()["runId"])["status"] == "ok"
     bad = c.post("/api/barcode-master/upload", content=b"SUIT_BARCODE,SUIT_SIZE\nG-1,L\n", headers=admin_headers())
     assert bad.status_code == 400 and "RECTIME" in bad.json()["error"]
     s = c.get("/api/barcode-master", headers={"x-dev-user": "dev-lead"}).json()

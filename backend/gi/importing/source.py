@@ -35,8 +35,9 @@ class MasterRow(TypedDict):
 
 
 class MasterSource(Protocol):
-    def master_page(self, after: str | None, limit: int) -> list[MasterRow]:
-        """Rows with SUIT_BARCODE > after, ordered by SUIT_BARCODE (every row of a barcode, all versions)."""
+    def master_page(self, after: str | None, limit: int, since: str | None = None) -> list[MasterRow]:
+        """Rows with SUIT_BARCODE > after, ordered by SUIT_BARCODE (each barcode's latest rows, or all of them);
+        with `since`, only rows with RECTIME at or after it."""
 
     def master_for(self, barcodes: list[str]) -> list[MasterRow]:
         """Every row of these barcodes."""

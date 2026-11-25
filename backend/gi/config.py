@@ -51,7 +51,8 @@ class Config:
     ORACLE_ISSUE_TABLE: str | None = None
     # Barcode master: the attributes (type, color, size) of each barcode; several rows per barcode, latest RECTIME wins.
     ORACLE_BARCODE_MASTER_TABLE: str | None = None
-    BARCODE_MASTER_SYNC_HOUR: int = 2  # daily full read of the barcode master, after this hour (site time)
+    BARCODE_MASTER_SYNC_HOUR: int = 2  # daily read of the barcode master, after this hour (site time)
+    BARCODE_MASTER_LOOKBACK_HOURS: int = 24  # the daily read starts this far before the newest RECTIME GI has
     ORACLE_POLL_SECONDS: int = 300
     ORACLE_LOOKBACK_HOURS: int = 24  # each import re-reads this far back from the newest scan (late entries)
     ORACLE_MAX_ROWS: int = 5000
@@ -85,6 +86,7 @@ def load_config() -> Config:
         ORACLE_ISSUE_TABLE=_env("ORACLE_ISSUE_TABLE"),
         ORACLE_BARCODE_MASTER_TABLE=_env("ORACLE_BARCODE_MASTER_TABLE"),
         BARCODE_MASTER_SYNC_HOUR=_int("BARCODE_MASTER_SYNC_HOUR", 2, 0, 23),
+        BARCODE_MASTER_LOOKBACK_HOURS=_int("BARCODE_MASTER_LOOKBACK_HOURS", 24, 0, 24 * 60),
         ORACLE_POLL_SECONDS=_int("ORACLE_POLL_SECONDS", 300, 60, 43_200),
         ORACLE_LOOKBACK_HOURS=_int("ORACLE_LOOKBACK_HOURS", 24, 1, 24 * 14),
         ORACLE_MAX_ROWS=_int("ORACLE_MAX_ROWS", 5000, 1),

@@ -55,9 +55,15 @@ class OracleIssueSource:
                        FROM {self._master} {where})
                    WHERE RK = 1"""
 
-    def master_page(self, after: str | None, limit: int) -> list[MasterRow]:
-        where = "WHERE SUIT_BARCODE > :after" if after is not None else ""
-        binds: dict = {"lim": limit, **({"after": after} if after is not None else {})}
+    def master_page(self, after: str | None, limit: int, since: str | None = None) -> list[MasterRow]:
+        conds, binds = [], {"lim": limit}
+        if after is not None:
+            conds.append("SUIT_BARCODE > :after")
+            binds["after"] = after
+        if since is not None:  # the daily read: only rows entered since the last one (needs an index on RECTIME)
+            conds.append(f"RECTIME >= {_d('since')}")
+            binds["since"] = since
+        where = f"WHERE {' AND '.join(conds)}" if conds else ""
         return self._q(f"{self._latest(where)} ORDER BY SUIT_BARCODE FETCH FIRST :lim ROWS ONLY", binds)  # type: ignore[return-value]
 
     def master_for(self, barcodes: list[str]) -> list[MasterRow]:

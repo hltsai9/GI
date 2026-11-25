@@ -7,6 +7,25 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Barcode master: large files no longer crash GI; daily read takes only new rows
+- **Problem reported:** uploading the full barcode master (238,000 rows) timed out and the backend container crashed, so it could never be loaded.
+- **Cause:** GI read the whole file into memory (about 270 MB) and saved it inside the upload request. With the server's own memory, that went past the pod's 512 MB limit, and the request was far too long for the browser.
+- **Fix:**
+  - The upload is checked first without keeping the rows.
+  - It is then saved **in the background, 2,000 rows at a time**, each batch committed on its own. If something stops it, the rows saved so far are kept.
+  - Measured here with 238,000 rows: the upload is answered in 3 s and saved in about 9 s; the server peaks at 190 MB.
+- **Progress like the issue upload:** Settings › Import › Barcode master shows "Uploading… %", then "Saving… N of M rows" with a progress bar, then the result. **Read from Oracle now** also runs in the background with a progress line.
+- **Decision: the daily read takes only new rows.**
+  - With an Oracle connection, GI reads only rows with a `RECTIME` from 24 hours before the newest one it already has (setting `BARCODE_MASTER_LOOKBACK_HOURS`). It reads the whole table only the first time.
+  - A row added later with an old `RECTIME` is only picked up by a full read (`POST /api/barcode-master/sync?full=1`).
+  - New open question for the DBA: an index on `RECTIME` (TODO).
+- **For CSV uploads:** Settings › Import shows the newest `RECTIME` in GI. Next time, export only rows from then on; the query is in both deployment guides.
+
+### Delivery grid: fixed positions and a pinned header
+- **Decision (after trying it):** the delivery grid shows **every size and color, always in the same place**, so floor staff learn where each box is. Hiding unstocked sizes and colors is dropped from this grid; Stock › Grid and the Daily grid still hide them.
+- While scrolling down to the larger sizes, the **Gowns / Hoods / Boots and P1 / P2 switches and the color names stay pinned at the top**, so staff always see which column and garment they are typing into.
+- Tested here: 72 backend tests pass (2 new: a 9,000-row upload saved in batches in the background, and the daily read taking only new rows). On an iPhone-sized screen: pinned header while typing in the bottom row; the 238,000-row upload with its progress bar. The demo data was refreshed.
+
 ### Phone: tab bar at the bottom; deliveries as a size × color grid (to try out)
 - **Decision:** on phones the tab bar (Receive, Stock, Trends, Settings) is now **at the bottom of the screen**, within thumb reach. This is a change from the mockup, which had it at the top; `CLAUDE.md` records it as approved. Laptops keep the sidebar.
 - **Receive › New delivery** has a new switch, **Size × color grid** / **One line at a time** (UX plan 2.1). The phone remembers which one you use.

@@ -1,7 +1,7 @@
 import { h, state, flash, load, reload } from '../dom.js';
 import { api, fmtNum, fmtToday, fmtWhen, newKey } from '../api.js';
 import { ph } from '../icons.js';
-import { attempt, Dropdown, ErrorNote, errorOf, GIcon, GridHead, Msg, PageHead, QtyField, Seg, ShowAll, Stepper, trimGrid } from '../ui.js';
+import { attempt, Dropdown, ErrorNote, errorOf, GIcon, GridHead, Msg, PageHead, QtyField, Seg, Stepper } from '../ui.js';
 
 const DRAFT_KEY = 'gi.deliveryDraft';
 const FORM_KEY = 'gi.receiveForm'; // the last garment, color, size, location and quantity used on this device
@@ -145,10 +145,10 @@ function NewDelivery({ meta, canPost }) {
 }
 
 /** Delivery entry as a size × color grid for one garment type and location (UX plan 2.1). Each cell is the
- *  quantity of one draft line, so switching garment, location or entry mode keeps everything typed. Only the
- *  sizes and colors stocked at that location are shown (plus any already typed); Show all adds the rest. */
+ *  quantity of one draft line, so switching garment, location or entry mode keeps everything typed. Every size
+ *  and color is always shown, in the same place, so staff learn where each box is; while scrolling, the garment
+ *  and location switches and the color names stay pinned at the top. */
 function GridEntry({ meta, form, setForm, lines, setLines, unitOf }) {
-  const [showAll, setShowAll] = state('receive.gridAll', false);
   const g = load(`/stock/grid?garmentTypeId=${form.garmentTypeId}&locationId=${form.locationId}`, 'receive.grid');
   const here = (l) => l.garmentTypeId === form.garmentTypeId && l.locationId === form.locationId;
   const qtyOf = (sizeId, colorId) => lines.find((l) => here(l) && l.sizeId === sizeId && l.colorId === colorId)?.qty;
@@ -169,8 +169,7 @@ function GridEntry({ meta, form, setForm, lines, setLines, unitOf }) {
     cells[cells.indexOf(e.target) + 1]?.focus();
   };
   const t = meta.types.find((x) => x.id === form.garmentTypeId);
-  const tg = g.data && trimGrid({ ...g.data, rows: g.data.rows.map((r) => ({ ...r, cells: r.cells.map((c) => ({ ...c, sizeId: r.sizeId })) })) },
-    (c) => !!c.stockItemId || !!qtyOf(c.sizeId, c.colorId), showAll);
+  const tg = g.data;
   const cols = `52px repeat(${tg?.colors.length || 1}, minmax(0, 1fr))`;
   const mine = lines.filter(here);
   // Totals per garment and location typed so far; tap one to go back to it.
@@ -181,16 +180,18 @@ function GridEntry({ meta, form, setForm, lines, setLines, unitOf }) {
     if (!grp) groups.push(grp = { k, garmentTypeId: l.garmentTypeId, locationId: l.locationId, qty: 0, n: 0, unit: unitOf(l) });
     grp.qty += l.qty; grp.n += 1;
   }
-  return [
-    h('div', { style: { display: 'flex', gap: 8 } },
+  const switches = h('div', { style: { display: 'flex', gap: 8 } },
       Seg({ label: 'Delivery garment', style: { flex: 1 }, optStyle: { padding: '7px 2px', gap: 4, fontSize: 13.5 }, value: form.garmentTypeId,
         onChange: (v) => setForm({ ...form, garmentTypeId: v }), options: meta.types.map((x) => ({ value: x.id, label: x.plural, icon: x.icon })) }),
       Seg({ label: 'Delivery location', optStyle: { flex: 'none', padding: '7px 8px' }, value: form.locationId,
-        onChange: (v) => setForm({ ...form, locationId: v }), options: meta.locations.map((l) => ({ value: l.id, label: l.code })) })),
+        onChange: (v) => setForm({ ...form, locationId: v }), options: meta.locations.map((l) => ({ value: l.id, label: l.code })) }));
+  return [
     ErrorNote(g.error),
-    tg && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'grid', 'aria-label': `Quantities delivered, ${t?.plural}` },
-      tg.colors.length ? GridHead(tg.colors, cols) : h('div', { class: 'note' }, 'Nothing stocked here yet: tap Show all to enter any size and color.'),
-      tg.rows.map((r) => h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4 } },
+    h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'grid', 'aria-label': `Quantities delivered, ${t?.plural}` },
+      // Pinned while the grid scrolls under it (sticky inside this block, which holds the whole grid).
+      h('div', { class: 'sticky-head' }, switches, tg && GridHead(tg.colors, cols)),
+      tg && 
+tg.rows.map((r) => h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4 } },
         h('span', { class: 'grid-size' }, r.size),
         r.cells.map((c) => {
           const v = qtyOf(r.sizeId, c.colorId);
@@ -202,8 +203,7 @@ function GridEntry({ meta, form, setForm, lines, setLines, unitOf }) {
             style: { minHeight: 48, textAlign: 'center', fontWeight: 600, fontSize: 18, padding: '6px 2px',
               background: v ? 'var(--color-accent-100)' : null, borderColor: v ? 'var(--color-accent)' : null },
           });
-        }))),
-      ShowAll(tg.hidden, showAll, setShowAll)),
+        })))),
     h('div', { style: { fontSize: 15, fontWeight: 600 } },
       `${t?.plural ?? ''} · ${meta.locations.find((l) => l.id === form.locationId)?.code}: `,
       h('span', { class: 'num' }, `${fmtNum(mine.reduce((a, l) => a + l.qty, 0))} ${t?.unit ?? 'pieces'} in ${mine.length} ${mine.length === 1 ? 'line' : 'lines'}`)),
@@ -215,7 +215,7 @@ function GridEntry({ meta, form, setForm, lines, setLines, unitOf }) {
           onClick: () => setForm({ ...form, garmentTypeId: grp.garmentTypeId, locationId: grp.locationId }) },
         GIcon({ name: gt?.icon, size: 16 }), `${gt?.plural} ${meta.locations.find((l) => l.id === grp.locationId)?.code} · ${fmtNum(grp.qty)}`);
       })),
-    h('div', { class: 'note' }, 'Type how many came for each size and color. Switch garment or location above; what you typed is kept. Clear a box to remove it.'),
+    h('div', { class: 'note' }, 'Type how many came for each size and color. Every size and color is always in the same place. Switch garment or location at the top; what you typed is kept. Clear a box to remove it.'),
   ];
 }
 

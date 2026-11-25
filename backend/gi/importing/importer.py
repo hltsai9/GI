@@ -10,7 +10,7 @@ import threading
 import traceback
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Callable
+from typing import Callable, Iterable
 
 from sqlalchemy.engine import Connection
 
@@ -19,7 +19,7 @@ from ..db import connect, execute, marks, one, rows, with_tx
 from ..ledger import Movement, apply_movements
 from ..timeutil import from_db, iso, issue_time, naive_str, now_utc, shift_naive, to_db, utc_to_local
 from .classify import ClassifyContext, classify_issue, note_values_seen
-from .master import Attrs, Version, attrs_for, choose, latest_versions, missing_of, read_all, store
+from .master import Attrs, Version, attrs_for, choose, csv_batches, latest_versions, missing_of, newest_rectime, read_pages, store
 from .source import InsertKey, IssueSource, MasterRow, MasterSource, OracleIssueRow
 
 log = logging.getLogger("gi.import")
@@ -361,39 +361,61 @@ def sweep(source: IssueSource, now: datetime | None = None) -> dict:
     return _exclusive(run)
 
 
-def _master_run(kind: str, note: str | None, read: Callable[[], list | dict]) -> dict:
-    """A barcode master run: stores the latest versions, then decides the scans waiting for them."""
+def _master_run(kind: str, note: str | None, batches: Callable[[], Iterable[list[MasterRow]]], total: int | None = None,
+                on_started: Callable[[int], None] | None = None) -> dict:
+    """A barcode master run: saves the latest versions batch by batch (each batch its own transaction, progress in
+    sync_run, so a large file never sits in memory or in one transaction), then decides the waiting scans."""
     def run() -> dict:
         run_id = _start_run(kind, note)
+        with connect() as conn:
+            execute(conn, "UPDATE sync_run SET rows_total = ? WHERE id = ?", [total, run_id])
+        if on_started:
+            on_started(run_id)
+        n_rows = changed = tied = barcodes = 0
         try:
-            got = read()
-            latest = got if isinstance(got, dict) else latest_versions(got)
-            n_rows = sum(v["versions"] for v in latest.values()) if isinstance(got, dict) else len(got)
-            changed = with_tx(lambda conn: store(conn, latest))
+            for batch in batches():
+                latest = latest_versions(batch)
+                changed += with_tx(lambda conn: store(conn, latest))
+                n_rows += len(batch)
+                barcodes += len(latest)
+                tied += sum(1 for v in latest.values() if v["tied"])
+                with connect() as conn:
+                    execute(conn, "UPDATE sync_run SET rows_read = ?, rows_new = ? WHERE id = ?", [n_rows, changed, run_id])
             done = with_tx(lambda conn: resolve_waiting(conn))
             with connect() as conn:
                 execute(conn, """UPDATE sync_run SET finished_at = ?, rows_read = ?, rows_new = ?, rows_resolved = ?, rows_applied = ?,
                                   status = 'ok' WHERE id = ?""", [to_db(now_utc()), n_rows, changed, done["resolved"], done["applied"], run_id])
-            return {"runId": run_id, "rows": n_rows, "barcodes": len(latest), "changed": changed,
-                    "tied": sum(1 for v in latest.values() if v["tied"]), **done}
+            return {"runId": run_id, "rows": n_rows, "barcodes": barcodes, "changed": changed, "tied": tied, **done}
         except Exception as e:  # noqa: BLE001
             with connect() as conn:
                 execute(conn, "UPDATE sync_run SET finished_at = ?, status = 'failed', error = ? WHERE id = ?",
                         [to_db(now_utc()), "".join(traceback.format_exception(e)), run_id])
-            alert("import_failed", f"Barcode master {'upload' if kind == 'master_upload' else 'sync'} failed: {e}", {"runId": run_id})
+            alert("import_failed", f"Barcode master {'upload' if kind == 'master_upload' else 'read'} failed: {e}", {"runId": run_id})
             raise
 
     return _exclusive(run)
 
 
-def sync_master(source: MasterSource) -> dict:
-    """Daily full read of the Oracle barcode master table (all versions; GI keeps the latest RECTIME)."""
-    return _master_run("master", None, lambda: read_all(source, config.ORACLE_MAX_ROWS))
+def sync_master(source: MasterSource, full: bool = False, on_started: Callable[[int], None] | None = None) -> dict:
+    """The daily read of the Oracle barcode master table. Only rows entered since the newest RECTIME GI already has
+    (minus BARCODE_MASTER_LOOKBACK_HOURS, for rows committed late) are read; the whole table only when GI has no
+    dated row yet, or with `full`."""
+    with connect() as conn:
+        newest = newest_rectime(conn)
+    since = None if full or not newest else shift_naive(newest, -60 * config.BARCODE_MASTER_LOOKBACK_HOURS)
+    return _master_run("master", f"since {since}" if since else "full read",
+                       lambda: read_pages(source, config.ORACLE_MAX_ROWS, since), None, on_started)
 
 
 def upload_master(master_rows: list[MasterRow], file_name: str = "") -> dict:
-    """A CSV export of the barcode master table (Settings › Import). Older versions never replace newer ones."""
-    return _master_run("master_upload", (file_name or "")[:255] or None, lambda: master_rows)
+    """Saves already-read rows (tests and scripts). Older versions never replace newer ones."""
+    return _master_run("master_upload", (file_name or "")[:255] or None,
+                       lambda: (master_rows[i:i + 2000] for i in range(0, len(master_rows), 2000)), len(master_rows))
+
+
+def upload_master_file(data: bytes, total: int, file_name: str = "", on_started: Callable[[int], None] | None = None) -> dict:
+    """A checked CSV export of the barcode master table (Settings › Import), saved 2,000 rows at a time."""
+    return _master_run("master_upload", (file_name or "")[:255] or None, lambda: csv_batches(data), total, on_started)
 
 
 def reclassify(conn: Connection, where: str, params: list, user_id: int | None, reason: str, tally: dict[str, int] | None = None) -> int:

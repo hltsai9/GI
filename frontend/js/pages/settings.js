@@ -358,6 +358,12 @@ function WaitingForMaster(data) {
 }
 
 /** CSV export of the Oracle issue table, for test sites that cannot reach Oracle. Rows already in GI are skipped. */
+/** A progress bar with a line of text under it; `fraction` null shows an empty bar (amount not known). */
+const ProgressBar = (fraction, text) => h('div', { role: 'status', 'aria-live': 'polite', style: { display: 'flex', flexDirection: 'column', gap: 6 } },
+  h('div', { style: { height: 8, borderRadius: 4, background: 'var(--color-neutral-200)', overflow: 'hidden' } },
+    h('div', { style: { height: '100%', width: `${Math.round((fraction ?? 0) * 100)}%`, background: 'var(--color-accent)', transition: 'width .3s' } })),
+  h('div', { class: 'num', style: { fontSize: 14, color: 'var(--color-neutral-700)' } }, text));
+
 function CsvUpload(isAdmin) {
   const [file, setFile] = state('upload.file', null);
   const [busy, setBusy] = state('upload.busy', false);
@@ -426,30 +432,40 @@ function BarcodeMaster(isAdmin) {
   const { data: m } = load('/barcode-master');
   const [file, setFile] = state('master.file', null);
   const [busy, setBusy] = state('master.busy', false);
-  const [pct, setPct] = state('master.pct', null);
+  const [progress, setProgress] = state('master.progress', null); // { phase: 'upload' | 'save' | 'read', ... }
   const [result, setResult] = state('master.result', null);
   const [failure, setFailure] = state('master.failure', null);
-  const done = (r) => {
-    setResult(r);
+  // The server saves in the background; follow its run until it is done (any replica can answer).
+  const follow = async (runId, phase, total) => {
+    let run = { status: 'running', done: 0, total };
+    setProgress({ phase, done: 0, total });
+    while (run.status === 'running') {
+      await new Promise((res) => setTimeout(res, 700));
+      run = await api(`/sync/runs/${runId}`);
+      setProgress({ phase, done: run.done, total: run.total || total });
+    }
+    if (run.status !== 'ok') throw new Error(`Stopped after ${fmtNum(run.done)} rows: ${run.error ?? 'unknown error'}. Rows saved so far are kept; run it again to finish.`);
+    setResult(run);
     reload('/barcode-master', '/sync', '/alerts', '/stock', '/trends', '/data-quality');
   };
   const send = async () => {
-    setBusy(true); setResult(null); setFailure(null); setPct(0);
+    setBusy(true); setResult(null); setFailure(null); setProgress({ phase: 'upload', fraction: 0 });
     try {
-      const r = await apiUpload('/barcode-master/upload', file, { 'content-type': 'text/csv', 'X-File-Name': encodeURIComponent(file.name) }, setPct);
+      const started = await apiUpload('/barcode-master/upload', file, { 'content-type': 'text/csv', 'X-File-Name': encodeURIComponent(file.name) },
+        (fraction) => setProgress({ phase: 'upload', fraction }));
       setFile(null);
       const input = document.getElementById('masterfile');
       if (input) input.value = '';
-      done(r);
+      await follow(started.runId, 'save', started.total);
     } catch (e) {
       setFailure({ message: e.message, problems: e.data?.problems ?? [] });
     }
-    setPct(null); setBusy(false);
+    setProgress(null); setBusy(false);
   };
   const syncNow = async () => {
     setBusy(true); setResult(null); setFailure(null);
-    try { done(await api('/barcode-master/sync', { method: 'POST' })); } catch (e) { setFailure({ message: e.message, problems: [] }); }
-    setBusy(false);
+    try { await follow((await api('/barcode-master/sync', { method: 'POST' })).runId, 'read', 0); } catch (e) { setFailure({ message: e.message, problems: [] }); }
+    setProgress(null); setBusy(false);
   };
   const w = m?.waiting ?? { conflict: 0, missing: 0 };
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
@@ -461,6 +477,8 @@ function BarcodeMaster(isAdmin) {
     m && Msg({ tag: m.barcodes ? 'OK' : 'Empty', text: `${fmtNum(m.barcodes)} barcodes${m.tied ? ` (${fmtNum(m.tied)} with two rows at the same latest RECTIME, not used)` : ''}`
       + `${m.last ? ` · last ${m.last.kind === 'master' ? 'read from Oracle' : 'upload'} ${fmtWhen(m.last.finished_at ?? m.last.started_at)}${m.last.status === 'failed' ? ' (failed)' : ''}` : ''}`
       + ` · ${fmtNum(w.conflict + w.missing)} scans waiting${w.conflict + w.missing ? ` (${fmtNum(w.conflict)} repeated with other values, ${fmtNum(w.missing)} with an empty value)` : ''}` }),
+    m?.newestRectime && h('div', { class: 'note' }, `Newest RECTIME in GI: ${m.newestRectime}. `,
+      m.live ? 'The daily read takes only rows from 24 hours before it on.' : 'Next time, export only the rows with RECTIME on or after it (query in the deployment guide).'),
     isAdmin
       ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
         h('label', { class: 'btn btn-secondary', style: { position: 'relative', minHeight: 44, cursor: 'pointer' } },
@@ -469,12 +487,16 @@ function BarcodeMaster(isAdmin) {
             style: { position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden', pointerEvents: 'none' } })),
         h('span', { class: 'num', style: { flex: '1 1 160px', minWidth: 0, fontSize: 14, color: file ? 'var(--color-text)' : 'var(--color-neutral-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
           file ? `${file.name} · ${fmtNum(Math.ceil(file.size / 1024))} KB` : 'No file chosen'),
-        h('button', { class: 'btn btn-primary', disabled: !file || busy, onClick: send, style: { minHeight: 44 } }, busy && pct !== null ? (pct < 1 ? `Uploading… ${Math.round(pct * 100)} %` : 'Saving…') : 'Upload barcode master'),
-        m?.live && h('button', { class: 'btn btn-secondary', disabled: busy, onClick: syncNow, style: { minHeight: 44 } }, busy && pct === null ? 'Reading…' : 'Read from Oracle now'))
+        h('button', { class: 'btn btn-primary', disabled: !file || busy, onClick: send, style: { minHeight: 44 } }, busy && progress?.phase !== 'read' ? 'Saving…' : 'Upload barcode master'),
+        m?.live && h('button', { class: 'btn btn-secondary', disabled: busy, onClick: syncNow, style: { minHeight: 44 } }, progress?.phase === 'read' ? 'Reading…' : 'Read from Oracle now'))
       : h('div', { class: 'note' }, 'Only an admin can upload the barcode master.'),
     HelpAs('File format', 'CSV columns: ', h('code', null, 'SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, RECTIME'),
       ' (SUIT_CATEGORY optional; REC_USER and other columns are ignored). The latest row of each barcode is enough (the query in the deployment guide gets only those). A row with an empty RECTIME counts as the oldest. An older export never replaces a newer row. Times must include seconds.'),
-    result && Msg({ tag: 'Saved', text: `${fmtNum(result.rows)} rows · ${fmtNum(result.barcodes)} barcodes (${fmtNum(result.changed)} new or changed) · ${fmtNum(result.resolved)} waiting scans decided, ${fmtNum(result.applied)} now count` }),
+    progress && ProgressBar(progress.phase === 'upload' ? progress.fraction : progress.total ? progress.done / progress.total : null,
+      progress.phase === 'upload' ? `Uploading… ${Math.round(progress.fraction * 100)} %`
+        : progress.phase === 'read' ? `Reading from Oracle… ${fmtNum(progress.done)} rows`
+          : `Saving… ${fmtNum(progress.done)} of ${fmtNum(progress.total)} rows (${Math.round((progress.done / (progress.total || 1)) * 100)} %)`),
+    result && Msg({ tag: 'Saved', text: `${fmtNum(result.done)} rows · ${fmtNum(result.changed)} barcodes new or changed · ${fmtNum(result.resolved ?? 0)} waiting scans decided, ${fmtNum(result.applied ?? 0)} now count` }),
     failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
 }
 

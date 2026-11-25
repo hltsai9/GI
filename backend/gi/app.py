@@ -26,7 +26,7 @@ from .importing import get_issue_source, get_master_source
 from .importing import master as barcode_master
 from .importing.csv_upload import CsvError, import_rows, run_progress
 from .importing.csv_upload import parse as parse_csv
-from .importing.importer import poll, sweep, sync_master, sync_status, upload_master
+from .importing.importer import poll, sweep, sync_master, sync_status, upload_master_file
 from .ledger import invariant_violations
 from .services import counts, deliveries, settings, stock, trends
 from .timeutil import iso, now_utc, to_db
@@ -72,21 +72,25 @@ def _automatic_source() -> None:
 
 
 def _start_upload(rows_: list, other: int, file_name: str) -> dict:
-    """Starts the import in a background thread holding the "import" lock; returns once the run has
-    started ({"run_id"}) or could not start ({"busy": reason})."""
+    """Starts the import in a background thread (see _in_background)."""
+    return _in_background(lambda on_started: import_rows(rows_, other, file_name, on_started=on_started), "CSV upload")
+
+
+def _in_background(work, what: str) -> dict:
+    """Runs `work(on_started)` in a background thread holding the "import" lock; returns once the run has
+    started ({"run_id"}) or could not start ({"busy": reason}). The page follows it with /api/sync/runs/{id}."""
     started = threading.Event()
     box: dict = {}
 
     def job() -> None:
         try:
-            ran, _ = with_named_lock("import", lambda: import_rows(rows_, other, file_name,
-                                                                    on_started=lambda rid: (box.update(run_id=rid), started.set())))
+            ran, _ = with_named_lock("import", lambda: work(lambda rid: (box.update(run_id=rid), started.set())))
             if not ran:
                 box["busy"] = "an import is running right now; try again in a minute"
         except RuntimeError as e:  # this instance is already importing
             box.setdefault("busy", str(e))
         except Exception:  # noqa: BLE001 - recorded in sync_run and as an alert by the importer
-            log.exception("CSV upload failed")
+            log.exception("%s failed", what)
         finally:
             started.set()
 
@@ -365,28 +369,33 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
                 "syncHour": config.BARCODE_MASTER_SYNC_HOUR}
 
     @app.post("/api/barcode-master/sync", dependencies=[admin])
-    def master_sync_now():
+    def master_sync_now(request: Request):
         src = get_master_source()
         if src is None:
             raise HttpError(409, "There is no Oracle barcode master table (setting ORACLE_BARCODE_MASTER_TABLE). Upload a CSV export instead.")
-        return _locked(lambda: sync_master(src))
+        full = request.query_params.get("full") == "1"
+        box = _in_background(lambda on_started: sync_master(src, full, on_started), "barcode master read")
+        if "run_id" not in box:
+            raise HttpError(409, box.get("busy") or "an import is running right now; try again in a minute")
+        return JSONResponse({"runId": box["run_id"]}, status_code=202)
 
     @app.post("/api/barcode-master/upload", dependencies=[admin])
     async def master_upload(request: Request, x_file_name: str | None = Header(None)):
-        """CSV export of the barcode master table, sent as the request body. Saved at once (the latest RECTIME
-        per barcode); then the scans waiting for it are decided."""
+        """CSV export of the barcode master table, sent as the request body. The file is checked at once (400 with
+        the problem lines); it is then saved in the background, 2,000 rows at a time (the latest RECTIME per barcode
+        wins), and GET /api/sync/runs/{runId} reports the progress. Waiting scans are decided at the end."""
         data = await request.body()
         if len(data) > MAX_UPLOAD_BYTES:
             raise HttpError(413, f"The file is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB; split it into smaller files.")
         try:
-            rows_ = await run_in_threadpool(barcode_master.parse_csv, data)
+            total = await run_in_threadpool(barcode_master.check_csv, data)
         except CsvError as e:
             return JSONResponse({"error": str(e), "problems": e.problems}, status_code=400)
         name = unquote(x_file_name or "")
-        try:
-            return await run_in_threadpool(lambda: _locked(lambda: upload_master(rows_, name)))
-        except RuntimeError as e:  # this instance is importing right now
-            raise HttpError(409, str(e)) from e
+        box = await run_in_threadpool(_in_background, lambda on_started: upload_master_file(data, total, name, on_started), "barcode master upload")
+        if "run_id" not in box:
+            raise HttpError(409, box.get("busy") or "an import is running right now; try again in a minute")
+        return JSONResponse({"runId": box["run_id"], "total": total}, status_code=202)
 
     @app.get("/api/sync/runs/{run_id}", dependencies=[user])
     def run_detail(run_id: int):
