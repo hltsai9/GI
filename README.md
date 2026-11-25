@@ -11,6 +11,7 @@ How issues are counted:
 - [User Requirements Document](docs/URD.md)
 - [Build plan](docs/BUILD_PLAN.md)
 - [How GI processes scan data](docs/SCAN_STATES.md) — state diagrams of the import
+- [Phone UX review and plan](docs/UX_PLAN.md)
 - [To-do: open questions](docs/TODO.md)
 - [Deployment SOP (Docker)](docs/DEPLOYMENT_SOP.md) — setting up a test environment
 - [Kubernetes with Azure DevOps](docs/KUBERNETES_DEPLOYMENT.md) — deploying to the company cluster

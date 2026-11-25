@@ -7,6 +7,15 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Phone UX review and plan
+- Reviewed every screen on a phone-sized screen as floor staff and admin; findings and a 4-phase plan are in [UX_PLAN.md](./UX_PLAN.md), with screenshots in `docs/ux-review/`. Nothing is built yet.
+- Main findings:
+  - entering a 45–75-line delivery takes hundreds of taps;
+  - iPhones zoom in on every number field (text under 16 px);
+  - grids are cramped by empty colors and sizes;
+  - Settings sections hide behind one dropdown.
+- Three decisions are open: a bottom navigation bar (changes the mockup layout), a "my location" setting per phone, and grid entry for deliveries.
+
 ### README brought up to date; P1 / P2 everywhere; colors ESD and UNI
 - **README** now describes the current app:
   - the two locations P1 and P2;
