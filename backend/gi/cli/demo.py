@@ -1,4 +1,4 @@
-"""Builds a demo database: resets it, imports the mock Oracle data, enters a starting count for both fabs
+"""Builds a demo database: resets it, imports the mock Oracle data, enters a starting count for both locations (P1, P2)
 21 days ago and a morning delivery every day since. Dev only (refuses unless DEV_AUTH=true).
 Usage: python -m gi.cli.demo"""
 import math

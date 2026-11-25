@@ -40,7 +40,7 @@ def test_new_sizes_and_color_in_order():
         sizes = [r["code"] for r in rows(c, "SELECT code FROM size WHERE NOT is_system ORDER BY sort")]
         colors = [r["name"] for r in rows(c, "SELECT name FROM color WHERE NOT is_system ORDER BY sort")]
     assert sizes == ["XSM", "SM", "MED", "LG", "XLG", "2XLG", "3XLG", "4XLG", "5XLG", "6XLG", "7XLG", "UNI", "Other"]
-    assert colors == ["White", "Blue", "Black", "Grey", "Other"]
+    assert colors == ["White", "Blue", "Black", "Grey", "ESD", "UNI", "Other"]
 
 
 def test_barcodes_are_kept_exactly():

@@ -74,7 +74,7 @@ All environment-specific values are set at installation in a `.env` file (or the
 | `ORACLE_BACKFILL_FROM` | First `INSERT_TIME` read when GI has no issues yet |
 | `MARIADB_URL` | GI database |
 | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | SSO |
-| `SITE_TIMEZONE` | Time zone for calendar days and display (default `America/Phoenix` — both fabs are in Phoenix) |
+| `SITE_TIMEZONE` | Time zone for calendar days and display (default `America/Phoenix` — both locations (P1, P2) are in Phoenix) |
 | `ORACLE_INSERT_TIME_ZONE` | Zone of `INSERT_TIME` (default `America/Phoenix`) |
 
 Table names cannot be bind variables, so the API validates them at start-up against `^[A-Za-z][A-Za-z0-9_$#]*(\.[A-Za-z][A-Za-z0-9_$#]*)?$` and refuses to start otherwise (ORA-11). An admin "Test connection" checks access and that the expected columns exist.
@@ -109,7 +109,7 @@ Table names cannot be bind variables, so the API validates them at start-up agai
 garment_type(id, code, name, plural, icon, sort, active, is_system)  -- Gown, Hood, Boot; soft delete via active (SET-03);
 color(id, name, sort, active, is_system)                              --   is_system = the hidden "Unregistered" value
 size(id, code, sort, active, is_system)                               --   of each (DQ-03)
-location(id, code, name)                                           -- Fab1, Fab2
+location(id, code, name)                                           -- P1, P2
 
 -- Current balance: one row per garment × color × size × location
 stock_item(id, garment_type_id, color_id, size_id, location_id,
@@ -275,7 +275,7 @@ Diagram: [SCAN_STATES.md](./SCAN_STATES.md).
 | `applied` | `applied` (other item) | The same scan read again with a new version that the barcode master prefers | +1 on the old item, −1 on the new one |
 | `before_start` | `applied` | Starting count saved for that location → its `before_start` rows with `issued_at ≥ as_of` are re-classified | −1 entry for each |
 
-- **Why the starting-count step matters:** floor staff finish counting at, say, 14:00, but the counts may be entered at 16:00. Imports between 14:00 and 16:00 find no starting count and set `before_start` — including issues after 14:00 that should reduce stock. Saving the count (as-of 14:00) re-classifies those, so nothing is lost. The same covers Fab2 going live after Fab1: Fab2 rows stay `before_start` until Fab2's count is saved.
+- **Why the starting-count step matters:** floor staff finish counting at, say, 14:00, but the counts may be entered at 16:00. Imports between 14:00 and 16:00 find no starting count and set `before_start` — including issues after 14:00 that should reduce stock. Saving the count (as-of 14:00) re-classifies those, so nothing is lost. The same covers P2 going live after P1: P2 rows stay `before_start` until P2's count is saved.
 - **Final states:** `applied`, and `before_start` rows earlier than the as-of time never change again. `ignored` rows stay ignored if the value is later un-ignored — changing an existing mapping applies only to new rows (MAP-03, TODO).
 - Each re-classification is a single transaction, recorded in `audit_log` with the number of rows changed.
 - **Late registration** (DQ-08, only if the TODO confirms barcodes get registered after being issued): each import run checks the unregistered barcodes against the barcode master; for each one now registered, its `applied` unregistered-bucket rows move to the real item with a pair of new `issue_correction` entries (+1 unregistered bucket, −1 real item) and `quality = recovered`. Status stays `applied`.
@@ -355,9 +355,9 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 
 ### Phase 5 — Hardening, pilot, rollout (Sprints 8–9)
 - Accessibility audit, load test (posting during import), backups, monitoring, runbook, production deploy.
-- **Go-live at Fab1**: floor staff count everything at a quiet moment; counts entered in GI with the as-of time when counting finished.
+- **Go-live at P1**: floor staff count everything at a quiet moment; counts entered in GI with the as-of time when counting finished.
 - **2-week parallel run**: floor staff keep counting manually; compare against GI daily; investigate gaps (missing deliveries, unmapped items, Oracle timing).
-- When the accuracy target is met, **stop manual counting at Fab1**; repeat starting count + a shorter parallel run at **Fab2**.
+- When the accuracy target is met, **stop manual counting at P1**; repeat starting count + a shorter parallel run at **P2**.
 
 ### Backlog
 Size × color grid entry for deliveries (1a), receive against a standing order (1c), additional garment types (after the first release is stable), purchasing integration, approval workflow for corrections (HIS-07).
@@ -366,9 +366,9 @@ Size × color grid entry for deliveries (1a), receive against a standing order (
 
 | Sprint | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 |
 |---|---|---|---|---|---|---|---|---|---|
-| Phase | 0 Foundations + Oracle discovery | 1 Receive | 1 Receive | 2 Oracle import | 2 Oracle import | 3 Stock | 4 Trends | 5 Pilot Fab1 | 5 Rollout Fab2 |
+| Phase | 0 Foundations + Oracle discovery | 1 Receive | 1 Receive | 2 Oracle import | 2 Oracle import | 3 Stock | 4 Trends | 5 Pilot P1 | 5 Rollout P2 |
 
-≈ 14 weeks to Fab1 go-live, ≈ 18 weeks until manual counting stops at both fabs. The main schedule risk is Oracle access (Phase 0 gate).
+≈ 14 weeks to P1 go-live, ≈ 18 weeks until manual counting stops at both locations. The main schedule risk is Oracle access (Phase 0 gate).
 
 ## 7. Testing strategy
 

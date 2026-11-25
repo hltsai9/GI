@@ -19,9 +19,9 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 - [ ] **Standing order** — is there one to check deliveries against (mockup 1c)? → §3.3
 - [ ] **Data retention** — keep history ≥ 2 years? → NFR-10
 
-- [ ] **Spot checks while barcodes are unregistered** — how often can floor staff do a quick full count per fab (e.g. weekly) to clear the unregistered bucket? → DQ-06
+- [ ] **Spot checks while barcodes are unregistered** — how often can floor staff do a quick full count per location (e.g. weekly) to clear the unregistered bucket? → DQ-06
 - [ ] **Estimated split** — show unregistered issues split across gowns / hoods / boots by the usual mix, labelled "estimated", in Trends? → DQ-09
-- [x] **Site time zone** — both fabs are in Phoenix; days and times shown in Phoenix time. → NFR-13
+- [x] **Site time zone** — both locations (P1, P2) are in Phoenix; days and times shown in Phoenix time. → NFR-13
 
 ## Check with the vendor / Oracle DBA
 

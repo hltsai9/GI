@@ -7,6 +7,20 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### README brought up to date; P1 / P2 everywhere; colors ESD and UNI
+- **README** now describes the current app:
+  - the two locations P1 and P2;
+  - `INSERT_TIME` in Phoenix time, and `RECTIME` not used;
+  - the barcode master;
+  - the three issue sources (mock, Oracle, CSV upload);
+  - what each role can do in Settings;
+  - the link to the new scan diagrams and the current test commands.
+- **Fab1 / Fab2 renamed to P1 / P2** in the requirements, build plan, to-do list and deployment guides. On the page, "this fab" now reads "this location" (Full count, Oracle values). The mock data's Oracle location codes are unchanged; they are mapped to P1 and P2.
+- **New colors ESD and UNI**, listed after Grey and before Other (migration `004`, runs by itself; no database drop). If a site had already added one of them in Settings › Sizes & colors, it is kept.
+  - Their Oracle `SUIT_COLOR` codes still need to be mapped in **Settings › Oracle values** when they first appear.
+- `python -m gi.cli.import_once --master` reads the barcode master before importing (dev helper).
+- Tested here: 69 backend tests pass. The demo data was regenerated and shows the new colors.
+
 ### Diagram: how GI processes scan data
 - New page [SCAN_STATES.md](./SCAN_STATES.md) with two state diagrams: how Oracle rows become one scan (skipped, new version, barcode master), and the statuses a stored scan can have (held, ignored, before the starting count, applied) with what moves it from one to another. GitHub shows the diagrams as pictures.
 

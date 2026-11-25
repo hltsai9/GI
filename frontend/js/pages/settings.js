@@ -163,9 +163,9 @@ function FullCount(meta, canEdit) {
       Seg({ label: 'Location', optStyle: { flex: 'none', padding: '7px 8px' }, value: locId, onChange: setLocId, options: meta.locations.map((l) => ({ value: l.id, label: l.code })) })),
     started
       ? h('div', { class: 'note' }, `Starting count done ${fmtWhen(started)}. Use this for a `, h('b', null, 'full spot check'),
-        ': enter what is on the shelf for every garment type, then save — the unregistered count for this fab goes back to 0. Empty cells keep their current number.')
+        ': enter what is on the shelf for every garment type, then save — the unregistered count for this location goes back to 0. Empty cells keep their current number.')
       : [
-        Warn('No starting count yet for this fab. Count everything, then enter the counts with the time counting ', h('b', null, 'finished'), '. Issues scanned after that time reduce stock; empty cells count as 0.'),
+        Warn('No starting count yet for this location. Count everything, then enter the counts with the time counting ', h('b', null, 'finished'), '. Issues scanned after that time reduce stock; empty cells count as 0.'),
         h('div', { class: 'field', style: { maxWidth: 280 } },
           h('label', { for: 'asof' }, 'Counting finished at (Phoenix time)'),
           h('input', { id: 'asof', class: 'input', type: 'datetime-local', value: asOf, onInput: (e) => setAsOf(e.target.value), style: { minHeight: 44 } })),
@@ -186,7 +186,7 @@ function FullCount(meta, canEdit) {
       h('div', { style: { flex: 1, fontSize: 13, color: 'var(--color-neutral-700)' } }, `${entries.length} items entered`),
       h('button', {
         class: 'btn btn-primary', style: { minHeight: 48, fontSize: 15, padding: '0 22px' }, disabled: !canEdit || (!!started && !entries.length),
-        onClick: () => confirm(started ? 'Save the full spot check?' : 'Save the starting count? This can only be done once per fab.') && save(),
+        onClick: () => confirm(started ? 'Save the full spot check?' : 'Save the starting count? This can only be done once per location.') && save(),
       }, started ? 'Save spot check' : 'Save starting count')),
   ];
 }
@@ -225,7 +225,7 @@ function OracleValues(meta, canEdit) {
     }
   };
   return [
-    h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first. An issue row is held until all four of its values (type, color, size, level) are mapped; it then counts against stock from the fab\'s starting count on.'),
+    h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first. An issue row is held until all four of its values (type, color, size, level) are mapped; it then counts against stock from the location\'s starting count on.'),
     ErrorNote(error),
     h('div', { style: { display: 'flex', flexDirection: 'column' } },
       (data ?? []).flatMap((v) => [h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 10, alignItems: 'center', padding: '6px 0' } },

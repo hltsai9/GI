@@ -161,9 +161,9 @@ On first start the app:
 ## 8. First-time setup in the app
 
 ### 8.1 With mock data (`ISSUE_SOURCE=mock`)
-Mock issues are imported but do not change stock until each fab has a starting count. Either:
+Mock issues are imported but do not change stock until each location has a starting count. Either:
 
-- **Do it like on go-live day:** **Settings › Full count**. Pick the fab, enter counts, set "Counting finished at", save. Repeat for the other fab.
+- **Do it like on go-live day:** **Settings › Full count**. Pick the location (P1 or P2), enter counts, set "Counting finished at", save. Repeat for the other location.
 - **Or load the demo history:** starting counts 21 days ago and a morning delivery every day since, the same data as the GitHub demo (https://hltsai9.github.io/GI/). **This erases the GI database first.**
   ```bash
   cd /opt/gi/deploy
@@ -176,7 +176,7 @@ Mock issues are imported but do not change stock until each fab has a starting c
 1. **Settings › Import** shows the first run. The history from `ORACLE_BACKFILL_FROM` is loaded in that run.
 2. **Settings › Oracle values**: every `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL` value found is listed. Map each one to a GI value, or **Ignore** (e.g. a test location). Rows waiting for a value are applied as soon as it is mapped.
 3. **Settings › Sizes & colors**: add any size or color the mapping needs.
-4. Floor staff count everything; enter it in **Settings › Full count** per fab, with the time counting finished.
+4. Floor staff count everything; enter it in **Settings › Full count** per location, with the time counting finished.
 5. Set minimums in **Stock › Grid** (tap a cell, −/+ "Alert below").
 
 ### 8.3 Switching from mock data to real Oracle data
@@ -319,7 +319,7 @@ What to watch:
 | `app` stays unhealthy; log repeats `database not reachable or not set up (… Can't connect …` or `… Access denied …)` | Wrong database host, URL or password, or the database is down. GI keeps retrying and recovers by itself once the database answers. | Check `DB_PASSWORD` / `MARIADB_URL`. A password with special characters must be URL-encoded in `MARIADB_URL`. |
 | `app` restarts; log mentions `ORACLE_… is required` | `ISSUE_SOURCE=oracle` without the Oracle settings | Set `ISSUE_SOURCE=mock`, or fill in the `ORACLE_*` settings |
 | Page shows "unknown user" or "SSO sign-in is not configured" | `DEV_AUTH` is not `true` | Set `DEV_AUTH=true` and `docker compose up -d` |
-| Stock does not change although issues are imported | No starting count yet for that fab | §8.1 |
+| Stock does not change although issues are imported | No starting count yet for that location | §8.1 |
 | Many rows "held" in **Settings › Import** | Oracle values not mapped yet | **Settings › Oracle values** (§8.2 step 2) |
 | "Issues up to" is hours behind | Normal: records are entered up to ~15 h after the scan | If no import ran for twice the interval, an alert appears; check `docker compose logs app` |
 | `app` restarts; log says `This database was set up by an older GI version …` | The database was created before the 2026-11-23 schema consolidation | `docker compose down`, `docker volume rm` the MariaDB volume (or drop and re-create the `gi` database), then `docker compose up -d`. Re-enter settings and starting counts. |
