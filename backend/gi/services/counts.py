@@ -113,11 +113,14 @@ def save_correction(inp: CorrectionInput, user_id: int, now: datetime | None = N
 
 
 def list_corrections(conn: Connection, limit: int = 20) -> list[dict]:
+    """The latest stock corrections (Settings › Correct stock). Starting-count rows are left out: there is one
+    per item, so after go-live they would fill the list (Full count shows when the starting count was done)."""
     rs = rows(conn, """SELECT sc.id, sc.at, sc.reason, sc.note, sc.counted, sc.system_qty, u.name AS user_name,
                               g.name AS garment, g.is_system, c.name AS color, s.code AS size, l.code AS location
                          FROM stock_correction sc JOIN app_user u ON u.id = sc.user_id JOIN stock_item si ON si.id = sc.stock_item_id
                          JOIN garment_type g ON g.id = si.garment_type_id JOIN color c ON c.id = si.color_id
                          JOIN size s ON s.id = si.size_id JOIN location l ON l.id = si.location_id
+                        WHERE sc.reason <> 'starting_count'
                         ORDER BY sc.at DESC, sc.id DESC LIMIT ?""", [limit])
     return [{**r, "at": iso(r["at"])} for r in rs]
 

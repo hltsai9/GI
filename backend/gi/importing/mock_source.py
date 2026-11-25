@@ -56,8 +56,9 @@ class MockIssueSource:
     def _master_rows(self) -> list[dict]:
         return self.master
 
-    def master_page(self, after: str | None, limit: int) -> list[MasterRow]:
-        rs = sorted((m for m in self._master_rows() if after is None or m["SUIT_BARCODE"] > after),
+    def master_page(self, after: str | None, limit: int, since: str | None = None) -> list[MasterRow]:
+        rs = sorted((m for m in self._master_rows() if (after is None or m["SUIT_BARCODE"] > after)
+                     and (since is None or (m.get("RECTIME") or "") >= since)),
                     key=lambda m: (m["SUIT_BARCODE"], m["RECTIME"]))
         return [_master(m) for m in rs[:limit]]
 

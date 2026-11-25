@@ -185,4 +185,5 @@ def run_progress(run: dict) -> dict:
         "byStatus": {"applied": run["rows_applied"], "held_unmapped": run["rows_held"],
                      "before_start": run["rows_before_start"], "ignored": run["rows_ignored"]},
         "error": (run.get("error") or "").strip().splitlines()[-1] if run.get("error") else None,
+        "kind": run.get("kind"), "changed": run["rows_new"], "applied": run["rows_applied"],
     }

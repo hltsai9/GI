@@ -223,6 +223,15 @@ When GI cannot reach Oracle yet (for example on a test site), export the issue r
     ORDER BY SUIT_BARCODE;
    ```
    Exporting every row also works (GI picks the latest itself), and so does an export of only recent changes: an older row never replaces a newer one.
+   **Later uploads only need the new rows.** Settings › Import shows the newest `RECTIME` GI has; export only rows from that time on (an older row never replaces a newer one, so overlap is harmless):
+   ```sql
+   SELECT SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE,
+          TO_CHAR(RECTIME, 'YYYY-MM-DD HH24:MI:SS') AS RECTIME
+     FROM SCHEMA.BARCODE_MASTER
+    WHERE RECTIME >= TO_DATE('2026-11-24 00:00:00', 'YYYY-MM-DD HH24:MI:SS')   -- newest RECTIME shown in GI
+    ORDER BY SUIT_BARCODE, RECTIME;
+   ```
+   A large file (the first, full export of a few hundred thousand rows) is fine: GI checks it, then saves it in the background 2,000 rows at a time with a progress bar.
 
 Later, with `ISSUE_SOURCE=oracle`, the rows already uploaded are recognised and not imported again.
 
@@ -343,7 +352,8 @@ What to watch:
 | `ORACLE_CONNECT_STRING`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_ISSUE_TABLE`, `ORACLE_BARCODE_MASTER_TABLE` | — | Oracle access (read-only), only for `oracle` |
 | `ORACLE_POLL_SECONDS` | `300` | Import interval, 300–43200 s |
 | `ORACLE_BACKFILL_FROM` | `2026-10-01 00:00:00` | First `INSERT_TIME` (Phoenix time) read on a fresh install |
-| `BARCODE_MASTER_SYNC_HOUR` | `2` | The barcode master table is read in full once a day after this hour (Phoenix time), only with `ORACLE_BARCODE_MASTER_TABLE` |
+| `BARCODE_MASTER_SYNC_HOUR` | `2` | The barcode master table is read once a day after this hour (Phoenix time), only with `ORACLE_BARCODE_MASTER_TABLE` |
+| `BARCODE_MASTER_LOOKBACK_HOURS` | `24` | The daily read takes rows from this many hours before the newest `RECTIME` GI has (the whole table only on the first read) |
 | `ORACLE_LOOKBACK_HOURS` | `24` | Each import re-reads scans this far back, to catch records that reach Oracle late (1–336) |
 | `DEV_AUTH` | `true` | Choose the user in the app (no SSO yet) |
 | `ADMIN_PASSCODE` | — | Passcode needed to switch to Admin (secret); empty = Admin locked |

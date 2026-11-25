@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import csv
 import io
-from typing import Iterable
+from typing import Iterable, Iterator
 
 from sqlalchemy.engine import Connection
 
@@ -120,22 +120,22 @@ def missing_of(v: Version) -> str | None:
     return ",".join(c for c, x in zip(VALUE_COLUMNS, v) if x is None) or None
 
 
-# ---- reading the Oracle table (daily) and CSV uploads
-def read_all(source, page_size: int) -> dict[str, dict]:
-    """Reads the whole barcode master table, keyset-paged on SUIT_BARCODE. A page never splits a barcode's rows:
-    a full page drops its last barcode, which the next page starts with."""
-    latest: dict[str, dict] = {}
+# ---- reading the Oracle table (daily) and CSV uploads, one batch at a time (memory stays small)
+def read_pages(source, page_size: int, since: str | None = None) -> Iterator[list[MasterRow]]:
+    """The barcode master table page by page, keyset-paged on SUIT_BARCODE: every row, or with `since` only rows
+    with RECTIME at or after it (the daily read). A page never splits a barcode's rows: a full page drops its
+    last barcode, which the next page starts with."""
     after: str | None = None
     while True:
-        page = source.master_page(after, page_size)
+        page = source.master_page(after, page_size, since)
         full = len(page) >= page_size
         if full:
             last = page[-1]["SUIT_BARCODE"]
-            trimmed = [r for r in page if r["SUIT_BARCODE"] != last]
-            page = trimmed or page  # one barcode with more rows than a page: take them as they are
-        latest.update(latest_versions(page))
+            page = [r for r in page if r["SUIT_BARCODE"] != last] or page  # one barcode with more rows than a page: as they are
+        if page:
+            yield page
         if not full:
-            return latest
+            return
         after = page[-1]["SUIT_BARCODE"]
 
 
@@ -143,14 +143,14 @@ REQUIRED = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "RECTIME")  
 # An empty RECTIME cell is allowed: that row counts as the oldest version of its barcode.
 
 
-def parse_csv(data: bytes) -> list[MasterRow]:
-    """A CSV export of the Oracle barcode master table. Raises CsvError listing the problems."""
-    from .csv_upload import MAX_ERRORS, CsvError, _decode, _SCIENTIFIC, parse_time
+def _csv_rows(data: bytes) -> Iterator[tuple[int, MasterRow | None, str | None]]:
+    """(line number, row, problem) for each data line of a barcode master export, read as a stream."""
+    from .csv_upload import CsvError, _decode, _SCIENTIFIC, parse_time
 
     text = _decode(data)
     if not text.strip():
         raise CsvError("The file is empty.")
-    first = text.lstrip("﻿").split("\n", 1)[0]
+    first = text.lstrip("\ufeff").split("\n", 1)[0]
     delimiter = max(",;\t|", key=first.count)
     reader = csv.reader(io.StringIO(text), delimiter=delimiter, quotechar='"', doublequote=True)
     header = next(reader, [])
@@ -159,9 +159,6 @@ def parse_csv(data: bytes) -> list[MasterRow]:
     if missing:
         raise CsvError(f"Missing column(s): {', '.join(missing)}. The first line must have the barcode master's column names.",
                        [f"Columns found: {', '.join(h.strip() for h in header) or '(none)'}"])
-    out: list[MasterRow] = []
-    problems: list[str] = []
-    bad = 0
     for line_no, rec in enumerate(reader, start=2):
         if not any(x.strip() for x in rec):
             continue
@@ -175,18 +172,57 @@ def parse_csv(data: bytes) -> list[MasterRow]:
                                  "Upload the original export instead")
             if len(barcode) > 255:
                 raise ValueError("SUIT_BARCODE is longer than 255 characters")
-            out.append({"SUIT_BARCODE": barcode, "SUIT_CATEGORY": clean_value(get("SUIT_CATEGORY").strip()),
-                        "SUIT_TYPE": clean_value(get("SUIT_TYPE").strip()), "SUIT_COLOR": clean_value(get("SUIT_COLOR").strip()),
-                        "SUIT_SIZE": clean_value(get("SUIT_SIZE").strip()), "RECTIME": parse_time(get("RECTIME")) if get("RECTIME").strip() else None})
+            yield line_no, {"SUIT_BARCODE": barcode, "SUIT_CATEGORY": clean_value(get("SUIT_CATEGORY").strip()),
+                            "SUIT_TYPE": clean_value(get("SUIT_TYPE").strip()), "SUIT_COLOR": clean_value(get("SUIT_COLOR").strip()),
+                            "SUIT_SIZE": clean_value(get("SUIT_SIZE").strip()),
+                            "RECTIME": parse_time(get("RECTIME")) if get("RECTIME").strip() else None}, None
         except ValueError as e:
+            yield line_no, None, str(e)
+
+
+def check_csv(data: bytes) -> int:
+    """Checks a whole barcode master export without keeping its rows. Returns the number of rows; raises CsvError
+    listing the problems (then nothing is saved)."""
+    from .csv_upload import MAX_ERRORS, CsvError
+
+    n, bad, problems = 0, 0, []
+    for line_no, row, problem in _csv_rows(data):
+        if problem:
             bad += 1
             if len(problems) < MAX_ERRORS:
-                problems.append(f"Line {line_no}: {e}")
+                problems.append(f"Line {line_no}: {problem}")
+        else:
+            n += 1
     if bad:
         raise CsvError(f"{bad} row(s) could not be read; nothing was saved. Fix the file and upload it again.", problems)
-    if not out:
+    if not n:
         raise CsvError("The file has no data rows.")
-    return out
+    return n
+
+
+def csv_batches(data: bytes, size: int = 2000) -> Iterator[list[MasterRow]]:
+    """The rows of a checked export, `size` at a time."""
+    batch: list[MasterRow] = []
+    for _, row, _ in _csv_rows(data):
+        if row:
+            batch.append(row)
+            if len(batch) >= size:
+                yield batch
+                batch = []
+    if batch:
+        yield batch
+
+
+def parse_csv(data: bytes) -> list[MasterRow]:
+    """All rows of a (small) export, after checking it; used by tests and scripts."""
+    check_csv(data)
+    return [r for b in csv_batches(data) for r in b]
+
+
+def newest_rectime(conn: Connection) -> str | None:
+    """The newest RECTIME in GI's copy: the daily read takes rows from there on (minus a look-back)."""
+    r = rows(conn, "SELECT MAX(rectime) AS t FROM barcode_master")[0]
+    return naive_str(r["t"]) if r["t"] else None
 
 
 def summary(conn: Connection) -> dict:
@@ -194,7 +230,7 @@ def summary(conn: Connection) -> dict:
     m = rows(conn, "SELECT COUNT(*) AS n, COALESCE(SUM(tied), 0) AS tied, MAX(updated_at) AS at FROM barcode_master")[0]
     w = rows(conn, """SELECT COALESCE(SUM(status = 'held_conflict'), 0) AS conflict, COALESCE(SUM(status = 'held_missing'), 0) AS missing
                         FROM issue_import WHERE status IN ('held_conflict', 'held_missing')""")[0]
-    last = rows(conn, """SELECT kind, note, started_at, finished_at, rows_read, rows_new, rows_resolved, status, error FROM sync_run
+    last = rows(conn, """SELECT id, kind, note, started_at, finished_at, rows_read, rows_total, rows_new, rows_resolved, status, error FROM sync_run
                           WHERE kind IN ('master', 'master_upload') ORDER BY id DESC LIMIT 1""")
-    return {"barcodes": int(m["n"]), "tied": int(m["tied"]), "updatedAt": m["at"],
+    return {"barcodes": int(m["n"]), "tied": int(m["tied"]), "updatedAt": m["at"], "newestRectime": newest_rectime(conn),
             "waiting": {"conflict": int(w["conflict"]), "missing": int(w["missing"])}, "last": last[0] if last else None}

@@ -7,6 +7,59 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Barcode master: large files no longer crash GI; daily read takes only new rows
+- **Problem reported:** uploading the full barcode master (238,000 rows) timed out and the backend container crashed, so it could never be loaded.
+- **Cause:** GI read the whole file into memory (about 270 MB) and saved it inside the upload request. With the server's own memory, that went past the pod's 512 MB limit, and the request was far too long for the browser.
+- **Fix:**
+  - The upload is checked first without keeping the rows.
+  - It is then saved **in the background, 2,000 rows at a time**, each batch committed on its own. If something stops it, the rows saved so far are kept.
+  - Measured here with 238,000 rows: the upload is answered in 3 s and saved in about 9 s; the server peaks at 190 MB.
+- **Progress like the issue upload:** Settings › Import › Barcode master shows "Uploading… %", then "Saving… N of M rows" with a progress bar, then the result. **Read from Oracle now** also runs in the background with a progress line.
+- **Decision: the daily read takes only new rows.**
+  - With an Oracle connection, GI reads only rows with a `RECTIME` from 24 hours before the newest one it already has (setting `BARCODE_MASTER_LOOKBACK_HOURS`). It reads the whole table only the first time.
+  - A row added later with an old `RECTIME` is only picked up by a full read (`POST /api/barcode-master/sync?full=1`).
+  - New open question for the DBA: an index on `RECTIME` (TODO).
+- **For CSV uploads:** Settings › Import shows the newest `RECTIME` in GI. Next time, export only rows from then on; the query is in both deployment guides.
+
+### Delivery grid: fixed positions and a pinned header
+- **Decision (after trying it):** the delivery grid shows **every size and color, always in the same place**, so floor staff learn where each box is. Hiding unstocked sizes and colors is dropped from this grid; Stock › Grid and the Daily grid still hide them.
+- While scrolling down to the larger sizes, the **Gowns / Hoods / Boots and P1 / P2 switches and the color names stay pinned at the top**, so staff always see which column and garment they are typing into.
+- Tested here: 72 backend tests pass (2 new: a 9,000-row upload saved in batches in the background, and the daily read taking only new rows). On an iPhone-sized screen: pinned header while typing in the bottom row; the 238,000-row upload with its progress bar. The demo data was refreshed.
+
+### Phone: tab bar at the bottom; deliveries as a size × color grid (to try out)
+- **Decision:** on phones the tab bar (Receive, Stock, Trends, Settings) is now **at the bottom of the screen**, within thumb reach. This is a change from the mockup, which had it at the top; `CLAUDE.md` records it as approved. Laptops keep the sidebar.
+- **Receive › New delivery** has a new switch, **Size × color grid** / **One line at a time** (UX plan 2.1). The phone remembers which one you use.
+  - In the grid you choose the garment and location once, then type how many came for each size and color. Enter (or Next on the keyboard) moves to the next box.
+  - Only the sizes and colors stocked at that location are shown, plus any you already typed in; **Show all sizes and colors** adds the rest.
+  - Switching garment, location or entry mode keeps everything typed: it is the same delivery draft, which also survives a reload.
+  - Under the grid: the total for the garment and location shown, and a button per garment and location already typed, to jump back to it. The bottom bar still shows the delivery's total and **Post delivery**.
+  - Clearing a box removes that line. Posting works as before.
+- Not built yet from phase 2: usual sizes and colors first (2.2), a review screen before posting (2.3), "my location" per phone (2.4).
+- Tested here: 70 backend tests and the frontend checks pass. On an iPhone-sized screen: typing, Enter to the next box, switching garment and mode keeps the entries.
+
+### Phone layout: phase 1 of the UX plan
+Built from [UX_PLAN.md](./UX_PLAN.md) phase 1; nothing changes on laptops except where noted.
+- **No more zooming on iPhones:** every text and number field is 16 px on phones. iPhones zoom the page into smaller fields.
+- **Bigger small text:** tab labels, section labels, table headers and notes are 13 px or more on phones.
+- **Stock › Grid and Trends › Daily grid:**
+  - Sizes and colors with nothing in them are hidden, with **Show all sizes and colors (N hidden)** to bring them back.
+  - Column names are written out in full (no more "WHI…").
+  - Below minimum and close to minimum also carry a mark (▼ / ▽), not only a color.
+- **Stock › Grid on phones:** tapping a number opens its details and minimum in a panel that slides up from the bottom. Before, they appeared below the grid, off-screen. Laptops still show them under the grid.
+- **Receive:**
+  - The phone remembers the last garment, color, size, location and quantity.
+  - After choosing a size or color, the quantity is selected, so typing replaces it.
+  - **Decision:** the quantity is selected after choosing a size or color, not after **Add line**, so the keyboard does not cover the form after every line.
+- **Opening tab:** on a phone, floor staff open on Receive; the lead, viewers and admins on Stock. Laptops still open on Stock; a link to a tab still opens that tab.
+- **Correct stock:**
+  - Recent corrections show the 5 latest, with **Show more**.
+  - Starting-count rows are left out. There is one per item, so they filled the list; Full count already says when the starting count was done.
+- **Settings › Import and Data quality:**
+  - Long explanations are folded behind **How this works** or **File format**.
+  - On phones the wide tables (unregistered barcodes, conflicting values, waiting scans, recent runs) become one card per row, each value with its name.
+  - **Data quality shows locations as P1 / P2** instead of the Oracle codes (also in the CSV downloads); a code not mapped yet is shown as it is.
+- Tested here: 70 backend tests and the frontend checks pass. Checked on an iPhone-sized screen as floor staff, lead and admin, and on a laptop. The demo data was refreshed.
+
 ### Database set-up consolidated again (drop and re-create the database)
 - **Decision:** the owner will drop the database and redeploy, so today's database changes (barcode master, colors ESD / UNI, empty `RECTIME`) were merged back into the two base files `001_schema.sql` and `002_reference_data.sql`. A new database is built in one step.
 - **You must start from an empty database.** A database from before this is refused at start-up with "This database was set up by an older GI version…". That includes one created yesterday, which has no barcode master table.

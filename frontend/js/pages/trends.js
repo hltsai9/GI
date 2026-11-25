@@ -1,7 +1,7 @@
 import { h, state, load } from '../dom.js';
 import { fmtDay, fmtDayLong, fmtNum } from '../api.js';
 import { Guide, HoverArea } from '../hover.js';
-import { ErrorNote, PageHead, Seg } from '../ui.js';
+import { ErrorNote, GridHead, PageHead, Seg, ShowAll, trimGrid } from '../ui.js';
 
 // Line colors from the mockup: gowns cyan, hoods magenta, boots ink.
 const LINE = { Gown: 'var(--color-accent)', Hood: 'var(--color-accent-2)', Boots: 'var(--color-text)' };
@@ -226,7 +226,10 @@ function SizeColorGrid(meta) {
   const [day, setDay] = state('trends.gridDay', today);
   const g = load(`/stock/grid?garmentTypeId=${typeId}&locationId=${locId}&day=${day}`, 'trends.grid');
   const t = meta.types.find((x) => x.id === typeId) ?? meta.types[0];
-  const cols = `44px repeat(${g.data?.colors.length ?? 4}, minmax(0, 1fr))`;
+  const [showAll, setShowAll] = state('trends.gridAll', false);
+  // Colors and sizes with no stock item and nothing delivered or issued that day are hidden (Show all brings them back).
+  const tg = g.data && trimGrid(g.data, (c) => !!(c.stockItemId || c.delivered || c.issued), showAll);
+  const cols = `44px repeat(${tg?.colors.length || 1}, minmax(0, 1fr))`;
   const cellsAll = g.data?.rows.flatMap((r) => r.cells) ?? [];
   const tot = (k) => cellsAll.reduce((a, c) => a + (c[k] ?? 0), 0);
   return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 8 } },
@@ -245,27 +248,27 @@ function SizeColorGrid(meta) {
       day !== today && h('button', { type: 'button', class: 'btn btn-ghost', onClick: () => setDay(today), style: { minHeight: 44 } }, 'Today'),
       h('span', { style: { fontSize: 14, fontWeight: 600 } }, fmtDayLong(day))),
     h('div', { style: { display: 'flex', gap: 8 } },
-      Seg({ label: 'Grid garment', style: { flex: 1 }, optStyle: { padding: '7px 2px', gap: 4, fontSize: 12.5 }, value: typeId, onChange: setTypeId,
+      Seg({ label: 'Grid garment', style: { flex: 1 }, optStyle: { padding: '7px 2px', gap: 4, fontSize: 13.5 }, value: typeId, onChange: setTypeId,
         options: meta.types.map((x) => ({ value: x.id, label: x.plural, icon: x.icon })) }),
       Seg({ label: 'Grid location', optStyle: { flex: 'none', padding: '7px 8px' }, value: locId, onChange: setLocId,
         options: meta.locations.map((l) => ({ value: l.id, label: l.code })) })),
     ErrorNote(g.error),
-    g.data && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'table', 'aria-label': 'Delivered and issued by size and color' },
-      h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4, fontSize: 11, letterSpacing: '.06em', textTransform: 'uppercase', color: 'var(--color-neutral-700)' } },
-        h('span'), g.data.colors.map((c) => h('span', { style: { textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis' } }, c.name))),
-      g.data.rows.map((r) => h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4 } },
-        h('span', { style: { fontSize: 12, fontWeight: 600, alignSelf: 'center' } }, r.size),
+    tg && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'table', 'aria-label': 'Delivered and issued by size and color' },
+      tg.colors.length ? GridHead(tg.colors, cols) : h('div', { class: 'note' }, 'Nothing stocked, delivered or issued here.'),
+      tg.rows.map((r) => h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4 } },
+        h('span', { class: 'grid-size' }, r.size),
         r.cells.map((c) => {
           const quiet = !c.delivered && !c.issued;
           return h('div', {
             class: 'num', 'aria-label': `${r.size} ${g.data.colors.find((x) => x.id === c.colorId)?.name}: ${c.delivered ?? 0} delivered, ${c.issued ?? 0} issued`,
             style: { minHeight: 40, borderRadius: 'var(--radius-md)', background: quiet ? 'transparent' : 'var(--color-surface)', display: 'flex', flexDirection: 'column',
-              alignItems: 'center', justifyContent: 'center', lineHeight: 1.15, fontSize: 14, fontWeight: 600, padding: '3px 2px' },
+              alignItems: 'center', justifyContent: 'center', lineHeight: 1.2, fontSize: 15, fontWeight: 600, padding: '4px 2px' },
           }, c.stockItemId || !quiet
             ? [h('span', { style: { color: c.delivered ? 'var(--color-accent-700)' : 'var(--color-neutral-500)' } }, `+${c.delivered ?? 0}`),
               h('span', { style: { color: c.issued ? 'var(--color-accent-2-700)' : 'var(--color-neutral-500)' } }, `−${c.issued ?? 0}`)]
             : h('span', { style: { color: 'var(--color-neutral-500)' } }, '—'));
         }))),
-      h('div', { style: { fontSize: 12, color: 'var(--color-neutral-700)', marginTop: 2 } },
+      ShowAll(tg.hidden, showAll, setShowAll),
+      h('div', { style: { fontSize: 13, color: 'var(--color-neutral-700)', marginTop: 2 } },
         `+ delivered, − issued on ${fmtDayLong(day)}${day === today ? ' (so far)' : ''}. Unregistered garments are not included (their size and color are unknown).`)));
 }

@@ -43,10 +43,10 @@ export function Dropdown({ label, value, options, onChange, id = '' }) {
 }
 
 /** Number field with the label inside the box. */
-export const QtyField = ({ label, value, onChange, placeholder }) =>
+export const QtyField = ({ label, value, onChange, placeholder, id }) =>
   h('label', { class: 'qty' },
     h('span', { class: 'dd-label' }, label),
-    h('input', { inputmode: 'numeric', value, placeholder, onInput: (e) => onChange(e.target.value.replace(/\D/g, '')) }));
+    h('input', { id, inputmode: 'numeric', value, placeholder, onInput: (e) => onChange(e.target.value.replace(/\D/g, '')) }));
 
 export const Stepper = ({ value, onChange, step = 1, min = 0, label, size = 17, width = 40 }) => [
   h('button', { type: 'button', class: 'btn btn-secondary btn-icon stepbtn', 'aria-label': `decrease ${label}`, onClick: () => onChange(Math.max(min, value - step)) }, '−'),
@@ -86,3 +86,44 @@ export async function attempt(errKey, fn) {
   }
 }
 export const errorOf = (errKey) => state(`err:${errKey}`, null)[0];
+
+/** True on the phone layout (set on <html> by app.js from the device type or the user's choice). */
+export const isPhone = () => document.documentElement.dataset.device === 'phone';
+
+/** Grid without the colors and sizes that have nothing in them (`used(cell)` false for every cell), unless
+ * showAll. Cells are in the same order as data.colors. Returns { colors, rows, hidden }. */
+export function trimGrid(data, used, showAll) {
+  const keep = data.colors.map((_, i) => showAll || data.rows.some((r) => used(r.cells[i])));
+  const rows = data.rows.filter((r) => showAll || r.cells.some(used)).map((r) => ({ ...r, cells: r.cells.filter((_, i) => keep[i]) }));
+  const colors = data.colors.filter((_, i) => keep[i]);
+  return { colors, rows, hidden: data.colors.length - colors.length + data.rows.length - rows.length };
+}
+
+/** Column names over a size × color grid: full names, wrapping when narrow (never cut off). */
+export const GridHead = (colors, cols) => h('div', { class: 'grid-head', style: { gridTemplateColumns: cols } },
+  h('span'), colors.map((c) => h('span', null, c.name)));
+
+/** "Show all sizes and colors" switch under a trimmed grid. */
+export const ShowAll = (hidden, showAll, setShowAll) => (hidden || showAll) && h('button', {
+  type: 'button', class: 'btn btn-ghost', style: { minHeight: 44, alignSelf: 'flex-start', padding: '0 4px' }, onClick: () => setShowAll(!showAll),
+}, showAll ? 'Hide empty sizes and colors' : `Show all sizes and colors (${hidden} hidden)`);
+
+/** Stock state as a mark, so it does not depend on color alone. */
+export const stateMark = (status) => (status === 'negative' || status === 'below_min' ? '▼' : status === 'close_to_min' ? '▽' : '');
+
+/** Panel that slides up from the bottom of the screen (phone); `onClose` on the scrim, the × or Escape. */
+export function Sheet({ title, onClose, children }) {
+  return [
+    h('div', { class: 'sheet-scrim', onClick: onClose }),
+    h('div', { class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': title, onKeyDown: (e) => e.key === 'Escape' && onClose() },
+      h('div', { class: 'sheet-grip', 'aria-hidden': 'true' }),
+      h('div', { style: { display: 'flex', alignItems: 'center', gap: 8 } },
+        h('h4', { style: { margin: 0, flex: 1 } }, title),
+        h('button', { type: 'button', class: 'btn btn-ghost btn-icon', 'aria-label': 'Close', onClick: onClose, style: { minWidth: 44, minHeight: 44 } }, ph('x', 20))),
+      children),
+  ];
+}
+
+/** Help text folded away behind "How this works" (it stays open while the page updates). */
+export const Help = (...children) => HelpAs('How this works', ...children);
+export const HelpAs = (summary, ...children) => h('details', { class: 'help' }, h('summary', null, summary), h('div', { class: 'note' }, children));
