@@ -4,7 +4,10 @@
 - records reach the database in batches per location, 0–15 h after the scan (VISIBLE_AT, mock only), so a
   scan appears in "Oracle" later than it happened; FAB2's batches arrive up to 40 min later still, and every
   30th day one row arrives ~30 h late (beyond the import's look-back: the daily sweep finds it)
-- ~3 % of barcodes are not registered in the suit master → reported as GOWN / OTHER / OTHER
+- ~3 % of barcodes are not registered in the barcode master → reported as GOWN / OTHER / OTHER
+- ~2 % of registered barcodes were re-labelled: the barcode master has an older row with another size and a newer
+  one (later RECTIME), and the issue table repeats each scan of them once per master row (a conflict that the
+  barcode master decides); ~0.4 % of rows have an empty SUIT_COLOR (filled from the barcode master)
 - a new size code "5XL" (unmapped) and a "TEST" location (ignored)
 
 Deterministic per calendar day: the rows for a given day are identical whenever and wherever they are
@@ -73,6 +76,7 @@ class Garment:
     color: str
     size: str
     registered: bool
+    old_size: str | None = None  # re-labelled: the barcode master also has an older row with this size
 
 
 class _Generator:
@@ -86,6 +90,10 @@ class _Generator:
         g = self.garments.get(barcode)
         if g is None:
             g = Garment(barcode, gtype, color, size, rng(f"registered|{barcode}")() > 0.03)
+            r = rng(f"relabel|{barcode}")
+            if g.registered and r() < 0.02:
+                others = [x for x, _ in SIZES if x != size]
+                g.old_size = others[int(r() * len(others))]
             self.garments[barcode] = g
         return g
 
@@ -141,7 +149,7 @@ def generate(days: int = 45, ahead: int = 2, now: datetime | None = None) -> tup
                     r2 = rng(f"entry|{gm.barcode}|{at.isoformat()}")
                     entered = g.entered_at(level, at, r2) + timedelta(seconds=int(r2() * 50))
                     visible = entered + timedelta(minutes=int(r2() * 40)) if level == "FAB2" else entered
-                    rows.append({
+                    base = {
                         "SUIT_BARCODE": gm.barcode,
                         "SUIT_TYPE": gm.type if gm.registered else "GOWN",
                         "SUIT_COLOR": gm.color if gm.registered else "OTHER",
@@ -150,7 +158,12 @@ def generate(days: int = 45, ahead: int = 2, now: datetime | None = None) -> tup
                         "INSERT_TIME": at.strftime(FMT),
                         "STATE": state,
                         "VISIBLE_AT": visible.strftime(FMT),
-                    })
+                    }
+                    if gm.registered and r2() < 0.004:
+                        base["SUIT_COLOR"] = None  # an empty value in Oracle
+                    rows.append(base)
+                    if gm.old_size:  # the issue table repeats the scan for the older master row
+                        rows.append({**base, "SUIT_SIZE": gm.old_size})
             # Every 30th day, one FAB1 row reaches the database ~30 h after the scan: more than the import's
             # look-back (24 h), so only the daily catch-up sweep finds it (ORA-03a).
             if level == "FAB1" and epoch_day % 30 == 0:
@@ -159,16 +172,24 @@ def generate(days: int = 45, ahead: int = 2, now: datetime | None = None) -> tup
                              and r["INSERT_TIME"] >= day_s), None)
                 if late:
                     late["VISIBLE_AT"] = (datetime.strptime(late["INSERT_TIME"], FMT) + timedelta(hours=30)).strftime(FMT)
-    # Keep unique (SUIT_BARCODE, INSERT_TIME), as in Oracle.
+    # One row per scan and version (as in Oracle).
     seen: set[str] = set()
     unique = []
     for r in rows:
-        k = r["SUIT_BARCODE"] + r["INSERT_TIME"]
+        k = f'{r["SUIT_BARCODE"]}|{r["INSERT_TIME"]}|{r["SUIT_COLOR"]}|{r["SUIT_SIZE"]}'
         if k not in seen:
             seen.add(k)
             unique.append(r)
-    master = [{"SUIT_BARCODE": x.barcode, "SUIT_CATEGORY": "CLEANROOM", "SUIT_TYPE": x.type, "SUIT_COLOR": x.color,
-               "SUIT_SIZE": x.size} for x in g.garments.values() if x.registered]
+    master = []
+    for x in g.garments.values():
+        if not x.registered:
+            continue
+        m = {"SUIT_BARCODE": x.barcode, "SUIT_CATEGORY": "CLEANROOM", "SUIT_TYPE": x.type, "SUIT_COLOR": x.color, "SUIT_SIZE": x.size,
+             "REC_USER": "MOCK", "RECTIME": "2026-08-03 10:00:00"}
+        if x.old_size:  # the older row, then the correction with a later RECTIME
+            master.append({**m, "SUIT_SIZE": x.old_size})
+            m["RECTIME"] = "2026-10-14 15:30:00"
+        master.append(m)
     return unique, master
 
 
@@ -182,10 +203,10 @@ def main(argv: list[str] | None = None) -> None:
     out = Path(a.out)
     out.mkdir(parents=True, exist_ok=True)
     (out / "issues.ndjson").write_text("".join(json.dumps(r) + "\n" for r in issues), encoding="utf-8")
-    (out / "suit_master.ndjson").write_text("".join(json.dumps(r) + "\n" for r in master), encoding="utf-8")
+    (out / "barcode_master.ndjson").write_text("".join(json.dumps(r) + "\n" for r in master), encoding="utf-8")
     real = [r for r in issues if r["STATE"] == "EMPLOYEE GOWN ISSUE"]
     unreg = sum(1 for r in real if r["SUIT_COLOR"] == "OTHER" and r["SUIT_SIZE"] == "OTHER")
-    print(f"wrote {len(issues)} rows ({len(real)} issues, {unreg} unregistered) and {len(master)} registered barcodes to {out}")
+    print(f"wrote {len(issues)} rows ({len(real)} issue rows, {unreg} unregistered) and {len(master)} barcode master rows to {out}")
 
 
 if __name__ == "__main__":

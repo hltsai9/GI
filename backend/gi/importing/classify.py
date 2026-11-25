@@ -51,10 +51,12 @@ def _is_mapped(m: dict | None) -> bool:
     return bool(m) and not m["is_ignored"] and any(m[k] is not None for k in _FK.values())  # type: ignore[index]
 
 
-def classify_issue(conn: Connection, ctx: ClassifyContext, suit_type: str, suit_color: str, suit_size: str,
-                   suit_level: str, issued_at: datetime, barcode: str | None = None) -> Classification:
+def classify_issue(conn: Connection, ctx: ClassifyContext, suit_type: str | None, suit_color: str | None, suit_size: str | None,
+                   suit_level: str | None, issued_at: datetime, barcode: str | None = None, conflict: str | None = None) -> Classification:
     """Checks run in a fixed order and the first match wins:
+     0) several versions of the scan and the barcode master cannot decide yet → held_conflict
      a) any value mapped to Ignore, or an unregistered barcode left out (Settings › Data quality) → ignored
+        a value still empty after the barcode master was asked → held_missing
      b) incomplete (known-bad pattern)  → unregistered bucket of the location (only SUIT_LEVEL must be mapped)
         complete                        → all four values must be mapped, else held_unmapped
      c) no starting count yet / before it → before_start
@@ -65,9 +67,13 @@ def classify_issue(conn: Connection, ctx: ClassifyContext, suit_type: str, suit_
         ("SUIT_TYPE", suit_type), ("SUIT_COLOR", suit_color), ("SUIT_SIZE", suit_size), ("SUIT_LEVEL", suit_level)]
     quality = "incomplete" if incomplete else "complete"
 
-    if any((ctx.lookup(c, v) or {}).get("is_ignored") for c, v in cols) or (incomplete and barcode in ctx.excluded):
+    if conflict == "pending":
+        return Classification("held_conflict", quality, None, None)
+    if any(v is not None and (ctx.lookup(c, v) or {}).get("is_ignored") for c, v in cols) or (incomplete and barcode in ctx.excluded):
         return Classification("ignored", quality, None, None)
-    location_id = _mapped_id(ctx.lookup("SUIT_LEVEL", suit_level), "SUIT_LEVEL")
+    location_id = _mapped_id(ctx.lookup("SUIT_LEVEL", suit_level), "SUIT_LEVEL") if suit_level is not None else None
+    if any(v is None for _, v in cols):
+        return Classification("held_missing", quality, location_id, None)
     if not all(_is_mapped(ctx.lookup(c, v)) for c, v in cols):
         return Classification("held_unmapped", quality, location_id, None)
 

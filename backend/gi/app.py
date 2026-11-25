@@ -22,10 +22,11 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 from .auth import HttpError, User, current_user, require_role, unlock_admin
 from .config import config
 from .db import connect, db_reachable, execute, one, rows, with_named_lock
-from .importing import get_issue_source
+from .importing import get_issue_source, get_master_source
+from .importing import master as barcode_master
 from .importing.csv_upload import CsvError, import_rows, run_progress
 from .importing.csv_upload import parse as parse_csv
-from .importing.importer import poll, sweep, sync_status
+from .importing.importer import poll, sweep, sync_master, sync_status, upload_master
 from .ledger import invariant_violations
 from .services import counts, deliveries, settings, stock, trends
 from .timeutil import iso, now_utc, to_db
@@ -348,6 +349,44 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
         if "run_id" not in box:
             raise HttpError(409, box.get("busy") or "an import is running right now; try again in a minute")
         return JSONResponse({"runId": box["run_id"], "total": len(rows_), "otherState": other}, status_code=202)
+
+    # ---- Barcode master (attributes of each barcode; decides repeated scans and fills empty values)
+    @app.get("/api/barcode-master", dependencies=[user])
+    def master_status():
+        with connect() as c:
+            out = barcode_master.summary(c)
+        last = out["last"]
+        if last:
+            last = {**last, "started_at": iso(last["started_at"]), "finished_at": iso(last["finished_at"]),
+                    "error": (last.get("error") or "").strip().splitlines()[-1] if last.get("error") else None}
+        live = get_master_source() is not None
+        return {**out, "updatedAt": iso(out["updatedAt"]), "last": last, "live": live,
+                "table": config.ORACLE_BARCODE_MASTER_TABLE if config.ISSUE_SOURCE == "oracle" else None,
+                "syncHour": config.BARCODE_MASTER_SYNC_HOUR}
+
+    @app.post("/api/barcode-master/sync", dependencies=[admin])
+    def master_sync_now():
+        src = get_master_source()
+        if src is None:
+            raise HttpError(409, "There is no Oracle barcode master table (setting ORACLE_BARCODE_MASTER_TABLE). Upload a CSV export instead.")
+        return _locked(lambda: sync_master(src))
+
+    @app.post("/api/barcode-master/upload", dependencies=[admin])
+    async def master_upload(request: Request, x_file_name: str | None = Header(None)):
+        """CSV export of the barcode master table, sent as the request body. Saved at once (the latest RECTIME
+        per barcode); then the scans waiting for it are decided."""
+        data = await request.body()
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HttpError(413, f"The file is larger than {MAX_UPLOAD_BYTES // 1_000_000} MB; split it into smaller files.")
+        try:
+            rows_ = await run_in_threadpool(barcode_master.parse_csv, data)
+        except CsvError as e:
+            return JSONResponse({"error": str(e), "problems": e.problems}, status_code=400)
+        name = unquote(x_file_name or "")
+        try:
+            return await run_in_threadpool(lambda: _locked(lambda: upload_master(rows_, name)))
+        except RuntimeError as e:  # this instance is importing right now
+            raise HttpError(409, str(e)) from e
 
     @app.get("/api/sync/runs/{run_id}", dependencies=[user])
     def run_detail(run_id: int):

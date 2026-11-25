@@ -66,7 +66,8 @@ All environment-specific values are set at installation in a `.env` file (or the
 | `ORACLE_CONNECT_STRING` | Oracle host / service (Easy Connect) |
 | `ORACLE_USER`, `ORACLE_PASSWORD` | Read-only account (password as a secret) |
 | `ORACLE_ISSUE_TABLE` | Issue table or view, `SCHEMA.TABLE` |
-| `ORACLE_SUIT_TABLE` | Optional suit master table, only for late registration (DQ-08); empty = not used |
+| `ORACLE_BARCODE_MASTER_TABLE` | Barcode master table (renamed from `ORACLE_SUIT_TABLE` on 2026-11-24; the old name is refused at start-up): each barcode's type, color and size, several rows per barcode, latest `RECTIME` wins. Read daily and asked during the import (§3.1a); empty = CSV uploads only |
+| `BARCODE_MASTER_SYNC_HOUR` | The daily full read runs after this hour, site time (default 2) |
 | `ORACLE_SWEEP_DAYS` | Days of `INSERT_TIME` re-checked by the daily catch-up sweep (default 3) |
 | `ORACLE_TIME_TOLERANCE_MINUTES` | How far `INSERT_TIME` may be in the future before it is alerted (default 10) |
 | `ORACLE_POLL_SECONDS`, `ORACLE_LOOKBACK_HOURS`, `ORACLE_MAX_ROWS` | Import interval (300 s to 43,200 s = 12 h; default 300), look-back (1–336 h, default 24) and batch size (default 5000). A run keeps reading batches until it has caught up. |
@@ -229,6 +230,15 @@ Each run starts at the **newest `INSERT_TIME` already imported minus `ORACLE_LOO
 - An index on `(STATE, INSERT_TIME)` is advisable — TODO with the DBA.
 - **Time zones** (ORA-12): Oracle `DATE` columns are read as plain local date-times (the query formats them with `TO_CHAR`). GI converts `INSERT_TIME` from `ORACLE_INSERT_TIME_ZONE` (Phoenix, UTC−7) to UTC `issued_at`, and derives `issued_day` in `SITE_TIMEZONE` (Phoenix). It never relies on the Oracle session or server time zone. Phoenix has no daylight saving, so the offset is fixed. If the column turns out to be `TIMESTAMP WITH TIME ZONE`, the stored zone is used instead (check on site).
 
+### 3.1a Barcode master (ORA-14, ORA-15; added 2026-11-24)
+
+The issue table repeats a scan once per barcode master row, so a barcode whose attributes were changed (a newer master row) arrives as several rows for the same `SUIT_BARCODE` + `INSERT_TIME` with other values. Values can also be empty.
+
+- **GI's copy**: `barcode_master(suit_barcode PK, suit_category, suit_type, suit_color, suit_size, rectime, versions, tied)` holds the latest version per barcode. Filled by the daily full read (`ORACLE_BARCODE_MASTER_TABLE`, keyset-paged on `SUIT_BARCODE`, a page never splits a barcode), by lookups during the import, and by CSV uploads (Settings › Import). A version replaces the stored one only when its `RECTIME` is the same or later; two rows at the same latest `RECTIME` with other values set `tied`, and a tied barcode is not used to decide anything.
+- **Import**: the rows of one scan are always handled in one batch (pages and CSV batches end at a scan boundary). If a new scan has several versions, or an empty type / color / size, GI asks the live barcode master for those barcodes (one `IN` query per batch, falling back to its copy if that fails). It keeps the version whose type, color and size match (`conflict = 'resolved'`) and fills empty values from it. The other versions go to `issue_import_conflict` (`''` for an empty value). Empty Oracle columns are recorded in `issue_import.missing_values`.
+- **Waiting**: when the barcode master cannot decide (not in it, tied, no version matches, or `SUIT_LEVEL` empty), the scan is stored with `status = held_conflict` (`conflict = 'pending'`) or `held_missing` and does not count. After every barcode master read or upload, all waiting scans are decided again and re-classified (§3.3).
+- **A stored scan read again with a new version** (the look-back re-reads 24 hours) is decided again; if the kept version changes, the issue's −1 moves to the other stock item (an `issue_correction` +1 and a new −1, dated at the issue time). Versions already recorded are not reported again.
+
 ### 3.2 Processing each row (one MariaDB transaction per batch)
 
 Only the server sets `status`; no screen edits it directly. One function, `classifyIssue(row)`, decides `status`, `quality` and `stock_item_id`, and is used by the import **and** by every action that can change the answer later (§3.3), so a row is always classified by the same rules.
@@ -239,9 +249,11 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 
    | # | Check | Result |
    |---|---|---|
+   | 0 | Several versions of the scan and the barcode master cannot decide yet (§3.1a) | `held_conflict` — no stock item |
    | a | Any of the four values is mapped to Ignore (`is_ignored`) | `ignored` — no stock item |
+   | a′ | A value is still empty after the barcode master was asked | `held_missing` — no stock item |
    | b | Any of the four values is not mapped yet | `held_unmapped` — no stock item |
-   | c | Data quality (`dq_pattern`, today GOWN / OTHER / OTHER = barcode not registered in the suit master) | sets `quality` and the stock item: complete → the real item; incomplete → the location's unregistered bucket (type unknown) |
+   | c | Data quality (`dq_pattern`, today GOWN / OTHER / OTHER = barcode not registered in the barcode master) | sets `quality` and the stock item: complete → the real item; incomplete → the location's unregistered bucket (type unknown) |
    | d | The location has no starting count yet, or `issued_at` is before its `as_of` | `before_start` — Trends only |
    | e | Otherwise | `applied` |
 
@@ -257,12 +269,14 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 |---|---|---|---|
 | — (new row) | `ignored` / `held_unmapped` / `before_start` / `applied` | Import run, via `classifyIssue` | −1 entry only for `applied` |
 | `held_unmapped` | `ignored` / `before_start` / `applied` | Lead or admin maps the missing value (or sets it to Ignore) → all held rows using that value are re-classified in one transaction | −1 entry for each row that becomes `applied` |
+| `held_conflict` / `held_missing` | any | Barcode master read or uploaded → waiting scans are decided again (§3.1a) | −1 entry for each row that becomes `applied` |
+| `applied` | `applied` (other item) | The same scan read again with a new version that the barcode master prefers | +1 on the old item, −1 on the new one |
 | `before_start` | `applied` | Starting count saved for that location → its `before_start` rows with `issued_at ≥ as_of` are re-classified | −1 entry for each |
 
 - **Why the starting-count step matters:** floor staff finish counting at, say, 14:00, but the counts may be entered at 16:00. Imports between 14:00 and 16:00 find no starting count and set `before_start` — including issues after 14:00 that should reduce stock. Saving the count (as-of 14:00) re-classifies those, so nothing is lost. The same covers Fab2 going live after Fab1: Fab2 rows stay `before_start` until Fab2's count is saved.
 - **Final states:** `applied`, and `before_start` rows earlier than the as-of time never change again. `ignored` rows stay ignored if the value is later un-ignored — changing an existing mapping applies only to new rows (MAP-03, TODO).
 - Each re-classification is a single transaction, recorded in `audit_log` with the number of rows changed.
-- **Late registration** (DQ-08, only if the TODO confirms barcodes get registered after being issued): each import run checks the unregistered barcodes against `ORACLE_SUIT_TABLE`; for each one now registered, its `applied` unregistered-bucket rows move to the real item with a pair of new `issue_correction` entries (+1 unregistered bucket, −1 real item) and `quality = recovered`. Status stays `applied`.
+- **Late registration** (DQ-08, only if the TODO confirms barcodes get registered after being issued): each import run checks the unregistered barcodes against the barcode master; for each one now registered, its `applied` unregistered-bucket rows move to the real item with a pair of new `issue_correction` entries (+1 unregistered bucket, −1 real item) and `quality = recovered`. Status stays `applied`.
 
 ### 3.4 Other paths
 
@@ -302,7 +316,7 @@ Team assumption: 2 developers (1 full-stack lead + 1 frontend), part-time design
 - On site, with the configured table: run `SELECT DISTINCT` on `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE`, `SUIT_LEVEL` and draft the initial value mapping (MAP-04); measure the share of GOWN / OTHER / OTHER rows and how many distinct unregistered barcodes there are.
 - Request the read-only Oracle account and firewall access from the GI server (long lead time — start day 1).
 - Monorepo, lint/typecheck, CI (GitHub Actions: build, unit, integration against MariaDB 11.4 + Oracle Free service containers, e2e).
-- Docker-compose dev env; `.env.example`; migrations; seed reproducing the mockup data plus synthetic Oracle issue and suit master tables with the real column names.
+- Docker-compose dev env; `.env.example`; migrations; seed reproducing the mockup data plus synthetic Oracle issue and barcode master tables with the real column names.
 - Broadsheet tokens into `packages/ui`; app shell with device detection and the phone / laptop layouts (§1.2); auth stub + roles.
 
 **Exit**: app shell on a dev server; Oracle columns, keys and values understood; CI green.

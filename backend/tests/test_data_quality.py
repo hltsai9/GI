@@ -4,7 +4,7 @@ import pytest
 from conftest import admin_headers, ref_ids, user_id
 from fastapi.testclient import TestClient
 
-from gi.db import connect, rows
+from gi.db import connect, one, rows
 from gi.ledger import invariant_violations
 from gi.importing.csv_upload import import_csv
 from gi.services import settings, stock, trends
@@ -147,11 +147,15 @@ def test_same_scan_with_other_values_is_recorded_not_lost():
     assert list(got) == ["2399600002641084"]
     assert [(k["color"], k["notCounted"]) for k in got["2399600002641084"]["combinations"]] == [("WHITE", False), ("BLUE", True)]
     assert {"kind": "data_conflict"} in alerts
-    # Uploading the same file again records nothing new twice.
-    r = import_csv(same.encode())
-    assert (r["new"], r["conflicts"]) == (0, 1)
+    # Without a barcode master the scan waits (not counted yet) instead of keeping the first row by chance.
     with connect() as c:
-        assert rows(c, "SELECT times FROM issue_import_conflict") == [{"times": 2}]
+        assert one(c, "SELECT status, conflict FROM issue_import WHERE suit_barcode = '2399600002641084'") == \
+            {"status": "held_conflict", "conflict": "pending"}
+    # Uploading the same file again records nothing new, and does not report the same conflict again.
+    r = import_csv(same.encode())
+    assert (r["new"], r["conflicts"], r["alreadyImported"]) == (0, 0, 4)
+    with connect() as c:
+        assert rows(c, "SELECT times FROM issue_import_conflict") == [{"times": 1}]
 
 
 def test_trends_split_by_location():

@@ -14,10 +14,11 @@ from datetime import datetime
 
 from typing import Callable
 
+from ..config import config
 from ..db import connect, execute
 from ..timeutil import now_utc
 from .importer import _Counters, _exclusive, _finish_run, _import_batch, _start_run
-from .source import ISSUE_STATE, OracleIssueRow, clean_barcode
+from .source import ISSUE_STATE, OracleIssueRow, clean_barcode, clean_value
 
 REQUIRED = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL", "INSERT_TIME")  # other columns (RECTIME …) are ignored
 MAX_ERRORS = 20
@@ -92,7 +93,8 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
             other_state += 1
             continue
         try:
-            empty = [c for c in REQUIRED if not get(c)]
+            # An empty type, color, size or level is allowed: GI records it and fills it from the barcode master.
+            empty = [c for c in ("SUIT_BARCODE", "INSERT_TIME") if not get(c)]
             if empty:
                 raise ValueError(f"empty {', '.join(empty)}")
             barcode = clean_barcode(rec[cols["SUIT_BARCODE"]] if cols["SUIT_BARCODE"] < len(rec) else "")
@@ -102,8 +104,8 @@ def parse(data: bytes) -> tuple[list[OracleIssueRow], int]:
             if len(barcode) > 255:
                 raise ValueError(f"SUIT_BARCODE is longer than 255 characters ({barcode[:40]!r}…)")
             # Trailing padding removed; leading and inner spaces kept, the same as the live Oracle import.
-            out.append({"SUIT_BARCODE": barcode, "SUIT_TYPE": get("SUIT_TYPE"), "SUIT_COLOR": get("SUIT_COLOR"),
-                        "SUIT_SIZE": get("SUIT_SIZE"), "SUIT_LEVEL": get("SUIT_LEVEL"),
+            out.append({"SUIT_BARCODE": barcode, "SUIT_TYPE": clean_value(get("SUIT_TYPE")), "SUIT_COLOR": clean_value(get("SUIT_COLOR")),
+                        "SUIT_SIZE": clean_value(get("SUIT_SIZE")), "SUIT_LEVEL": clean_value(get("SUIT_LEVEL")),
                         "INSERT_TIME": parse_time(get("INSERT_TIME"))})
         except ValueError as e:
             bad += 1
@@ -130,8 +132,13 @@ def import_rows(rows: list[OracleIssueRow], other_state: int, file_name: str = "
             on_started(run_id)
         c = _Counters()
         try:
-            for i in range(0, len(rows), BATCH):
-                _import_batch(rows[i:i + BATCH], run_id, c, now)
+            # With a live Oracle barcode master, repeated scans are decided at once; otherwise from GI's copy (uploads).
+            src = None
+            if config.ISSUE_SOURCE == "oracle":
+                from . import get_master_source
+                src = get_master_source()
+            for batch in _batches(rows):
+                _import_batch(batch, run_id, c, now, src)
                 with connect() as conn:
                     execute(conn, "UPDATE sync_run SET rows_read = ?, rows_new = ?, rows_conflicts = ? WHERE id = ?", [c.read, c.new, c.conflicts, run_id])
             result = _finish_run(run_id, "upload", c)
@@ -141,6 +148,21 @@ def import_rows(rows: list[OracleIssueRow], other_state: int, file_name: str = "
         return {**result, "fileRows": len(rows) + other_state, "alreadyImported": c.read - c.new - c.conflicts, "otherState": other_state}
 
     return _exclusive(run)
+
+
+def _batches(rows: list[OracleIssueRow]) -> list[list[OracleIssueRow]]:
+    """About BATCH rows each, sorted by scan, never splitting the rows of one scan (they are decided together)."""
+    ordered = sorted(rows, key=lambda r: (r["INSERT_TIME"], r["SUIT_BARCODE"]))
+    out: list[list[OracleIssueRow]] = []
+    cur: list[OracleIssueRow] = []
+    for r in ordered:
+        if len(cur) >= BATCH and (r["INSERT_TIME"], r["SUIT_BARCODE"]) != (cur[-1]["INSERT_TIME"], cur[-1]["SUIT_BARCODE"]):
+            out.append(cur)
+            cur = []
+        cur.append(r)
+    if cur:
+        out.append(cur)
+    return out
 
 
 def import_csv(data: bytes, file_name: str = "") -> dict:
@@ -156,7 +178,8 @@ def run_progress(run: dict) -> dict:
     return {
         "runId": run["id"], "status": run["status"], "fileName": run.get("note"),
         "total": total, "done": run["rows_read"], "new": run["rows_new"],
-        "conflicts": run.get("rows_conflicts") or 0,
+        "conflicts": run.get("rows_conflicts") or 0, "missing": run.get("rows_missing") or 0,
+        "resolved": run.get("rows_resolved") or 0, "waiting": run.get("rows_waiting") or 0,
         "alreadyImported": run["rows_read"] - run["rows_new"] - (run.get("rows_conflicts") or 0), "otherState": other, "fileRows": total + other,
         "byStatus": {"applied": run["rows_applied"], "held_unmapped": run["rows_held"],
                      "before_start": run["rows_before_start"], "ignored": run["rows_ignored"]},

@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from ..config import config
 from ..db import connect, one, rows
 from ..importing import get_issue_source
-from ..importing.importer import poll
+from ..importing.importer import poll, sync_master
 from ..migrate import migrate, reset_database
 from ..services.counts import CountLine, StartingCountInput, save_starting_count
 from ..services.deliveries import DeliveryInput, DeliveryLine, post_delivery
@@ -28,6 +28,7 @@ def main() -> None:
         floor = one(c, "SELECT id FROM app_user WHERE sso_subject = 'dev-floor'")["id"]  # type: ignore[index]
 
     source = get_issue_source()
+    print("barcode master", {k: v for k, v in sync_master(source).items() if k in ("rows", "barcodes")})
     print("import", poll(source, now_utc(), "backfill")["byStatus"])
 
     tz = ZoneInfo(config.SITE_TIMEZONE)

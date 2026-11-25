@@ -154,12 +154,20 @@ When GI cannot reach Oracle yet (for example on a test site), export the issue r
       AND INSERT_TIME >= TO_DATE('2026-11-01', 'YYYY-MM-DD')
     ORDER BY INSERT_TIME;
    ```
-   - The first line must be the column names; extra columns (such as `RECTIME`) are ignored, and other `STATE`s are skipped. `INSERT_TIME` is read as Phoenix time.
+   - The first line must be the column names; extra columns (such as `RECTIME`) are ignored, and other `STATE`s are skipped. `INSERT_TIME` is read as Phoenix time. Empty type, color, size or level cells are allowed (filled from the barcode master, step 6).
    - Comma, semicolon or tab separators work.
    - Dates like `20-NOV-26 09.15.30 AM` (Oracle's default) are also read, but **times must include seconds**. Don't open and save the file in Excel. Excel drops the seconds, and it keeps only 15 digits of a number, so a 16-digit barcode like `2399600002641084` becomes `2399600002641080`. Opening it in Excel only to look also shows the changed number; use a text editor, or import the column as Text.
 3. Upload the file. A progress bar shows the upload, then "Importing N of M rows". The import runs on the server, so a large file doesn't hit request time limits. If the pod restarts during an import, the rows done so far are kept: upload the file again to finish. Rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`) are skipped, so uploading the same file twice, or files whose date ranges overlap, never counts an issue twice. If any row can't be read, nothing is imported and the problem lines are listed.
 4. As with a real Oracle connection: map the values in **Settings › Oracle values**. A row is held until **all four** of its values (type, color, size, level) are mapped, so the first mappings may release 0 rows; the confirmation says how many rows were released and how many still wait, and enter the starting counts in **Settings › Full count**. Issues count against stock only after the starting count.
 5. Repeat with a new export whenever you want newer issues; overlapping date ranges are fine.
+6. **Barcode master** (Settings › Import › Barcode master, admin): upload a CSV export of the barcode master table too, and again whenever it changed. GI keeps each barcode's row with the latest `RECTIME`. It decides scans that come as several rows with other values, and fills empty type, color or size; until it can, those scans wait and do not count (Settings › Data quality › Waiting for the barcode master). Upload it before or after the issues; waiting scans are decided after each upload.
+   ```sql
+   SELECT SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE,
+          TO_CHAR(RECTIME, 'YYYY-MM-DD HH24:MI:SS') AS RECTIME
+     FROM SCHEMA.BARCODE_MASTER
+    ORDER BY SUIT_BARCODE, RECTIME;
+   ```
+   An export of only the rows changed since the last upload is enough; an older row never replaces a newer one.
 
 Later, with `ISSUE_SOURCE=oracle`, the rows already uploaded are recognised and not imported again.
 
@@ -168,7 +176,7 @@ Later, with `ISSUE_SOURCE=oracle`, the rows already uploaded are recognised and 
 1. Variable group: add `GI_ORACLE_PASSWORD` (secret).
 2. Pipeline, "Update the Secret" step:
    `secretArguments: --from-literal=MARIADB_PASSWORD=$(GI_DB_PASSWORD) --from-literal=ORACLE_PASSWORD=$(GI_ORACLE_PASSWORD)`
-3. ConfigMap: `ISSUE_SOURCE: "oracle"`, and uncomment and fill in `ORACLE_CONNECT_STRING`, `ORACLE_USER`, `ORACLE_ISSUE_TABLE`, `ORACLE_BACKFILL_FROM`.
+3. ConfigMap: `ISSUE_SOURCE: "oracle"`, and uncomment and fill in `ORACLE_CONNECT_STRING`, `ORACLE_USER`, `ORACLE_ISSUE_TABLE`, `ORACLE_BARCODE_MASTER_TABLE` (read daily; leave it out to keep uploading the barcode master as CSV), `ORACLE_BACKFILL_FROM`.
 4. Network: pods can reach the Oracle server (usually port 1521).
 5. Start from an empty `gi` database so mock issues do not mix with real ones (drop and re-create it with the DBA), then run the pipeline.
 6. In the app: map the Oracle values, then the starting counts ([DEPLOYMENT_SOP.md §8.2](./DEPLOYMENT_SOP.md)).

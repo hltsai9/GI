@@ -31,12 +31,13 @@ Checklist of the **[OPEN]** items in the [URD](./URD.md). Tick an item when it i
 - [x] **Column types** — `DATE` (the delay query returned plain numbers; `TIMESTAMP` columns would have returned intervals). To be certain: `SELECT column_name, data_type FROM all_tab_columns WHERE table_name = '<ISSUE_TABLE>' AND column_name = 'INSERT_TIME'`. → ORA-12
 - [ ] **Index** — is there an index on `(STATE, INSERT_TIME)` in the issue table? If not, can one be added, or a view provided? → ORA-10
 - [x] **Cancellations in Oracle** — not needed (no cancellations). → ORA-06
-- [ ] **Late registration** — when a garment is issued with an unregistered barcode (GOWN / OTHER / OTHER), is that barcode registered in the suit master later? If yes, GI can move its earlier issues to the right size and color (DQ-08). If barcodes are never registered afterwards, DQ-08 is dropped. → DQ-08
+- [x] **Barcode master with several rows per barcode** — answered 2026-11-24: the barcode master can be updated, so a barcode can have several rows; the latest `RECTIME` is current. The issue table repeats a scan once per master row, which creates the conflicts. GI keeps the row matching the barcode master and fills empty values from it. → ORA-14, ORA-15
+- [ ] **Late registration** — when a garment is issued with an unregistered barcode (GOWN / OTHER / OTHER), is that barcode registered in the barcode master later? If yes, GI can move its earlier issues to the right size and color (DQ-08). If barcodes are never registered afterwards, DQ-08 is dropped. → DQ-08
 
 ## At installation (configuration, not in the repository)
 
 - [ ] Oracle connect string, read-only account and password (as a secret)
-- [ ] Oracle issue table name (and suit master table name, only if DQ-08 is built)
+- [ ] Oracle issue table name and barcode master table name (`ORACLE_BARCODE_MASTER_TABLE`; until there is an Oracle connection the barcode master is uploaded as CSV)
 - [ ] Network access from the GI server to the Oracle database
 - [ ] Hosting (on-prem vs internal cloud), SSO provider, MariaDB server (existing or new)
 

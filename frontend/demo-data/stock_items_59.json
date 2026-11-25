@@ -1,1 +1,1 @@
-{"id":59,"on_hand":77,"min_qty":20,"garment":"Gown","color":"White","size":"XLG","location":"P1","status":"plenty","issuedToday":6,"lastDelivery":{"at":"2026-11-23T13:40:00.000Z","qty":15}}
+{"id":59,"on_hand":65,"min_qty":20,"garment":"Gown","color":"White","size":"XLG","location":"P1","status":"plenty","issuedToday":10,"lastDelivery":{"at":"2026-11-24T13:40:00.000Z","qty":15}}

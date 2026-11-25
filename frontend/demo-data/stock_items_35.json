@@ -1,1 +1,1 @@
-{"id":35,"on_hand":67,"min_qty":20,"garment":"Boots","color":"White","size":"MED","location":"P1","status":"plenty","issuedToday":9,"lastDelivery":{"at":"2026-11-23T13:40:00.000Z","qty":10}}
+{"id":35,"on_hand":65,"min_qty":20,"garment":"Boots","color":"White","size":"MED","location":"P1","status":"plenty","issuedToday":14,"lastDelivery":{"at":"2026-11-24T13:40:00.000Z","qty":25}}

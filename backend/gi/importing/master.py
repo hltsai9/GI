@@ -1,0 +1,196 @@
+"""Barcode master: the attributes (type, color, size) of each barcode, from the Oracle barcode master table
+(setting ORACLE_BARCODE_MASTER_TABLE, read in full once a day) or from CSV uploads (Settings › Import).
+
+The Oracle table can hold several rows per barcode, because a barcode's attributes are corrected by adding a row.
+GI keeps only the latest version (highest RECTIME) in barcode_master. The issue import uses it for two things:
+- several issue rows for the same scan (SUIT_BARCODE + INSERT_TIME) with other values (the issue table repeats a
+  scan once per master row): the row whose type, color and size match the barcode master is kept;
+- an issue row with an empty type, color or size: the empty values are filled from the barcode master.
+When the barcode master cannot decide (barcode not in it, or no row matches), the scan is held until it can.
+RECTIME is only compared with other RECTIMEs of the same table, so its time zone does not matter."""
+from __future__ import annotations
+
+import csv
+import io
+from typing import Iterable
+
+from sqlalchemy.engine import Connection
+
+from ..db import execute, marks, rows
+from ..timeutil import naive_str
+from .source import MasterRow, clean_barcode, clean_value
+
+# A version of a scan: (SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL); None = empty in Oracle.
+Version = tuple[str | None, str | None, str | None, str | None]
+Attrs = tuple[str | None, str | None, str | None]  # type, color, size from the barcode master
+VALUE_COLUMNS = ("SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL")
+_CHUNK = 500
+
+
+def latest_versions(master_rows: Iterable[MasterRow]) -> dict[str, dict]:
+    """Per barcode, the version with the latest RECTIME. `tied` when another row has the same latest RECTIME
+    but other values (then GI cannot tell which one is current)."""
+    out: dict[str, dict] = {}
+    for r in master_rows:
+        b = r["SUIT_BARCODE"]
+        vals = (r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"])
+        cur = out.get(b)
+        if cur is None or r["RECTIME"] > cur["rectime"]:
+            out[b] = {"category": r.get("SUIT_CATEGORY"), "attrs": vals, "rectime": r["RECTIME"],
+                      "versions": (cur["versions"] if cur else 0) + 1, "tied": False}
+        else:
+            cur["versions"] += 1
+            if r["RECTIME"] == cur["rectime"] and vals != cur["attrs"]:
+                cur["tied"] = True
+    return out
+
+
+def store(conn: Connection, latest: dict[str, dict]) -> int:
+    """Merges latest versions into barcode_master: one replaces the stored version when its RECTIME is the same
+    or later (so uploading an older export never undoes a newer one). Returns how many barcodes changed."""
+    changed = 0
+    items = list(latest.items())
+    for i in range(0, len(items), _CHUNK):
+        chunk = items[i:i + _CHUNK]
+        have = {r["suit_barcode"]: r for r in rows(conn, f"""SELECT suit_barcode, suit_type, suit_color, suit_size, rectime, tied
+                                                              FROM barcode_master WHERE suit_barcode IN ({marks(len(chunk))})""",
+                                                    [b for b, _ in chunk])}
+        values: list = []
+        n = 0
+        for b, v in chunk:
+            e = have.get(b)
+            tied = v["tied"]
+            if e:
+                stored = (e["suit_type"], e["suit_color"], e["suit_size"])
+                rt = naive_str(e["rectime"])
+                if v["rectime"] < rt:
+                    continue
+                if v["rectime"] == rt:
+                    if stored == v["attrs"] and bool(e["tied"]) == tied:
+                        continue
+                    tied = tied or stored != v["attrs"]  # same RECTIME, other values (e.g. two uploads)
+            values += [b, v["category"], *v["attrs"], v["rectime"], v["versions"], tied]
+            n += 1
+        if n:
+            execute(conn, f"""INSERT INTO barcode_master (suit_barcode, suit_category, suit_type, suit_color, suit_size, rectime, versions, tied)
+                              VALUES {', '.join(['(?,?,?,?,?,?,?,?)'] * n)}
+                              ON DUPLICATE KEY UPDATE suit_category = VALUES(suit_category), suit_type = VALUES(suit_type),
+                                suit_color = VALUES(suit_color), suit_size = VALUES(suit_size), rectime = VALUES(rectime),
+                                versions = VALUES(versions), tied = VALUES(tied)""", values)
+            changed += n
+    return changed
+
+
+def attrs_for(conn: Connection, barcodes: Iterable[str]) -> dict[str, Attrs]:
+    """The barcode master's current type, color and size of these barcodes (tied ones left out)."""
+    bs = sorted(set(barcodes))
+    out: dict[str, Attrs] = {}
+    for i in range(0, len(bs), _CHUNK):
+        chunk = bs[i:i + _CHUNK]
+        for r in rows(conn, f"""SELECT suit_barcode, suit_type, suit_color, suit_size FROM barcode_master
+                                 WHERE NOT tied AND suit_barcode IN ({marks(len(chunk))})""", chunk):
+            out[r["suit_barcode"]] = (r["suit_type"], r["suit_color"], r["suit_size"])
+    return out
+
+
+def choose(versions: list[Version], m: Attrs | None) -> tuple[int, Version, str | None]:
+    """Decides one scan. Returns (index of the version kept, that version with empty type / color / size filled
+    from the barcode master, conflict state): None = only one version; 'resolved' = several versions, the one
+    matching the barcode master kept; 'pending' = several versions and the barcode master cannot decide yet."""
+    def fill(v: Version) -> Version:
+        return v if m is None else (v[0] or m[0], v[1] or m[1], v[2] or m[2], v[3])
+
+    if len(versions) == 1:
+        return 0, fill(versions[0]), None
+    if m is not None:
+        for i, v in enumerate(versions):
+            f = fill(v)
+            if f[:3] == m:
+                return i, f, "resolved"
+    return 0, fill(versions[0]), "pending"
+
+
+def missing_of(v: Version) -> str | None:
+    """The columns empty in an Oracle row, as stored in issue_import.missing_values."""
+    return ",".join(c for c, x in zip(VALUE_COLUMNS, v) if x is None) or None
+
+
+# ---- reading the Oracle table (daily) and CSV uploads
+def read_all(source, page_size: int) -> dict[str, dict]:
+    """Reads the whole barcode master table, keyset-paged on SUIT_BARCODE. A page never splits a barcode's rows:
+    a full page drops its last barcode, which the next page starts with."""
+    latest: dict[str, dict] = {}
+    after: str | None = None
+    while True:
+        page = source.master_page(after, page_size)
+        full = len(page) >= page_size
+        if full:
+            last = page[-1]["SUIT_BARCODE"]
+            trimmed = [r for r in page if r["SUIT_BARCODE"] != last]
+            page = trimmed or page  # one barcode with more rows than a page: take them as they are
+        latest.update(latest_versions(page))
+        if not full:
+            return latest
+        after = page[-1]["SUIT_BARCODE"]
+
+
+REQUIRED = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "RECTIME")  # SUIT_CATEGORY optional; REC_USER … ignored
+
+
+def parse_csv(data: bytes) -> list[MasterRow]:
+    """A CSV export of the Oracle barcode master table. Raises CsvError listing the problems."""
+    from .csv_upload import MAX_ERRORS, CsvError, _decode, _SCIENTIFIC, parse_time
+
+    text = _decode(data)
+    if not text.strip():
+        raise CsvError("The file is empty.")
+    first = text.lstrip("﻿").split("\n", 1)[0]
+    delimiter = max(",;\t|", key=first.count)
+    reader = csv.reader(io.StringIO(text), delimiter=delimiter, quotechar='"', doublequote=True)
+    header = next(reader, [])
+    cols = {h.strip().strip('"').upper(): i for i, h in enumerate(header)}
+    missing = [c for c in REQUIRED if c not in cols]
+    if missing:
+        raise CsvError(f"Missing column(s): {', '.join(missing)}. The first line must have the barcode master's column names.",
+                       [f"Columns found: {', '.join(h.strip() for h in header) or '(none)'}"])
+    out: list[MasterRow] = []
+    problems: list[str] = []
+    bad = 0
+    for line_no, rec in enumerate(reader, start=2):
+        if not any(x.strip() for x in rec):
+            continue
+        get = lambda c: rec[cols[c]] if c in cols and cols[c] < len(rec) else ""  # noqa: E731
+        try:
+            barcode = clean_barcode(get("SUIT_BARCODE"))
+            if not barcode.strip():
+                raise ValueError("empty SUIT_BARCODE")
+            if _SCIENTIFIC.match(barcode):
+                raise ValueError(f"SUIT_BARCODE {barcode!r} is in scientific notation: the file was saved by Excel. "
+                                 "Upload the original export instead")
+            if len(barcode) > 255:
+                raise ValueError("SUIT_BARCODE is longer than 255 characters")
+            if not get("RECTIME").strip():
+                raise ValueError("empty RECTIME")
+            out.append({"SUIT_BARCODE": barcode, "SUIT_CATEGORY": clean_value(get("SUIT_CATEGORY").strip()),
+                        "SUIT_TYPE": clean_value(get("SUIT_TYPE").strip()), "SUIT_COLOR": clean_value(get("SUIT_COLOR").strip()),
+                        "SUIT_SIZE": clean_value(get("SUIT_SIZE").strip()), "RECTIME": parse_time(get("RECTIME"))})
+        except ValueError as e:
+            bad += 1
+            if len(problems) < MAX_ERRORS:
+                problems.append(f"Line {line_no}: {e}")
+    if bad:
+        raise CsvError(f"{bad} row(s) could not be read; nothing was saved. Fix the file and upload it again.", problems)
+    if not out:
+        raise CsvError("The file has no data rows.")
+    return out
+
+
+def summary(conn: Connection) -> dict:
+    """Barcode master figures for Settings › Import."""
+    m = rows(conn, "SELECT COUNT(*) AS n, COALESCE(SUM(tied), 0) AS tied, MAX(updated_at) AS at FROM barcode_master")[0]
+    w = rows(conn, """SELECT COALESCE(SUM(status = 'held_conflict'), 0) AS conflict, COALESCE(SUM(status = 'held_missing'), 0) AS missing
+                        FROM issue_import WHERE status IN ('held_conflict', 'held_missing')""")[0]
+    last = rows(conn, """SELECT kind, note, started_at, finished_at, rows_read, rows_new, rows_resolved, status, error FROM sync_run
+                          WHERE kind IN ('master', 'master_upload') ORDER BY id DESC LIMIT 1""")
+    return {"barcodes": int(m["n"]), "tied": int(m["tied"]), "updatedAt": m["at"],
+            "waiting": {"conflict": int(w["conflict"]), "missing": int(w["missing"])}, "last": last[0] if last else None}

@@ -1,1 +1,1 @@
-{"id":43,"on_hand":16,"min_qty":4,"garment":"Hood","color":"Black","size":"LG","location":"P1","status":"plenty","issuedToday":0,"lastDelivery":{"at":"2026-11-23T13:40:00.000Z","qty":5}}
+{"id":43,"on_hand":8,"min_qty":4,"garment":"Hood","color":"Black","size":"LG","location":"P1","status":"plenty","issuedToday":4,"lastDelivery":{"at":"2026-11-22T13:40:00.000Z","qty":5}}
