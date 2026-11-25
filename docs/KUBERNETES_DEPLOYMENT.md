@@ -161,13 +161,17 @@ When GI cannot reach Oracle yet (for example on a test site), export the issue r
 4. As with a real Oracle connection: map the values in **Settings › Oracle values**. A row is held until **all four** of its values (type, color, size, level) are mapped, so the first mappings may release 0 rows; the confirmation says how many rows were released and how many still wait, and enter the starting counts in **Settings › Full count**. Issues count against stock only after the starting count.
 5. Repeat with a new export whenever you want newer issues; overlapping date ranges are fine.
 6. **Barcode master** (Settings › Import › Barcode master, admin): upload a CSV export of the barcode master table too, and again whenever it changed. GI keeps each barcode's row with the latest `RECTIME`. It decides scans that come as several rows with other values, and fills empty type, color or size; until it can, those scans wait and do not count (Settings › Data quality › Waiting for the barcode master). Upload it before or after the issues; waiting scans are decided after each upload.
+   The query returns only the **latest row of each barcode** (highest `RECTIME`; a row without `RECTIME` counts as the oldest, so it is used only when the barcode has no dated row). Two rows tied at the latest `RECTIME` both come back, so GI can see that it cannot tell them apart:
    ```sql
-   SELECT SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE,
-          TO_CHAR(RECTIME, 'YYYY-MM-DD HH24:MI:SS') AS RECTIME
-     FROM SCHEMA.BARCODE_MASTER
-    ORDER BY SUIT_BARCODE, RECTIME;
+   SELECT SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, RECTIME
+     FROM (SELECT SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE,
+                  TO_CHAR(RECTIME, 'YYYY-MM-DD HH24:MI:SS') AS RECTIME,
+                  RANK() OVER (PARTITION BY SUIT_BARCODE ORDER BY RECTIME DESC NULLS LAST) AS RK
+             FROM SCHEMA.BARCODE_MASTER)
+    WHERE RK = 1
+    ORDER BY SUIT_BARCODE;
    ```
-   An export of only the rows changed since the last upload is enough; an older row never replaces a newer one.
+   Exporting every row also works (GI picks the latest itself), and so does an export of only recent changes: an older row never replaces a newer one.
 
 Later, with `ISSUE_SOURCE=oracle`, the rows already uploaded are recognised and not imported again.
 

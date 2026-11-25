@@ -45,21 +45,26 @@ class OracleIssueSource:
         return self._q(f"""SELECT {_COLS} FROM {self._table} WHERE STATE = :state AND INSERT_TIME >= {_d('fromT')} {extra}
                            ORDER BY INSERT_TIME, SUIT_BARCODE FETCH FIRST :lim ROWS ONLY""", binds)
 
-    # ---- barcode master (several rows per barcode; GI keeps the latest RECTIME)
-    _MCOLS = """SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE,
-      TO_CHAR(RECTIME, 'YYYY-MM-DD HH24:MI:SS') AS RECTIME"""
+    # ---- barcode master (several rows per barcode). Oracle returns only each barcode's latest rows (RANK = 1, so
+    # rows tied at the latest RECTIME all come back and GI can tell); a row without RECTIME counts as the oldest.
+    def _latest(self, where: str) -> str:
+        return f"""SELECT SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, RECTIME FROM (
+                     SELECT SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE,
+                            TO_CHAR(RECTIME, 'YYYY-MM-DD HH24:MI:SS') AS RECTIME,
+                            RANK() OVER (PARTITION BY SUIT_BARCODE ORDER BY RECTIME DESC NULLS LAST) AS RK
+                       FROM {self._master} {where})
+                   WHERE RK = 1"""
 
     def master_page(self, after: str | None, limit: int) -> list[MasterRow]:
         where = "WHERE SUIT_BARCODE > :after" if after is not None else ""
         binds: dict = {"lim": limit, **({"after": after} if after is not None else {})}
-        return self._q(f"""SELECT {self._MCOLS} FROM {self._master} {where}
-                           ORDER BY SUIT_BARCODE, RECTIME FETCH FIRST :lim ROWS ONLY""", binds)  # type: ignore[return-value]
+        return self._q(f"{self._latest(where)} ORDER BY SUIT_BARCODE FETCH FIRST :lim ROWS ONLY", binds)  # type: ignore[return-value]
 
     def master_for(self, barcodes: list[str]) -> list[MasterRow]:
         if not barcodes:
             return []
         names = [f"b{i}" for i in range(len(barcodes))]
-        return self._q(f"""SELECT {self._MCOLS} FROM {self._master} WHERE SUIT_BARCODE IN ({', '.join(':' + n for n in names)})""",
+        return self._q(self._latest(f"WHERE SUIT_BARCODE IN ({', '.join(':' + n for n in names)})"),
                        dict(zip(names, barcodes)))  # type: ignore[return-value]
 
     def close(self) -> None:

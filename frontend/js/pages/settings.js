@@ -346,7 +346,7 @@ function WaitingForMaster(data) {
           h('td', null, w.versions.map((v) => h('div', { style: { whiteSpace: 'pre' } }, vtext(v))),
             w.problem === 'missing' && h('span', { class: 'tag tag-accent-2' }, `empty ${w.missing.join(', ')}`)),
           h('td', null, w.master
-            ? [`${w.master.type} / ${w.master.color} / ${w.master.size}`, h('div', { style: { fontSize: 12, color: 'var(--color-neutral-700)' } }, `RECTIME ${w.master.rectime}${w.master.tied ? ' · two rows at this time, not used' : ''}`)]
+            ? [`${w.master.type} / ${w.master.color} / ${w.master.size}`, h('div', { style: { fontSize: 12, color: 'var(--color-neutral-700)' } }, `${w.master.rectime ? `RECTIME ${w.master.rectime}` : 'no RECTIME'}${w.master.tied ? ' · two rows at this time, not used' : ''}`)]
             : h('span', { style: { color: 'var(--color-neutral-700)' } }, 'not in it'))))))
       : h('div', { class: 'note' }, data ? 'None: every scan could be decided.' : ''),
     total > list.length && h('div', { class: 'note' }, `Showing the ${fmtNum(list.length)} latest of ${fmtNum(total)}.`),
@@ -469,7 +469,7 @@ function BarcodeMaster(isAdmin) {
         m?.live && h('button', { class: 'btn btn-secondary', disabled: busy, onClick: syncNow, style: { minHeight: 44 } }, busy && pct === null ? 'Reading…' : 'Read from Oracle now'))
       : h('div', { class: 'note' }, 'Only an admin can upload the barcode master.'),
     h('div', { class: 'note' }, 'CSV columns: ', h('code', null, 'SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, RECTIME'),
-      ' (SUIT_CATEGORY optional; REC_USER and other columns are ignored). Include every row of a barcode, or at least its newest one. An older export never replaces a newer row. Times must include seconds.'),
+      ' (SUIT_CATEGORY optional; REC_USER and other columns are ignored). The latest row of each barcode is enough (the query in the deployment guide gets only those). A row with an empty RECTIME counts as the oldest. An older export never replaces a newer row. Times must include seconds.'),
     result && Msg({ tag: 'Saved', text: `${fmtNum(result.rows)} rows · ${fmtNum(result.barcodes)} barcodes (${fmtNum(result.changed)} new or changed) · ${fmtNum(result.resolved)} waiting scans decided, ${fmtNum(result.applied)} now count` }),
     failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
 }

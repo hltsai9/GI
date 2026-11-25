@@ -7,6 +7,16 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Barcode master: latest row per barcode, and rows without RECTIME
+- **Export query** (both deployment guides) now returns only the **latest row of each barcode**, so the file is much smaller. If two rows tie at the latest `RECTIME`, both are still returned, so GI can see it can't tell them apart. With an Oracle connection, GI's daily read and its lookups use the same rule.
+- **Answered:** some rows of the barcode master have no `RECTIME`.
+  - **Decision:** such a row counts as the **oldest** version of its barcode. Any dated row wins over it; it is used only when the barcode has no dated row.
+  - Two undated rows with different values can't be told apart, like a tie.
+- Before this, a CSV with an empty `RECTIME` cell was refused as a whole. Now it uploads.
+- Data quality shows "no RECTIME" for such a barcode master row.
+- Database: migration `005` (runs by itself; no drop).
+- Tested here: 70 backend tests pass (1 new).
+
 ### Fix: barcodes with a letter E were refused as "scientific notation"
 - **Problem reported:** an upload was refused because `SUIT_BARCODE '996000027999E030'` was said to be in scientific notation (saved by Excel).
 - **Cause:** GI's check took any digits–E–digits text for a spreadsheet number. But spreadsheets always write a sign after the E (`2.39960000264108E+15`), and this barcode has none: it is a real barcode.

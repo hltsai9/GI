@@ -264,7 +264,7 @@ def waiting_scans(conn: Connection, limit: int | None = 100) -> list[dict]:
                     "missing": (r["missing_values"] or "").split(",") if r["missing_values"] else [],
                     "versions": [v(r)] + [v(a) for a in alts.get(r["id"], [])],
                     "master": None if not m else {"type": m["suit_type"] or "", "color": m["suit_color"] or "", "size": m["suit_size"] or "",
-                                                  "rectime": m["rectime"].strftime("%Y-%m-%d %H:%M:%S"), "tied": bool(m["tied"])}})
+                                                  "rectime": m["rectime"].strftime("%Y-%m-%d %H:%M:%S") if m["rectime"] else None, "tied": bool(m["tied"])}})
     return out
 
 

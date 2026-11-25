@@ -27,20 +27,25 @@ VALUE_COLUMNS = ("SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "SUIT_LEVEL")
 _CHUNK = 500
 
 
+def _when(rectime: str | None) -> str:
+    """RECTIME for comparing: a row without RECTIME counts as older than any dated row."""
+    return rectime or ""
+
+
 def latest_versions(master_rows: Iterable[MasterRow]) -> dict[str, dict]:
-    """Per barcode, the version with the latest RECTIME. `tied` when another row has the same latest RECTIME
-    but other values (then GI cannot tell which one is current)."""
+    """Per barcode, the version with the latest RECTIME (a row without RECTIME counts as the oldest). `tied` when
+    another row has the same latest RECTIME, or also none, but other values (GI cannot tell which is current)."""
     out: dict[str, dict] = {}
     for r in master_rows:
         b = r["SUIT_BARCODE"]
         vals = (r["SUIT_TYPE"], r["SUIT_COLOR"], r["SUIT_SIZE"])
         cur = out.get(b)
-        if cur is None or r["RECTIME"] > cur["rectime"]:
+        if cur is None or _when(r["RECTIME"]) > _when(cur["rectime"]):
             out[b] = {"category": r.get("SUIT_CATEGORY"), "attrs": vals, "rectime": r["RECTIME"],
                       "versions": (cur["versions"] if cur else 0) + 1, "tied": False}
         else:
             cur["versions"] += 1
-            if r["RECTIME"] == cur["rectime"] and vals != cur["attrs"]:
+            if _when(r["RECTIME"]) == _when(cur["rectime"]) and vals != cur["attrs"]:
                 cur["tied"] = True
     return out
 
@@ -62,10 +67,10 @@ def store(conn: Connection, latest: dict[str, dict]) -> int:
             tied = v["tied"]
             if e:
                 stored = (e["suit_type"], e["suit_color"], e["suit_size"])
-                rt = naive_str(e["rectime"])
-                if v["rectime"] < rt:
+                rt = naive_str(e["rectime"]) if e["rectime"] else ""
+                if _when(v["rectime"]) < rt:
                     continue
-                if v["rectime"] == rt:
+                if _when(v["rectime"]) == rt:
                     if stored == v["attrs"] and bool(e["tied"]) == tied:
                         continue
                     tied = tied or stored != v["attrs"]  # same RECTIME, other values (e.g. two uploads)
@@ -135,6 +140,7 @@ def read_all(source, page_size: int) -> dict[str, dict]:
 
 
 REQUIRED = ("SUIT_BARCODE", "SUIT_TYPE", "SUIT_COLOR", "SUIT_SIZE", "RECTIME")  # SUIT_CATEGORY optional; REC_USER … ignored
+# An empty RECTIME cell is allowed: that row counts as the oldest version of its barcode.
 
 
 def parse_csv(data: bytes) -> list[MasterRow]:
@@ -169,11 +175,9 @@ def parse_csv(data: bytes) -> list[MasterRow]:
                                  "Upload the original export instead")
             if len(barcode) > 255:
                 raise ValueError("SUIT_BARCODE is longer than 255 characters")
-            if not get("RECTIME").strip():
-                raise ValueError("empty RECTIME")
             out.append({"SUIT_BARCODE": barcode, "SUIT_CATEGORY": clean_value(get("SUIT_CATEGORY").strip()),
                         "SUIT_TYPE": clean_value(get("SUIT_TYPE").strip()), "SUIT_COLOR": clean_value(get("SUIT_COLOR").strip()),
-                        "SUIT_SIZE": clean_value(get("SUIT_SIZE").strip()), "RECTIME": parse_time(get("RECTIME"))})
+                        "SUIT_SIZE": clean_value(get("SUIT_SIZE").strip()), "RECTIME": parse_time(get("RECTIME")) if get("RECTIME").strip() else None})
         except ValueError as e:
             bad += 1
             if len(problems) < MAX_ERRORS:

@@ -31,7 +31,7 @@ class MasterRow(TypedDict):
     SUIT_TYPE: str | None
     SUIT_COLOR: str | None
     SUIT_SIZE: str | None
-    RECTIME: str
+    RECTIME: str | None  # empty in some rows: such a row counts as the oldest version
 
 
 class MasterSource(Protocol):
