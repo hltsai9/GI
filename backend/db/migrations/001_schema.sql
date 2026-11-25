@@ -1,6 +1,6 @@
 -- GI schema (MariaDB 10.11+ / 11.4 LTS). All DATETIME columns hold UTC unless noted.
--- See docs/BUILD_PLAN.md §2 for the design. Consolidated on 2026-11-23 (earlier migrations 003–010 merged in;
--- an older database must be dropped and re-created, see docs/RELEASE_NOTES.md).
+-- See docs/BUILD_PLAN.md §2 for the design. Consolidated on 2026-11-23, and again on 2026-11-24 (barcode master,
+-- colors ESD / UNI, empty RECTIME merged in). An older database must be dropped and re-created (docs/RELEASE_NOTES.md).
 
 -- ---------------------------------------------------------------- reference data
 CREATE TABLE garment_type (
@@ -164,7 +164,7 @@ CREATE TABLE dq_pattern (
 
 CREATE TABLE sync_run (
   id                      BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  kind                    ENUM('poll','sweep','backfill','upload') NOT NULL,
+  kind                    ENUM('poll','sweep','backfill','upload','master','master_upload') NOT NULL,
   note                    VARCHAR(255) NULL,            -- e.g. the uploaded file's name
   started_at              DATETIME(6) NOT NULL,
   finished_at             DATETIME(6) NULL,
@@ -172,9 +172,12 @@ CREATE TABLE sync_run (
   rows_total              INT UNSIGNED NULL,            -- CSV upload: issue rows in the file (progress)
   rows_other_state        INT UNSIGNED NULL,            -- CSV upload: rows skipped for another STATE
   rows_new                INT UNSIGNED NOT NULL DEFAULT 0,
-  rows_conflicts          INT UNSIGNED NOT NULL DEFAULT 0, -- same scan as a stored issue, other values
+  rows_conflicts          INT UNSIGNED NOT NULL DEFAULT 0, -- rows repeating a scan with other values (first time seen)
+  rows_missing            INT UNSIGNED NOT NULL DEFAULT 0, -- new scans with an empty value in Oracle
   rows_applied            INT UNSIGNED NOT NULL DEFAULT 0,
-  rows_held               INT UNSIGNED NOT NULL DEFAULT 0,
+  rows_held               INT UNSIGNED NOT NULL DEFAULT 0, -- held_unmapped
+  rows_waiting            INT UNSIGNED NOT NULL DEFAULT 0, -- new scans waiting for the barcode master
+  rows_resolved           INT UNSIGNED NOT NULL DEFAULT 0, -- scans decided or filled by the barcode master
   rows_ignored            INT UNSIGNED NOT NULL DEFAULT 0,
   rows_before_start       INT UNSIGNED NOT NULL DEFAULT 0,
   rows_incomplete         INT UNSIGNED NOT NULL DEFAULT 0,
@@ -185,21 +188,41 @@ CREATE TABLE sync_run (
   error                   TEXT NULL
 ) ENGINE=InnoDB;
 
+-- Barcode master: the latest version of each barcode (highest RECTIME; a row without RECTIME counts as the
+-- oldest) from the Oracle table ORACLE_BARCODE_MASTER_TABLE or CSV uploads. RECTIME is only compared with
+-- other RECTIMEs of the same table (raw value).
+CREATE TABLE barcode_master (
+  suit_barcode   VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin PRIMARY KEY,
+  suit_category  VARCHAR(64) NULL,
+  suit_type      VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NULL,
+  suit_color     VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NULL,
+  suit_size      VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NULL,
+  rectime        DATETIME NULL,                      -- raw RECTIME of the version kept; NULL = it had none
+  versions       INT UNSIGNED NOT NULL DEFAULT 1,    -- rows read for this barcode the last time it was read
+  -- TRUE when two rows share the latest RECTIME (or both have none) but have other values: GI cannot tell
+  -- which is current and does not use this barcode to decide anything until a newer row arrives.
+  tied           BOOLEAN NOT NULL DEFAULT FALSE,
+  updated_at     DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6) ON UPDATE CURRENT_TIMESTAMP(6)
+) ENGINE=InnoDB;
+
 CREATE TABLE issue_import (
   id             BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   -- exactly as in Oracle (case, leading and inner spaces); trailing padding removed
   suit_barcode   VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,
   insert_time    DATETIME NOT NULL,                     -- raw Oracle DATE: the scan (= issue) time, Phoenix local time
-  suit_type      VARCHAR(64) NOT NULL,
-  suit_color     VARCHAR(64) NOT NULL,
-  suit_size      VARCHAR(64) NOT NULL,
-  suit_level     VARCHAR(64) NOT NULL,
+  -- the version kept; type / color / size filled from the barcode master when empty in Oracle (NULL = still empty)
+  suit_type      VARCHAR(64) NULL,
+  suit_color     VARCHAR(64) NULL,
+  suit_size      VARCHAR(64) NULL,
+  suit_level     VARCHAR(64) NULL,
+  missing_values SET('SUIT_TYPE','SUIT_COLOR','SUIT_SIZE','SUIT_LEVEL') NULL,  -- columns empty in Oracle
+  conflict       ENUM('pending','resolved') NULL,       -- several versions of the scan: undecided / decided by the barcode master
   issued_at      DATETIME(6) NOT NULL,                  -- INSERT_TIME in UTC
   issued_day     DATE NOT NULL,                         -- site-time (Phoenix) day of the scan
   location_id    BIGINT UNSIGNED NULL,
   stock_item_id  BIGINT UNSIGNED NULL,
   quality        ENUM('complete','incomplete','recovered') NOT NULL,
-  status         ENUM('applied','held_unmapped','before_start','ignored') NOT NULL,
+  status         ENUM('applied','held_unmapped','held_conflict','held_missing','before_start','ignored') NOT NULL,
   sync_run_id    BIGINT UNSIGNED NULL,
   imported_at    DATETIME(6) NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
   UNIQUE KEY uq_issue (suit_barcode, insert_time),      -- ORA-02: each scan once
@@ -210,16 +233,17 @@ CREATE TABLE issue_import (
   KEY ix_issue_day_status_item (issued_day, status, stock_item_id),
   KEY ix_issue_barcode_values (suit_barcode, suit_type, suit_color, suit_size),
   KEY ix_issue_quality_barcode (quality, suit_barcode, issued_at, suit_level),
+  KEY ix_issue_waiting (status, suit_barcode),
   CONSTRAINT fk_ii_loc  FOREIGN KEY (location_id)   REFERENCES location(id),
   CONSTRAINT fk_ii_item FOREIGN KEY (stock_item_id) REFERENCES stock_item(id),
   CONSTRAINT fk_ii_run  FOREIGN KEY (sync_run_id)   REFERENCES sync_run(id)
 ) ENGINE=InnoDB;
 
--- A row with the same SUIT_BARCODE and INSERT_TIME as an issue already imported is the same scan and is not
--- counted again (ORA-02). If its type, color, size or level differ, it is recorded here for the data quality report.
+-- Other versions of a scan (same SUIT_BARCODE and INSERT_TIME, other type, color, size or level): not counted
+-- (ORA-02); the barcode master decides which version is kept in issue_import. '' stands for an empty Oracle value.
 CREATE TABLE issue_import_conflict (
   id               BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
-  issue_import_id  BIGINT UNSIGNED NOT NULL,          -- the row that was kept (and counted)
+  issue_import_id  BIGINT UNSIGNED NOT NULL,          -- the scan; the version kept is in issue_import
   suit_type        VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,
   suit_color       VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,
   suit_size        VARCHAR(64) CHARACTER SET utf8mb4 COLLATE utf8mb4_nopad_bin NOT NULL,

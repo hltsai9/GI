@@ -1,1 +1,1 @@
-{"id":264,"on_hand":1,"min_qty":2,"garment":"Hood","color":"Other","size":"XLG","location":"P1","status":"below_min","issuedToday":0,"lastDelivery":{"at":"2026-11-08T13:40:00.000Z","qty":5}}
+{"id":264,"on_hand":3,"min_qty":2,"garment":"Hood","color":"Other","size":"XLG","location":"P1","status":"plenty","issuedToday":0,"lastDelivery":{"at":"2026-11-10T13:40:00.000Z","qty":5}}

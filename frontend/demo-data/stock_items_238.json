@@ -1,1 +1,1 @@
-{"id":238,"on_hand":4,"min_qty":2,"garment":"Gown","color":"Other","size":"LG","location":"P1","status":"plenty","issuedToday":0,"lastDelivery":{"at":"2026-11-20T13:40:00.000Z","qty":5}}
+{"id":238,"on_hand":10,"min_qty":2,"garment":"Boots","color":"White","size":"3XLG","location":"P2","status":"plenty","issuedToday":0,"lastDelivery":{"at":"2026-11-24T13:40:00.000Z","qty":5}}

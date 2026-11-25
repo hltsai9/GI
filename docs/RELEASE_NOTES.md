@@ -7,6 +7,17 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Database set-up consolidated again (drop and re-create the database)
+- **Decision:** the owner will drop the database and redeploy, so today's database changes (barcode master, colors ESD / UNI, empty `RECTIME`) were merged back into the two base files `001_schema.sql` and `002_reference_data.sql`. A new database is built in one step.
+- **You must start from an empty database.** A database from before this is refused at start-up with "This database was set up by an older GI version…". That includes one created yesterday, which has no barcode master table.
+- **Steps:**
+  1. Drop and re-create the `gi` database, empty (`DROP DATABASE gi; CREATE DATABASE gi CHARACTER SET utf8mb4;`; the `gi` user's grants stay).
+  2. Run the pipeline.
+  3. Enter the Oracle values, minimums and starting counts again.
+  4. Upload the barcode master and the issue exports again (Settings › Import). The barcode master can go first, so repeated scans are decided while the issues import.
+- Small cleanup: an unused import in a test. No leftover code from the RECTIME / watermark design was found.
+- Tested here: 70 backend tests pass (the old-database test now also covers a database from 2026-11-23). The demo data was regenerated.
+
 ### Decision: Data quality lists stay as they are
 - **Asked:** do "Barcodes with conflicting values" and "Waiting for the barcode master" repeat each other? Partly.
   - Waiting lists the scans not counted yet.

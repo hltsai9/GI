@@ -1,1 +1,1 @@
-{"id":159,"on_hand":0,"min_qty":null,"garment":"Gown","color":"Other","size":"SM","location":"P1","status":"not_stocked","issuedToday":0,"lastDelivery":null}
+{"id":159,"on_hand":4,"min_qty":2,"garment":"Hood","color":"Blue","size":"4XLG","location":"P1","status":"plenty","issuedToday":0,"lastDelivery":{"at":"2026-11-22T13:40:00.000Z","qty":5}}

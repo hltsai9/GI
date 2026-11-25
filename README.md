@@ -26,7 +26,7 @@ How issues are counted:
 backend/    Python API (FastAPI), MariaDB, Oracle issue import
   gi/         API, stock ledger, import (look-back by INSERT_TIME, barcode master, classify, daily sweep,
               CSV uploads), mock Oracle data
-  db/         SQL migrations (001 schema, 002 reference data, then one file per change) and the development seed
+  db/         SQL migrations (001 schema, 002 reference data; later changes get their own file) and the development seed
   tests/      pytest tests (run against a separate gi_test database)
 frontend/   the web page: plain HTML, CSS and JavaScript modules, no build step;
             phone layout or laptop layout by device type

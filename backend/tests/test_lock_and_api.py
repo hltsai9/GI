@@ -62,7 +62,6 @@ def test_api_basics(tmp_path):
 
 def test_server_starts_without_the_database_and_reports_it(monkeypatch):
     import threading
-    import time
 
     from gi import server
     from gi.app import Startup
@@ -127,6 +126,12 @@ def test_refuses_a_database_from_before_the_consolidation():
         with pytest.raises(RuntimeError, match="older GI version"):
             migrate("mysql://gi:gi@localhost:3306/gi_old_test")
         assert "Drop and re-create" in OLD_DATABASE
+        # A database from 2026-11-23 (001/002 applied, later migrations 003–005 or none) is refused too.
+        with root.cursor() as cur:
+            cur.execute("DELETE FROM gi_old_test.schema_migration")
+            cur.execute("INSERT INTO gi_old_test.schema_migration (name) VALUES ('001_schema.sql'), ('002_reference_data.sql')")
+        with pytest.raises(RuntimeError, match="older GI version"):
+            migrate("mysql://gi:gi@localhost:3306/gi_old_test")
     finally:
         with root.cursor() as cur:
             cur.execute("DROP DATABASE gi_old_test")
