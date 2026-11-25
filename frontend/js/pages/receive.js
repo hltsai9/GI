@@ -1,10 +1,11 @@
 import { h, state, flash, load, reload } from '../dom.js';
 import { api, fmtNum, fmtToday, fmtWhen, newKey } from '../api.js';
 import { ph } from '../icons.js';
-import { attempt, Dropdown, ErrorNote, errorOf, GIcon, Msg, PageHead, QtyField, Seg, Stepper } from '../ui.js';
+import { attempt, Dropdown, ErrorNote, errorOf, GIcon, GridHead, Msg, PageHead, QtyField, Seg, ShowAll, Stepper, trimGrid } from '../ui.js';
 
 const DRAFT_KEY = 'gi.deliveryDraft';
 const FORM_KEY = 'gi.receiveForm'; // the last garment, color, size, location and quantity used on this device
+const MODE_KEY = 'gi.receiveMode'; // 'grid' (size × color grid) or 'lines' (one line at a time)
 
 function loadDraft() {
   try {
@@ -72,6 +73,8 @@ function NewDelivery({ meta, canPost }) {
   };
   const [lines, setLinesRaw] = state('receive.lines', loadDraft);
   const [busy, setBusy] = state('receive.busy', false);
+  const [mode, setModeRaw] = state('receive.mode', () => { try { return localStorage.getItem(MODE_KEY) === 'lines' ? 'lines' : 'grid'; } catch { return 'grid'; } });
+  const setMode = (m) => { setModeRaw(m); try { localStorage.setItem(MODE_KEY, m); } catch { /* ignore */ } };
   const [posted, setPosted] = flash('receive.posted');
   // RCV-07: the draft survives a reload or a dropped connection.
   const setLines = (ls) => {
@@ -116,6 +119,9 @@ function NewDelivery({ meta, canPost }) {
     h('div', { class: 'p-body' },
       posted && Msg({ tag: 'Posted', text: posted }),
       ErrorNote(errorOf('receive')),
+      Seg({ label: 'Entry', value: mode, onChange: setMode, optStyle: { minHeight: 36, fontSize: 13.5 },
+        options: [{ value: 'grid', label: 'Size × color grid' }, { value: 'lines', label: 'One line at a time' }] }),
+      mode === 'grid' ? GridEntry({ meta, form, setForm, lines, setLines, unitOf }) : [
       h('div', { class: 'fields' },
         Dropdown({ label: 'Garment', value: form.garmentTypeId, onChange: set('garmentTypeId'), options: meta.types.map((t) => ({ value: t.id, label: typeName(t), icon: t.icon })) }),
         Dropdown({ label: 'Color', value: form.colorId, onChange: set('colorId'), options: colors.map((c) => ({ value: c.id, label: c.name })) }),
@@ -130,11 +136,86 @@ function NewDelivery({ meta, canPost }) {
           h('div', { style: { flex: 1, minWidth: 0 } }, h('div', { class: 'line-name' }, type(l) ? typeName(type(l)) : ''), h('div', { class: 'line-meta' }, metaText(l))),
           Stepper({ label: 'quantity', step: 5, value: l.qty, onChange: (q) => setLines(lines.map((x, j) => (j === i ? { ...x, qty: q } : x)).filter((x) => x.qty > 0)) }),
           Unit(unitOf(l)))),
-        !lines.length && h('div', { style: { fontSize: 14, color: 'var(--color-neutral-700)', padding: '8px 0' } }, 'No lines yet. Add each garment, color, size and location from the delivery.'))),
+        !lines.length && h('div', { style: { fontSize: 14, color: 'var(--color-neutral-700)', padding: '8px 0' } }, 'No lines yet. Add each garment, color, size and location from the delivery.'))]),
     h('div', { class: 'p-foot' },
       h('div', { style: { flex: 1, fontSize: 13, color: 'var(--color-neutral-700)' } },
         `${lines.length} lines`, h('br'), h('span', { style: { fontSize: 17, fontWeight: 600, color: 'var(--color-text)' } }, perUnit(lines.map((l) => ({ unit: unitOf(l), qty: l.qty }))))),
       h('button', { class: 'btn btn-primary', onClick: post, disabled: !lines.length || busy || !canPost, style: { minHeight: 48, fontSize: 15, padding: '0 22px' } }, busy ? 'Posting…' : 'Post delivery')),
+  ];
+}
+
+/** Delivery entry as a size × color grid for one garment type and location (UX plan 2.1). Each cell is the
+ *  quantity of one draft line, so switching garment, location or entry mode keeps everything typed. Only the
+ *  sizes and colors stocked at that location are shown (plus any already typed); Show all adds the rest. */
+function GridEntry({ meta, form, setForm, lines, setLines, unitOf }) {
+  const [showAll, setShowAll] = state('receive.gridAll', false);
+  const g = load(`/stock/grid?garmentTypeId=${form.garmentTypeId}&locationId=${form.locationId}`, 'receive.grid');
+  const here = (l) => l.garmentTypeId === form.garmentTypeId && l.locationId === form.locationId;
+  const qtyOf = (sizeId, colorId) => lines.find((l) => here(l) && l.sizeId === sizeId && l.colorId === colorId)?.qty;
+  const setQty = (sizeId, colorId, text) => {
+    const qty = parseInt(text, 10) || 0;
+    const key = { garmentTypeId: form.garmentTypeId, colorId, sizeId, locationId: form.locationId };
+    const rest = lines.filter((l) => !same(l, key));
+    const at = lines.findIndex((l) => same(l, key));
+    if (!qty) setLines(rest);
+    else if (at >= 0) setLines(lines.map((l, i) => (i === at ? { ...l, qty } : l)));
+    else setLines([...lines, { ...key, qty }]);
+  };
+  // Enter (or the keyboard's Next) moves to the next cell.
+  const next = (e) => {
+    if (e.key !== 'Enter') return;
+    e.preventDefault();
+    const cells = [...document.querySelectorAll('.entry-cell')];
+    cells[cells.indexOf(e.target) + 1]?.focus();
+  };
+  const t = meta.types.find((x) => x.id === form.garmentTypeId);
+  const tg = g.data && trimGrid({ ...g.data, rows: g.data.rows.map((r) => ({ ...r, cells: r.cells.map((c) => ({ ...c, sizeId: r.sizeId })) })) },
+    (c) => !!c.stockItemId || !!qtyOf(c.sizeId, c.colorId), showAll);
+  const cols = `52px repeat(${tg?.colors.length || 1}, minmax(0, 1fr))`;
+  const mine = lines.filter(here);
+  // Totals per garment and location typed so far; tap one to go back to it.
+  const groups = [];
+  for (const l of lines) {
+    const k = `${l.garmentTypeId}|${l.locationId}`;
+    let grp = groups.find((x) => x.k === k);
+    if (!grp) groups.push(grp = { k, garmentTypeId: l.garmentTypeId, locationId: l.locationId, qty: 0, n: 0, unit: unitOf(l) });
+    grp.qty += l.qty; grp.n += 1;
+  }
+  return [
+    h('div', { style: { display: 'flex', gap: 8 } },
+      Seg({ label: 'Delivery garment', style: { flex: 1 }, optStyle: { padding: '7px 2px', gap: 4, fontSize: 13.5 }, value: form.garmentTypeId,
+        onChange: (v) => setForm({ ...form, garmentTypeId: v }), options: meta.types.map((x) => ({ value: x.id, label: x.plural, icon: x.icon })) }),
+      Seg({ label: 'Delivery location', optStyle: { flex: 'none', padding: '7px 8px' }, value: form.locationId,
+        onChange: (v) => setForm({ ...form, locationId: v }), options: meta.locations.map((l) => ({ value: l.id, label: l.code })) })),
+    ErrorNote(g.error),
+    tg && h('div', { style: { display: 'flex', flexDirection: 'column', gap: 4 }, role: 'grid', 'aria-label': `Quantities delivered, ${t?.plural}` },
+      tg.colors.length ? GridHead(tg.colors, cols) : h('div', { class: 'note' }, 'Nothing stocked here yet: tap Show all to enter any size and color.'),
+      tg.rows.map((r) => h('div', { style: { display: 'grid', gridTemplateColumns: cols, gap: 4 } },
+        h('span', { class: 'grid-size' }, r.size),
+        r.cells.map((c) => {
+          const v = qtyOf(r.sizeId, c.colorId);
+          const color = tg.colors.find((x) => x.id === c.colorId)?.name;
+          return h('input', {
+            class: 'input num entry-cell', inputmode: 'numeric', enterkeyhint: 'next', 'aria-label': `${r.size} ${color}`,
+            value: v ? String(v) : '', placeholder: '·',
+            onInput: (e) => setQty(r.sizeId, c.colorId, e.target.value.replace(/\D/g, '')), onKeyDown: next,
+            style: { minHeight: 48, textAlign: 'center', fontWeight: 600, fontSize: 18, padding: '6px 2px',
+              background: v ? 'var(--color-accent-100)' : null, borderColor: v ? 'var(--color-accent)' : null },
+          });
+        }))),
+      ShowAll(tg.hidden, showAll, setShowAll)),
+    h('div', { style: { fontSize: 15, fontWeight: 600 } },
+      `${t?.plural ?? ''} · ${meta.locations.find((l) => l.id === form.locationId)?.code}: `,
+      h('span', { class: 'num' }, `${fmtNum(mine.reduce((a, l) => a + l.qty, 0))} ${t?.unit ?? 'pieces'} in ${mine.length} ${mine.length === 1 ? 'line' : 'lines'}`)),
+    groups.length > 0 && h('div', { style: { display: 'flex', flexWrap: 'wrap', gap: 6 } },
+      groups.map((grp) => {
+        const gt = meta.types.find((x) => x.id === grp.garmentTypeId);
+        const cur = grp.garmentTypeId === form.garmentTypeId && grp.locationId === form.locationId;
+        return h('button', { type: 'button', class: `btn ${cur ? 'btn-primary' : 'btn-secondary'}`, style: { minHeight: 40, fontSize: 13.5, padding: '0 10px', gap: 6 },
+          onClick: () => setForm({ ...form, garmentTypeId: grp.garmentTypeId, locationId: grp.locationId }) },
+        GIcon({ name: gt?.icon, size: 16 }), `${gt?.plural} ${meta.locations.find((l) => l.id === grp.locationId)?.code} · ${fmtNum(grp.qty)}`);
+      })),
+    h('div', { class: 'note' }, 'Type how many came for each size and color. Switch garment or location above; what you typed is kept. Clear a box to remove it.'),
   ];
 }
 

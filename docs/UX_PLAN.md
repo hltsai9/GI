@@ -89,7 +89,7 @@ Built as planned, with these choices:
 9. Grid states also marked with a small icon or text, not only color.
 
 ### Phase 2 — faster deliveries (the biggest win; about 3–4 days)
-1. **Grid entry for deliveries**: choose garment and location once, then type quantities in a size × color grid
+1. **Built 2026-11-24, to try out.** **Grid entry for deliveries**: choose garment and location once, then type quantities in a size × color grid
    (like Full count, with large steppers and only the usual sizes and colors shown). One garment type per screen,
    with a total; switch garment type without losing entries.
 2. **Usual sizes and colors first**: order the choices by how often they were delivered in the last 30 days.
@@ -112,8 +112,7 @@ Built as planned, with these choices:
 3. Correct stock: pick the item from the grid (tap a cell) instead of four dropdowns.
 
 ### Decisions needed **(your call)**
-- **Bottom navigation bar.** On phones the tabs are at the top, as in the mockup. A bar at the bottom is easier to
-  reach with one hand. This changes the mockup layout, so it needs your OK.
+- ~~**Bottom navigation bar.**~~ **Decided 2026-11-24: yes.** The phone tab bar is now at the bottom of the screen.
 - **"My location" per device** (Phase 2.4): do floor staff always work in one location?
 - **Grid entry for deliveries** (Phase 2.1): does the delivery paperwork list garments by size and color, so a grid
   matches how staff read it? If it is a list of lines, a faster line entry may fit better.

@@ -75,12 +75,13 @@ function App() {
         h('div', { class: 'ph-head' },
           h('span', { style: { fontSize: 18, fontWeight: 600 } }, 'Garments'),
           h('span', { style: { fontSize: 13, color: 'var(--color-neutral-700)' } }, `${sites} · ${fmtClock(now.toISOString())}`)),
-        nav('ph-tabs'),
       ],
       DEMO && h('div', { class: 'p-seg', style: { paddingTop: 10 } },
         Msg({ tone: 'neutral', tag: 'Demo', text: h('span', { class: 'muted', style: { fontSize: 13 } }, 'Mock data · read-only',
           device === 'laptop' && [' · ', h('a', { href: 'https://github.com/hltsai9/GI' }, 'source on GitHub')]) })),
-      page));
+      page,
+      // Phone: the tabs sit at the bottom, within reach of the thumb (decided 2026-11-24; the mockup had them on top).
+      device === 'phone' && nav('ph-tabs')));
 }
 
 setDevice(state('app.device', currentDevice)[0]);

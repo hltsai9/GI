@@ -7,6 +7,17 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Phone: tab bar at the bottom; deliveries as a size × color grid (to try out)
+- **Decision:** on phones the tab bar (Receive, Stock, Trends, Settings) is now **at the bottom of the screen**, within thumb reach. This is a change from the mockup, which had it at the top; `CLAUDE.md` records it as approved. Laptops keep the sidebar.
+- **Receive › New delivery** has a new switch, **Size × color grid** / **One line at a time** (UX plan 2.1). The phone remembers which one you use.
+  - In the grid you choose the garment and location once, then type how many came for each size and color. Enter (or Next on the keyboard) moves to the next box.
+  - Only the sizes and colors stocked at that location are shown, plus any you already typed in; **Show all sizes and colors** adds the rest.
+  - Switching garment, location or entry mode keeps everything typed: it is the same delivery draft, which also survives a reload.
+  - Under the grid: the total for the garment and location shown, and a button per garment and location already typed, to jump back to it. The bottom bar still shows the delivery's total and **Post delivery**.
+  - Clearing a box removes that line. Posting works as before.
+- Not built yet from phase 2: usual sizes and colors first (2.2), a review screen before posting (2.3), "my location" per phone (2.4).
+- Tested here: 70 backend tests and the frontend checks pass. On an iPhone-sized screen: typing, Enter to the next box, switching garment and mode keeps the entries.
+
 ### Phone layout: phase 1 of the UX plan
 Built from [UX_PLAN.md](./UX_PLAN.md) phase 1; nothing changes on laptops except where noted.
 - **No more zooming on iPhones:** every text and number field is 16 px on phones. iPhones zoom the page into smaller fields.

@@ -13,11 +13,12 @@ button, input, select { font: inherit; color: inherit; }
 .side-nav button:hover { background: var(--color-accent-100); }
 .side-nav button[aria-current="page"] { background: var(--color-accent-100); color: var(--color-accent-700); font-weight: 600; }
 
-/* phone header and tabs */
+/* phone header, and the tab bar at the bottom of the screen (within thumb reach) */
 .ph-head { display: flex; align-items: baseline; justify-content: space-between; padding: 14px 20px 0; }
-.ph-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 8px 8px 0; }
-.ph-tabs button { min-height: 56px; border: none; border-bottom: 2px solid transparent; background: transparent; font-size: 11.5px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--color-neutral-700); }
-.ph-tabs button[aria-current="page"] { border-bottom-color: var(--color-accent); color: var(--color-accent-700); font-weight: 600; }
+.ph-tabs { flex: none; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 0 8px env(safe-area-inset-bottom, 0px);
+  background: var(--color-surface); border-top: 1px solid var(--color-divider); }
+.ph-tabs button { min-height: 58px; border: none; border-top: 3px solid transparent; background: transparent; font-size: 11.5px; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--color-neutral-700); }
+.ph-tabs button[aria-current="page"] { border-top-color: var(--color-accent); color: var(--color-accent-700); font-weight: 600; }
 
 .kicker { font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--color-accent-700); }
 .muted { color: var(--color-neutral-700); }

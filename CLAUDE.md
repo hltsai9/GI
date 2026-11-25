@@ -15,6 +15,8 @@ questions), add it to `docs/RELEASE_NOTES.md`:
 - Requirements are in `docs/URD.md`, design and data model in `docs/BUILD_PLAN.md`.
 - The UI must look like `design/mockups/Garment Inventory App.dc.html`: Broadsheet styles
   (`frontend/css/broadsheet.css`, unchanged copy) plus the mockup's layout.
+  Approved changes from the mockup: on phones the tab bar is at the bottom of the screen (2026-11-24);
+  see `docs/UX_PLAN.md` for the phone layout work.
 - After changing what the demo shows, refresh it: `cd backend && python -m gi.cli.demo && python -m gi.cli.export_demo`.
 - Stack: Python backend (`backend/gi`, FastAPI + SQLAlchemy Core over PyMySQL, packages in the root
   `requirements.txt`), and a no-build web page (`frontend/`: plain HTML, CSS and JavaScript modules).
