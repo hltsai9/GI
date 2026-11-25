@@ -6,7 +6,8 @@ INSERT INTO garment_type (code, name, plural, unit, icon, sort, is_system) VALUE
   ('UNREGISTERED', 'Unregistered', 'Unregistered garments', 'pieces', NULL, 99, TRUE);
 
 INSERT INTO color (name, sort, is_system) VALUES
-  ('White', 1, FALSE), ('Blue', 2, FALSE), ('Black', 3, FALSE), ('Grey', 4, FALSE), ('Other', 5, FALSE),
+  ('White', 1, FALSE), ('Blue', 2, FALSE), ('Black', 3, FALSE), ('Grey', 4, FALSE), ('ESD', 5, FALSE),
+  ('UNI', 6, FALSE), ('Other', 7, FALSE),
   ('Unregistered', 99, TRUE);
 
 INSERT INTO size (code, sort, is_system) VALUES
@@ -17,5 +18,5 @@ INSERT INTO size (code, sort, is_system) VALUES
 
 INSERT INTO location (code, name) VALUES ('P1', 'P1'), ('P2', 'P2');
 
--- Known-bad pattern: barcode not registered in the suit master (DQ-01).
+-- Known-bad pattern: barcode not registered in the barcode master (DQ-01).
 INSERT INTO dq_pattern (suit_type, suit_color, suit_size) VALUES ('GOWN', 'OTHER', 'OTHER');

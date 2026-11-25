@@ -7,6 +7,34 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Database set-up consolidated again (drop and re-create the database)
+- **Decision:** the owner will drop the database and redeploy, so today's database changes (barcode master, colors ESD / UNI, empty `RECTIME`) were merged back into the two base files `001_schema.sql` and `002_reference_data.sql`. A new database is built in one step.
+- **You must start from an empty database.** A database from before this is refused at start-up with "This database was set up by an older GI version…". That includes one created yesterday, which has no barcode master table.
+- **Steps:**
+  1. Drop and re-create the `gi` database, empty (`DROP DATABASE gi; CREATE DATABASE gi CHARACTER SET utf8mb4;`; the `gi` user's grants stay).
+  2. Run the pipeline.
+  3. Enter the Oracle values, minimums and starting counts again.
+  4. Upload the barcode master and the issue exports again (Settings › Import). The barcode master can go first, so repeated scans are decided while the issues import.
+- Small cleanup: an unused import in a test. No leftover code from the RECTIME / watermark design was found.
+- Tested here: 70 backend tests pass (the old-database test now also covers a database from 2026-11-23). The demo data was regenerated.
+
+### Decision: Data quality lists stay as they are
+- **Asked:** do "Barcodes with conflicting values" and "Waiting for the barcode master" repeat each other? Partly.
+  - Waiting lists the scans not counted yet.
+  - Conflicting values lists each barcode's whole history: repeated scans the barcode master already decided, and values that changed between scans.
+  - A scan still waiting appears in both.
+- **Decision:** keep both lists unchanged. The suggested split (waiting first, then only values that changed between scans) was not wanted.
+
+### Barcode master: latest row per barcode, and rows without RECTIME
+- **Export query** (both deployment guides) now returns only the **latest row of each barcode**, so the file is much smaller. If two rows tie at the latest `RECTIME`, both are still returned, so GI can see it can't tell them apart. With an Oracle connection, GI's daily read and its lookups use the same rule.
+- **Answered:** some rows of the barcode master have no `RECTIME`.
+  - **Decision:** such a row counts as the **oldest** version of its barcode. Any dated row wins over it; it is used only when the barcode has no dated row.
+  - Two undated rows with different values can't be told apart, like a tie.
+- Before this, a CSV with an empty `RECTIME` cell was refused as a whole. Now it uploads.
+- Data quality shows "no RECTIME" for such a barcode master row.
+- Database: migration `005` (runs by itself; no drop).
+- Tested here: 70 backend tests pass (1 new).
+
 ### Fix: barcodes with a letter E were refused as "scientific notation"
 - **Problem reported:** an upload was refused because `SUIT_BARCODE '996000027999E030'` was said to be in scientific notation (saved by Excel).
 - **Cause:** GI's check took any digits–E–digits text for a spreadsheet number. But spreadsheets always write a sign after the E (`2.39960000264108E+15`), and this barcode has none: it is a real barcode.

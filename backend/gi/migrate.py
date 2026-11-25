@@ -26,20 +26,20 @@ def _run_script(conn: pymysql.connections.Connection, sql: str) -> None:
             pass
 
 
-OLD_DATABASE = ("This database was set up by an older GI version (before 2026-11-23, when the schema was consolidated and "
-                "RECTIME dropped). Drop and re-create the gi database (empty), then restart GI: it sets everything up again.")
+OLD_DATABASE = ("This database was set up by an older GI version (before 2026-11-24, when the schema was consolidated "
+                "again). Drop and re-create the gi database (empty), then restart GI: it sets everything up again.")
 
 
 def _refuse_old_schema(cur, applied: set[str]) -> None:
-    """The migrations were consolidated into 001/002 on 2026-11-23. A database set up before that has other
-    migration names or the old RECTIME column; it must be re-created rather than half-updated."""
+    """The migrations were consolidated into 001/002 (last on 2026-11-24). A database set up before that has other
+    migration names, or a 001 without the barcode_master table; it must be re-created rather than half-updated."""
     known = {f.name for f in (DB_DIR / "migrations").glob("*.sql")}
     if applied - known:
         raise RuntimeError(OLD_DATABASE)
     if "001_schema.sql" in applied:
-        cur.execute("""SELECT COUNT(*) FROM information_schema.columns
-                        WHERE table_schema = DATABASE() AND table_name = 'issue_import' AND column_name = 'rectime'""")
-        if cur.fetchone()[0]:
+        cur.execute("""SELECT COUNT(*) FROM information_schema.tables
+                        WHERE table_schema = DATABASE() AND table_name = 'barcode_master'""")
+        if not cur.fetchone()[0]:
             raise RuntimeError(OLD_DATABASE)
 
 

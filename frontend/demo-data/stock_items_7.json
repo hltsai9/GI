@@ -1,1 +1,1 @@
-{"id":7,"on_hand":3,"min_qty":4,"garment":"Hood","color":"Black","size":"SM","location":"P1","status":"below_min","issuedToday":0,"lastDelivery":{"at":"2026-11-23T13:40:00.000Z","qty":5}}
+{"id":7,"on_hand":4,"min_qty":4,"garment":"Hood","color":"Black","size":"SM","location":"P1","status":"close_to_min","issuedToday":0,"lastDelivery":{"at":"2026-11-24T13:40:00.000Z","qty":5}}

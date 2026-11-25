@@ -154,3 +154,26 @@ def test_upload_endpoint_is_admin_only_and_reports_problems():
     assert bad.status_code == 400 and "RECTIME" in bad.json()["error"]
     s = c.get("/api/barcode-master", headers={"x-dev-user": "dev-lead"}).json()
     assert s["barcodes"] == 1 and s["last"]["kind"] == "master_upload"
+
+
+def test_rows_without_rectime_count_as_the_oldest():
+    # A dated row wins over an undated one, whatever the order in the file.
+    r = master_upload(version("G-1", "M", "") + version("G-1", "L", "2026-10-14 15:30:00") + version("G-2", "M", ""))
+    assert (r["barcodes"], r["tied"]) == (2, 0)
+    with connect() as c:
+        m = {x["suit_barcode"]: x for x in rows(c, "SELECT suit_barcode, suit_size, rectime FROM barcode_master")}
+    assert (m["G-1"]["suit_size"], m["G-2"]["suit_size"], m["G-2"]["rectime"]) == ("L", "M", None)
+    # An undated row never replaces a dated one; a later dated row replaces an undated one.
+    master_upload(version("G-1", "XL", "") + version("G-2", "L", "2026-11-01 08:00:00"))
+    with connect() as c:
+        m = {x["suit_barcode"]: x["suit_size"] for x in rows(c, "SELECT suit_barcode, suit_size FROM barcode_master")}
+    assert m == {"G-1": "L", "G-2": "L"}
+    # Two undated rows with other values: GI cannot tell which is current.
+    master_upload(version("G-3", "M", "") + version("G-3", "L", ""))
+    with connect() as c:
+        assert one(c, "SELECT tied FROM barcode_master WHERE suit_barcode = 'G-3'")["tied"] == 1  # type: ignore[index]
+    # The data quality page shows a waiting scan whose master row has no RECTIME.
+    import_csv((ISSUES + issue("G-2", "2026-11-20 09:00:00", "S") + issue("G-2", "2026-11-20 09:00:00", "XL")).encode())
+    master_upload(version("G-4", "M", ""))
+    with connect() as c:
+        assert settings.waiting_scans(c)[0]["master"]["size"] == "L"
