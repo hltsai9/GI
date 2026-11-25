@@ -17,6 +17,7 @@ data:
   # ORACLE_CONNECT_STRING: "oradb.example.local:1521/ISSUEPDB"
   # ORACLE_USER: "GI_READER"
   # ORACLE_ISSUE_TABLE: "SCHEMA.ISSUE_TABLE"
+  # ORACLE_BARCODE_MASTER_TABLE: "SCHEMA.BARCODE_MASTER"   # read daily; without it, upload the barcode master as CSV
   # ORACLE_BACKFILL_FROM: "2026-10-01 00:00:00"
   ORACLE_POLL_SECONDS: "300"
   # No SSO yet: choose the user in Settings › This device. Test environments only.

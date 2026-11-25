@@ -5,6 +5,54 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ---
 
+## 2026-11-24
+
+### Fix: barcodes with a letter E were refused as "scientific notation"
+- **Problem reported:** an upload was refused because `SUIT_BARCODE '996000027999E030'` was said to be in scientific notation (saved by Excel).
+- **Cause:** GI's check took any digits–E–digits text for a spreadsheet number. But spreadsheets always write a sign after the E (`2.39960000264108E+15`), and this barcode has none: it is a real barcode.
+- **Fix:** only values with a sign after the E are refused. `996000027999E030` now imports normally, in both issue uploads and barcode master uploads. Upload the same file again.
+- **Unchanged:** a barcode really damaged by a spreadsheet is still refused. Its last digits are lost and can't be recovered, so importing it would merge different garments into one barcode.
+
+### Phone UX review and plan
+- Reviewed every screen on a phone-sized screen as floor staff and admin; findings and a 4-phase plan are in [UX_PLAN.md](./UX_PLAN.md), with screenshots in `docs/ux-review/`. Nothing is built yet.
+- Main findings:
+  - entering a 45–75-line delivery takes hundreds of taps;
+  - iPhones zoom in on every number field (text under 16 px);
+  - grids are cramped by empty colors and sizes;
+  - Settings sections hide behind one dropdown.
+- Three decisions are open: a bottom navigation bar (changes the mockup layout), a "my location" setting per phone, and grid entry for deliveries.
+
+### README brought up to date; P1 / P2 everywhere; colors ESD and UNI
+- **README** now describes the current app:
+  - the two locations P1 and P2;
+  - `INSERT_TIME` in Phoenix time, and `RECTIME` not used;
+  - the barcode master;
+  - the three issue sources (mock, Oracle, CSV upload);
+  - what each role can do in Settings;
+  - the link to the new scan diagrams and the current test commands.
+- **Fab1 / Fab2 renamed to P1 / P2** in the requirements, build plan, to-do list and deployment guides. On the page, "this fab" now reads "this location" (Full count, Oracle values). The mock data's Oracle location codes are unchanged; they are mapped to P1 and P2.
+- **New colors ESD and UNI**, listed after Grey and before Other (migration `004`, runs by itself; no database drop). If a site had already added one of them in Settings › Sizes & colors, it is kept.
+  - Their Oracle `SUIT_COLOR` codes still need to be mapped in **Settings › Oracle values** when they first appear.
+- `python -m gi.cli.import_once --master` reads the barcode master before importing (dev helper).
+- Tested here: 69 backend tests pass. The demo data was regenerated and shows the new colors.
+
+### Diagram: how GI processes scan data
+- New page [SCAN_STATES.md](./SCAN_STATES.md) with two state diagrams: how Oracle rows become one scan (skipped, new version, barcode master), and the statuses a stored scan can have (held, ignored, before the starting count, applied) with what moves it from one to another. GitHub shows the diagrams as pictures.
+
+### Barcode master: repeated scans and empty values are decided by it
+- **Answered:** the barcode master table (formerly called the "suit master") can be updated, so one barcode can have several rows; the row with the **latest `RECTIME`** is the barcode's current type, color and size. The issue table repeats a scan once per master row, which is where the "barcodes with conflicting values" came from.
+- **Decision: GI keeps only the latest version of each barcode** in its own copy (ORA-14). An older row never replaces a newer one. If two rows share the latest `RECTIME` but differ, GI can't tell which is right and doesn't use that barcode until a newer row arrives.
+- **Repeated scans** (same barcode and `INSERT_TIME`, other values; ORA-15): GI keeps the row that matches the barcode master. The other rows are listed in Data quality as "same scan, not counted". If a scan already counted later comes back with a new version that the barcode master prefers, its issue moves to the right size or color.
+- **Empty values:** an empty `SUIT_TYPE`, `SUIT_COLOR` or `SUIT_SIZE` is recorded (which columns were empty) and filled from the barcode master. An empty `SUIT_LEVEL` can't be filled.
+- **When the barcode master can't decide** (barcode not in it, no row matches, or empty level), the scan **waits and does not count**. Data quality has a new list, **Waiting for the barcode master**, showing each such scan with its Oracle rows and what the barcode master says. Waiting scans are decided again after every barcode master upload or read.
+  - Before this change, GI silently kept whichever row came first.
+- **For now: upload it in Settings › Import › Barcode master** (admin). Columns `SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, RECTIME` (`SUIT_CATEGORY` optional; `REC_USER` and other columns ignored). The export query is in both deployment guides. Upload it again whenever the barcode master changed; a partial export with only recent rows is fine.
+- **Later, with an Oracle connection:** set `ORACLE_BARCODE_MASTER_TABLE`. GI then reads the whole table every day after 02:00 (setting `BARCODE_MASTER_SYNC_HOUR`), asks it directly when a scan needs it, and offers **Read from Oracle now**.
+- **Setting renamed:** `ORACLE_SUIT_TABLE` is now `ORACLE_BARCODE_MASTER_TABLE`. GI refuses to start if the old name is still set, so it can't be missed.
+- **Import alerts:** a repeated scan is reported once, not again on every import that re-reads it.
+- **Database:** new migration `003` (runs by itself on start-up; **no need to drop the database** this time).
+- Tested here: 69 backend tests pass (8 new). Browser check of Settings › Import and Data quality. The demo now has re-labelled barcodes and empty values, all decided by the mock barcode master.
+
 ## 2026-11-23
 
 ### INSERT_TIME is Phoenix time; RECTIME is no longer used

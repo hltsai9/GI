@@ -239,8 +239,48 @@ def conflicting_barcodes(conn: Connection, limit: int | None = None) -> list[dic
     return result[:limit] if limit else result
 
 
+def waiting_scans(conn: Connection, limit: int | None = 100) -> list[dict]:
+    """Scans held until the barcode master can decide: several rows with other values (held_conflict), or an
+    empty value it could not fill (held_missing). Each with the versions read from Oracle ('' = empty)."""
+    rs = rows(conn, f"""SELECT id, suit_barcode AS barcode, insert_time, suit_type, suit_color, suit_size, suit_level, missing_values, status
+                          FROM issue_import WHERE status IN ('held_conflict', 'held_missing')
+                         ORDER BY insert_time DESC, suit_barcode {'LIMIT ' + str(int(limit)) if limit else ''}""")
+    alts: dict[int, list[dict]] = {}
+    ids = [r["id"] for r in rs]
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        for a in rows(conn, f"""SELECT issue_import_id, suit_type, suit_color, suit_size, suit_level FROM issue_import_conflict
+                                 WHERE issue_import_id IN ({marks(len(chunk))}) ORDER BY id""", chunk):
+            alts.setdefault(a["issue_import_id"], []).append(a)
+    master = {m["suit_barcode"]: m for m in rows(conn, f"""SELECT suit_barcode, suit_type, suit_color, suit_size, rectime, tied
+                                                           FROM barcode_master WHERE suit_barcode IN ({marks(len(rs)) if rs else "''"})""",
+                                                 [r["barcode"] for r in rs])}
+    v = lambda x: {"type": x["suit_type"] or "", "color": x["suit_color"] or "", "size": x["suit_size"] or "", "level": x["suit_level"] or ""}  # noqa: E731
+    out = []
+    for r in rs:
+        m = master.get(r["barcode"])
+        out.append({"barcode": r["barcode"], "insert_time": r["insert_time"].strftime("%Y-%m-%d %H:%M:%S"),
+                    "problem": "conflict" if r["status"] == "held_conflict" else "missing",
+                    "missing": (r["missing_values"] or "").split(",") if r["missing_values"] else [],
+                    "versions": [v(r)] + [v(a) for a in alts.get(r["id"], [])],
+                    "master": None if not m else {"type": m["suit_type"] or "", "color": m["suit_color"] or "", "size": m["suit_size"] or "",
+                                                  "rectime": m["rectime"].strftime("%Y-%m-%d %H:%M:%S"), "tied": bool(m["tied"])}})
+    return out
+
+
 UNREGISTERED_SHOWN = 200
 CONFLICTS_SHOWN = 100
+WAITING_SHOWN = 100
+
+
+def _master_counts(conn: Connection) -> dict:
+    r = one(conn, """SELECT COALESCE(SUM(status IN ('held_conflict', 'held_missing')), 0) AS waiting,
+                            COALESCE(SUM(conflict = 'resolved'), 0) AS decided,
+                            COALESCE(SUM(missing_values IS NOT NULL AND status <> 'held_missing'), 0) AS filled,
+                            COALESCE(SUM(missing_values IS NOT NULL), 0) AS empty
+                       FROM issue_import WHERE conflict IS NOT NULL OR missing_values IS NOT NULL""") or {}
+    return {"waitingTotal": int(r.get("waiting") or 0), "decidedByMaster": int(r.get("decided") or 0),
+            "filledFromMaster": int(r.get("filled") or 0), "emptyValueScans": int(r.get("empty") or 0)}
 
 
 def data_quality(conn: Connection, days: int) -> dict:
@@ -258,4 +298,5 @@ def data_quality(conn: Connection, days: int) -> dict:
             "unregisteredBarcodes": unregistered_barcodes(conn, UNREGISTERED_SHOWN),
             "unregisteredTotal": totals["n"], "unregisteredExcluded": totals["excluded"],
             "conflictingBarcodes": conflicts[:CONFLICTS_SHOWN], "conflictingTotal": len(conflicts),
+            "waiting": waiting_scans(conn, WAITING_SHOWN), **_master_counts(conn),
             "patterns": rows(conn, "SELECT id, suit_type, suit_color, suit_size, active FROM dq_pattern ORDER BY id")}

@@ -161,9 +161,9 @@ On first start the app:
 ## 8. First-time setup in the app
 
 ### 8.1 With mock data (`ISSUE_SOURCE=mock`)
-Mock issues are imported but do not change stock until each fab has a starting count. Either:
+Mock issues are imported but do not change stock until each location has a starting count. Either:
 
-- **Do it like on go-live day:** **Settings › Full count**. Pick the fab, enter counts, set "Counting finished at", save. Repeat for the other fab.
+- **Do it like on go-live day:** **Settings › Full count**. Pick the location (P1 or P2), enter counts, set "Counting finished at", save. Repeat for the other location.
 - **Or load the demo history:** starting counts 21 days ago and a morning delivery every day since, the same data as the GitHub demo (https://hltsai9.github.io/GI/). **This erases the GI database first.**
   ```bash
   cd /opt/gi/deploy
@@ -176,7 +176,7 @@ Mock issues are imported but do not change stock until each fab has a starting c
 1. **Settings › Import** shows the first run. The history from `ORACLE_BACKFILL_FROM` is loaded in that run.
 2. **Settings › Oracle values**: every `SUIT_TYPE`, `SUIT_COLOR`, `SUIT_SIZE` and `SUIT_LEVEL` value found is listed. Map each one to a GI value, or **Ignore** (e.g. a test location). Rows waiting for a value are applied as soon as it is mapped.
 3. **Settings › Sizes & colors**: add any size or color the mapping needs.
-4. Floor staff count everything; enter it in **Settings › Full count** per fab, with the time counting finished.
+4. Floor staff count everything; enter it in **Settings › Full count** per location, with the time counting finished.
 5. Set minimums in **Stock › Grid** (tap a cell, −/+ "Alert below").
 
 ### 8.3 Switching from mock data to real Oracle data
@@ -205,12 +205,20 @@ When GI cannot reach Oracle yet (for example on a test site), export the issue r
       AND INSERT_TIME >= TO_DATE('2026-11-01', 'YYYY-MM-DD')
     ORDER BY INSERT_TIME;
    ```
-   - The first line must be the column names; extra columns (such as `RECTIME`) are ignored, and other `STATE`s are skipped. `INSERT_TIME` is read as Phoenix time.
+   - The first line must be the column names; extra columns (such as `RECTIME`) are ignored, and other `STATE`s are skipped. `INSERT_TIME` is read as Phoenix time. Empty type, color, size or level cells are allowed (filled from the barcode master, step 6).
    - Comma, semicolon or tab separators work.
    - Dates like `20-NOV-26 09.15.30 AM` (Oracle's default) are also read, but **times must include seconds**. Don't open and save the file in Excel. Excel drops the seconds, and it keeps only 15 digits of a number, so a 16-digit barcode like `2399600002641084` becomes `2399600002641080`. Opening it in Excel only to look also shows the changed number; use a text editor, or import the column as Text.
 3. Upload the file. A progress bar shows the upload, then "Importing N of M rows". The import runs on the server, so a large file doesn't hit request time limits. If the pod restarts during an import, the rows done so far are kept: upload the file again to finish. Rows already in GI (same `SUIT_BARCODE` and `INSERT_TIME`) are skipped, so uploading the same file twice, or files whose date ranges overlap, never counts an issue twice. If any row can't be read, nothing is imported and the problem lines are listed.
 4. As with a real Oracle connection: map the values in **Settings › Oracle values**. A row is held until **all four** of its values (type, color, size, level) are mapped, so the first mappings may release 0 rows; the confirmation says how many rows were released and how many still wait, and enter the starting counts in **Settings › Full count**. Issues count against stock only after the starting count.
 5. Repeat with a new export whenever you want newer issues; overlapping date ranges are fine.
+6. **Barcode master** (Settings › Import › Barcode master, admin): upload a CSV export of the barcode master table too, and again whenever it changed. GI keeps each barcode's row with the latest `RECTIME`. It decides scans that come as several rows with other values, and fills empty type, color or size; until it can, those scans wait and do not count (Settings › Data quality › Waiting for the barcode master). Upload it before or after the issues; waiting scans are decided after each upload.
+   ```sql
+   SELECT SUIT_BARCODE, SUIT_CATEGORY, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE,
+          TO_CHAR(RECTIME, 'YYYY-MM-DD HH24:MI:SS') AS RECTIME
+     FROM SCHEMA.BARCODE_MASTER
+    ORDER BY SUIT_BARCODE, RECTIME;
+   ```
+   An export of only the rows changed since the last upload is enough; an older row never replaces a newer one.
 
 Later, with `ISSUE_SOURCE=oracle`, the rows already uploaded are recognised and not imported again.
 
@@ -311,7 +319,7 @@ What to watch:
 | `app` stays unhealthy; log repeats `database not reachable or not set up (… Can't connect …` or `… Access denied …)` | Wrong database host, URL or password, or the database is down. GI keeps retrying and recovers by itself once the database answers. | Check `DB_PASSWORD` / `MARIADB_URL`. A password with special characters must be URL-encoded in `MARIADB_URL`. |
 | `app` restarts; log mentions `ORACLE_… is required` | `ISSUE_SOURCE=oracle` without the Oracle settings | Set `ISSUE_SOURCE=mock`, or fill in the `ORACLE_*` settings |
 | Page shows "unknown user" or "SSO sign-in is not configured" | `DEV_AUTH` is not `true` | Set `DEV_AUTH=true` and `docker compose up -d` |
-| Stock does not change although issues are imported | No starting count yet for that fab | §8.1 |
+| Stock does not change although issues are imported | No starting count yet for that location | §8.1 |
 | Many rows "held" in **Settings › Import** | Oracle values not mapped yet | **Settings › Oracle values** (§8.2 step 2) |
 | "Issues up to" is hours behind | Normal: records are entered up to ~15 h after the scan | If no import ran for twice the interval, an alert appears; check `docker compose logs app` |
 | `app` restarts; log says `This database was set up by an older GI version …` | The database was created before the 2026-11-23 schema consolidation | `docker compose down`, `docker volume rm` the MariaDB volume (or drop and re-create the `gi` database), then `docker compose up -d`. Re-enter settings and starting counts. |
@@ -328,9 +336,10 @@ What to watch:
 | `DB_PASSWORD`, `DB_ROOT_PASSWORD` | — | MariaDB container passwords |
 | `MARIADB_URL` | built from `DB_PASSWORD` | Database URL, e.g. for an existing server |
 | `ISSUE_SOURCE` | `mock` | `mock` (generated test data), `oracle` (read Oracle), or `csv` (no automatic import; upload Oracle exports, §8.4) |
-| `ORACLE_CONNECT_STRING`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_ISSUE_TABLE`, `ORACLE_SUIT_TABLE` | — | Oracle access (read-only), only for `oracle` |
+| `ORACLE_CONNECT_STRING`, `ORACLE_USER`, `ORACLE_PASSWORD`, `ORACLE_ISSUE_TABLE`, `ORACLE_BARCODE_MASTER_TABLE` | — | Oracle access (read-only), only for `oracle` |
 | `ORACLE_POLL_SECONDS` | `300` | Import interval, 300–43200 s |
 | `ORACLE_BACKFILL_FROM` | `2026-10-01 00:00:00` | First `INSERT_TIME` (Phoenix time) read on a fresh install |
+| `BARCODE_MASTER_SYNC_HOUR` | `2` | The barcode master table is read in full once a day after this hour (Phoenix time), only with `ORACLE_BARCODE_MASTER_TABLE` |
 | `ORACLE_LOOKBACK_HOURS` | `24` | Each import re-reads scans this far back, to catch records that reach Oracle late (1–336) |
 | `DEV_AUTH` | `true` | Choose the user in the app (no SSO yet) |
 | `ADMIN_PASSCODE` | — | Passcode needed to switch to Admin (secret); empty = Admin locked |

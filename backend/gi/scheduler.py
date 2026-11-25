@@ -1,4 +1,5 @@
-"""Regular import, daily catch-up sweep after 03:00 and stale check (ORA-03/03a/07).
+"""Regular import, daily barcode master read (after BARCODE_MASTER_SYNC_HOUR), daily catch-up sweep after 03:00
+and stale check (ORA-03/03a/07).
 Safe with several replicas: each run takes the "import" lock in MariaDB, so only one instance imports
 at a time; if it dies, the lock is freed and another takes over."""
 from __future__ import annotations
@@ -10,8 +11,8 @@ from zoneinfo import ZoneInfo
 
 from .config import config
 from .db import connect, one, with_named_lock
-from .importing import get_issue_source
-from .importing.importer import alert, poll, sweep, sync_status
+from .importing import get_issue_source, get_master_source
+from .importing.importer import alert, poll, sweep, sync_master, sync_status
 from .ledger import invariant_violations
 from .timeutil import from_db, now_utc, site_day
 
@@ -26,6 +27,18 @@ def _sweep_due(now: datetime | None = None) -> bool:
     with connect() as c:
         last = one(c, "SELECT MAX(started_at) AS at FROM sync_run WHERE kind = 'sweep' AND status = 'ok'")
     return not last or not last["at"] or site_day(from_db(last["at"])) != site_day(now)
+
+
+def _master_due(now: datetime | None = None) -> bool:
+    """The barcode master is read once per site day after BARCODE_MASTER_SYNC_HOUR, and at once if never read."""
+    now = now or now_utc()
+    with connect() as c:
+        last = one(c, "SELECT MAX(started_at) AS at FROM sync_run WHERE kind = 'master' AND status = 'ok'")
+    if not last or not last["at"]:
+        return True
+    if now.astimezone(ZoneInfo(config.SITE_TIMEZONE)).hour < config.BARCODE_MASTER_SYNC_HOUR:
+        return False
+    return site_day(from_db(last["at"])) != site_day(now)
 
 
 def _stale_alert() -> None:
@@ -48,6 +61,10 @@ def tick() -> None:
         run = poll(source)
         if run["new"]:
             log.info("import: %s new rows %s", run["new"], run["byStatus"])
+        master = get_master_source()
+        if master is not None and _master_due():
+            m = sync_master(master)
+            log.info("barcode master: %s barcodes, %s changed, %s waiting scans decided", m["barcodes"], m["changed"], m["resolved"])
         if _sweep_due():
             sweep(source)
             with connect() as c:

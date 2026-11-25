@@ -49,7 +49,9 @@ class Config:
     ORACLE_USER: str | None = None
     ORACLE_PASSWORD: str | None = None
     ORACLE_ISSUE_TABLE: str | None = None
-    ORACLE_SUIT_TABLE: str | None = None
+    # Barcode master: the attributes (type, color, size) of each barcode; several rows per barcode, latest RECTIME wins.
+    ORACLE_BARCODE_MASTER_TABLE: str | None = None
+    BARCODE_MASTER_SYNC_HOUR: int = 2  # daily full read of the barcode master, after this hour (site time)
     ORACLE_POLL_SECONDS: int = 300
     ORACLE_LOOKBACK_HOURS: int = 24  # each import re-reads this far back from the newest scan (late entries)
     ORACLE_MAX_ROWS: int = 5000
@@ -81,7 +83,8 @@ def load_config() -> Config:
         ORACLE_USER=_env("ORACLE_USER"),
         ORACLE_PASSWORD=_env("ORACLE_PASSWORD"),
         ORACLE_ISSUE_TABLE=_env("ORACLE_ISSUE_TABLE"),
-        ORACLE_SUIT_TABLE=_env("ORACLE_SUIT_TABLE"),
+        ORACLE_BARCODE_MASTER_TABLE=_env("ORACLE_BARCODE_MASTER_TABLE"),
+        BARCODE_MASTER_SYNC_HOUR=_int("BARCODE_MASTER_SYNC_HOUR", 2, 0, 23),
         ORACLE_POLL_SECONDS=_int("ORACLE_POLL_SECONDS", 300, 60, 43_200),
         ORACLE_LOOKBACK_HOURS=_int("ORACLE_LOOKBACK_HOURS", 24, 1, 24 * 14),
         ORACLE_MAX_ROWS=_int("ORACLE_MAX_ROWS", 5000, 1),
@@ -102,10 +105,12 @@ def load_config() -> Config:
         for key in ("ORACLE_CONNECT_STRING", "ORACLE_USER", "ORACLE_PASSWORD", "ORACLE_ISSUE_TABLE"):
             if not getattr(c, key):
                 raise ValueError(f"{key} is required when ISSUE_SOURCE=oracle")
-        for key in ("ORACLE_ISSUE_TABLE", "ORACLE_SUIT_TABLE"):
+        for key in ("ORACLE_ISSUE_TABLE", "ORACLE_BARCODE_MASTER_TABLE"):
             v = getattr(c, key)
             if v and not _ORACLE_IDENTIFIER.match(v):
                 raise ValueError(f"{key} must be TABLE or SCHEMA.TABLE")
+    if _env("ORACLE_SUIT_TABLE"):
+        raise ValueError("ORACLE_SUIT_TABLE was renamed to ORACLE_BARCODE_MASTER_TABLE (2026-11-24); rename the setting")
     return c
 
 

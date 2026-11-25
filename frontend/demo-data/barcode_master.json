@@ -1,0 +1,1 @@
+{"barcodes":2525,"tied":0,"updatedAt":"2026-11-25T02:02:20.794Z","waiting":{"conflict":0,"missing":0},"last":{"kind":"master","note":null,"started_at":"2026-11-25T02:02:20.010Z","finished_at":"2026-11-25T02:02:20.796Z","rows_read":2571,"rows_new":2525,"rows_resolved":0,"status":"ok","error":null},"live":true,"table":null,"syncHour":2}

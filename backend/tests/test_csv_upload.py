@@ -137,3 +137,9 @@ def test_long_numeric_barcodes_are_kept_and_excel_damage_is_refused():
     with pytest.raises(CsvError) as e:
         parse(bad.encode())
     assert "scientific notation" in e.value.problems[0]
+    # A real barcode with a letter E in it is not spreadsheet damage (no sign after the E).
+    real = HEADER + "996000027999E030,GOWN,WHITE,L,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:00,U1,2026-11-19 18:30:00\n"
+    assert parse(real.encode())[0][0]["SUIT_BARCODE"] == "996000027999E030"
+    for damaged in ("9.96000027999E+15", "9.96E+14", "2E+15", "2.4e-3"):
+        with pytest.raises(CsvError):
+            parse((HEADER + damaged + ",GOWN,WHITE,L,FAB1,X,Y,EMPLOYEE GOWN ISSUE,E1,2026-11-20 09:00:00,U1,2026-11-19 18:30:00\n").encode())

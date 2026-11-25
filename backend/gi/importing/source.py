@@ -7,12 +7,13 @@ ISSUE_STATE = "EMPLOYEE GOWN ISSUE"
 
 
 class OracleIssueRow(TypedDict):
-    """One Oracle issue-table row as GI reads it. INSERT_TIME is naive 'YYYY-MM-DD HH:MM:SS'."""
+    """One Oracle issue-table row as GI reads it. INSERT_TIME is naive 'YYYY-MM-DD HH:MM:SS'. The four values
+    can be empty (None); GI records that and fills type, color and size from the barcode master."""
     SUIT_BARCODE: str
-    SUIT_TYPE: str
-    SUIT_COLOR: str
-    SUIT_SIZE: str
-    SUIT_LEVEL: str
+    SUIT_TYPE: str | None
+    SUIT_COLOR: str | None
+    SUIT_SIZE: str | None
+    SUIT_LEVEL: str | None
     INSERT_TIME: str  # Phoenix local time: when the barcode was scanned (= issued). RECTIME is not used.
 
 
@@ -22,11 +23,37 @@ class InsertKey(TypedDict):
     barcode: str
 
 
+class MasterRow(TypedDict):
+    """One row of the Oracle barcode master table. A barcode can have several rows; the latest RECTIME is current.
+    RECTIME is naive 'YYYY-MM-DD HH:MM:SS' and only compared with other RECTIMEs of the same table."""
+    SUIT_BARCODE: str
+    SUIT_CATEGORY: str | None
+    SUIT_TYPE: str | None
+    SUIT_COLOR: str | None
+    SUIT_SIZE: str | None
+    RECTIME: str
+
+
+class MasterSource(Protocol):
+    def master_page(self, after: str | None, limit: int) -> list[MasterRow]:
+        """Rows with SUIT_BARCODE > after, ordered by SUIT_BARCODE (every row of a barcode, all versions)."""
+
+    def master_for(self, barcodes: list[str]) -> list[MasterRow]:
+        """Every row of these barcodes."""
+
+
 class IssueSource(Protocol):
     def by_insert_time(self, start: str, after: InsertKey | None, limit: int) -> list[OracleIssueRow]:
         """Rows with INSERT_TIME >= start (no upper limit), ordered and keyset-paged by (INSERT_TIME, SUIT_BARCODE)."""
 
     def close(self) -> None: ...
+
+
+def clean_value(value: object) -> str | None:
+    """Empty or blank means NULL (Oracle has no empty strings); other values are kept exactly as they are."""
+    if value is None or not str(value).strip():
+        return None
+    return str(value)
 
 
 def clean_barcode(value: str) -> str:

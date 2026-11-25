@@ -1,1 +1,1 @@
-{"id":54,"on_hand":51,"min_qty":20,"garment":"Boots","color":"White","size":"LG","location":"P2","status":"plenty","issuedToday":13,"lastDelivery":{"at":"2026-11-23T13:40:00.000Z","qty":5}}
+{"id":54,"on_hand":46,"min_qty":20,"garment":"Boots","color":"White","size":"LG","location":"P2","status":"plenty","issuedToday":18,"lastDelivery":{"at":"2026-11-24T13:40:00.000Z","qty":25}}

@@ -163,9 +163,9 @@ function FullCount(meta, canEdit) {
       Seg({ label: 'Location', optStyle: { flex: 'none', padding: '7px 8px' }, value: locId, onChange: setLocId, options: meta.locations.map((l) => ({ value: l.id, label: l.code })) })),
     started
       ? h('div', { class: 'note' }, `Starting count done ${fmtWhen(started)}. Use this for a `, h('b', null, 'full spot check'),
-        ': enter what is on the shelf for every garment type, then save — the unregistered count for this fab goes back to 0. Empty cells keep their current number.')
+        ': enter what is on the shelf for every garment type, then save — the unregistered count for this location goes back to 0. Empty cells keep their current number.')
       : [
-        Warn('No starting count yet for this fab. Count everything, then enter the counts with the time counting ', h('b', null, 'finished'), '. Issues scanned after that time reduce stock; empty cells count as 0.'),
+        Warn('No starting count yet for this location. Count everything, then enter the counts with the time counting ', h('b', null, 'finished'), '. Issues scanned after that time reduce stock; empty cells count as 0.'),
         h('div', { class: 'field', style: { maxWidth: 280 } },
           h('label', { for: 'asof' }, 'Counting finished at (Phoenix time)'),
           h('input', { id: 'asof', class: 'input', type: 'datetime-local', value: asOf, onInput: (e) => setAsOf(e.target.value), style: { minHeight: 44 } })),
@@ -186,7 +186,7 @@ function FullCount(meta, canEdit) {
       h('div', { style: { flex: 1, fontSize: 13, color: 'var(--color-neutral-700)' } }, `${entries.length} items entered`),
       h('button', {
         class: 'btn btn-primary', style: { minHeight: 48, fontSize: 15, padding: '0 22px' }, disabled: !canEdit || (!!started && !entries.length),
-        onClick: () => confirm(started ? 'Save the full spot check?' : 'Save the starting count? This can only be done once per fab.') && save(),
+        onClick: () => confirm(started ? 'Save the full spot check?' : 'Save the starting count? This can only be done once per location.') && save(),
       }, started ? 'Save spot check' : 'Save starting count')),
   ];
 }
@@ -225,7 +225,7 @@ function OracleValues(meta, canEdit) {
     }
   };
   return [
-    h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first. An issue row is held until all four of its values (type, color, size, level) are mapped; it then counts against stock from the fab\'s starting count on.'),
+    h('div', { class: 'note' }, 'How each value in the Oracle issue table translates to GI. New values appear first. An issue row is held until all four of its values (type, color, size, level) are mapped; it then counts against stock from the location\'s starting count on.'),
     ErrorNote(error),
     h('div', { style: { display: 'flex', flexDirection: 'column' } },
       (data ?? []).flatMap((v) => [h('div', { style: { display: 'grid', gridTemplateColumns: 'minmax(0,1fr) minmax(0,1fr)', gap: 10, alignItems: 'center', padding: '6px 0' } },
@@ -277,7 +277,7 @@ function DataQuality(meta, canEdit) {
   const conflictTotal = data?.conflictingTotal ?? conflicts.length;
   const combo = (k) => `${k.type} / ${k.color} / ${k.size}`;
   return [
-    h('div', { class: 'note' }, 'Garments whose barcode is not in the suit master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color, but they count as issued. A barcode that is only dirty data can be left out of the issued numbers below (Leave out); its issues then no longer count anywhere, now and in future imports, until you count it again.'),
+    h('div', { class: 'note' }, 'Garments whose barcode is not in the barcode master come through as GOWN / OTHER / OTHER. They never count per garment type, size or color, but they count as issued. A barcode that is only dirty data can be left out of the issued numbers below (Leave out); its issues then no longer count anywhere, now and in future imports, until you count it again.'),
     ErrorNote(error),
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Day'), h('th', { style: right }, 'Unregistered'), h('th', { style: right }, 'All issues'), h('th', { style: right }, '%'))),
@@ -308,7 +308,7 @@ function DataQuality(meta, canEdit) {
       h('h4', { style: { margin: 0 } }, 'Barcodes with conflicting values ',
         h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(conflictTotal)} barcodes`)),
       h('button', { class: 'btn btn-secondary', disabled: !conflicts.length, onClick: () => download('/data-quality/conflicts.csv', 'barcodes-with-conflicting-values.csv'), style: { minHeight: 44 } }, 'Download CSV')),
-    h('div', { class: 'note' }, 'The same barcode was issued with different type, color or size. Each combination is listed with how often and when it was seen. "unregistered" marks GOWN / OTHER / OTHER rows; a barcode that is unregistered first and complete later was registered in between. "same scan, not counted" marks rows with the same barcode and INSERT_TIME as another row: only the first one counts.'),
+    h('div', { class: 'note' }, 'The same barcode was issued with different type, color or size. Each combination is listed with how often and when it was seen. "unregistered" marks GOWN / OTHER / OTHER rows; a barcode that is unregistered first and complete later was registered in between. "same scan, not counted" marks rows with the same barcode and INSERT_TIME as another row: only the row matching the barcode master counts (see Waiting for the barcode master).'),
     conflicts.length
       ? h('table', { class: 'table num' },
         h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', null, 'Type / color / size'), h('th', { style: right }, 'Times'),
@@ -323,6 +323,33 @@ function DataQuality(meta, canEdit) {
           h('td', null, k.locations))))))
       : h('div', { class: 'note' }, data ? 'None found: every barcode always came with the same type, color and size.' : ''),
     conflictTotal > 50 && h('div', { class: 'note' }, `Showing the 50 barcodes with the most issues; Download CSV has all ${fmtNum(conflictTotal)}.`),
+    WaitingForMaster(data),
+  ];
+}
+
+const vtext = (v) => [v.type, v.color, v.size, v.level].map((x) => x || '(empty)').join(' / ');
+
+/** Scans that do not count yet because the barcode master cannot decide them. */
+function WaitingForMaster(data) {
+  const list = data?.waiting ?? [];
+  const total = data?.waitingTotal ?? list.length;
+  return [
+    h('h4', { style: { margin: '8px 0 0' } }, 'Waiting for the barcode master ',
+      h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(total)} scans`)),
+    h('div', { class: 'note' }, `Scans that do not count yet: the issue table had several rows for the scan with other values and none matches the barcode master, or a value was empty and the barcode master does not have it. They count as soon as the barcode master can decide (Settings › Import). So far the barcode master decided ${fmtNum(data?.decidedByMaster ?? 0)} repeated scans and filled ${fmtNum(data?.filledFromMaster ?? 0)} of ${fmtNum(data?.emptyValueScans ?? 0)} scans with an empty value.`),
+    list.length
+      ? h('table', { class: 'table num' },
+        h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', { title: 'Exactly as in Oracle (Phoenix time)' }, 'INSERT_TIME'), h('th', null, 'Rows in Oracle (type / color / size / level)'), h('th', null, 'Barcode master'))),
+        h('tbody', null, list.map((w) => h('tr', null,
+          h('td', { style: { whiteSpace: 'pre', fontWeight: 600 }, title: JSON.stringify(w.barcode) }, w.barcode),
+          h('td', null, w.insert_time),
+          h('td', null, w.versions.map((v) => h('div', { style: { whiteSpace: 'pre' } }, vtext(v))),
+            w.problem === 'missing' && h('span', { class: 'tag tag-accent-2' }, `empty ${w.missing.join(', ')}`)),
+          h('td', null, w.master
+            ? [`${w.master.type} / ${w.master.color} / ${w.master.size}`, h('div', { style: { fontSize: 12, color: 'var(--color-neutral-700)' } }, `RECTIME ${w.master.rectime}${w.master.tied ? ' · two rows at this time, not used' : ''}`)]
+            : h('span', { style: { color: 'var(--color-neutral-700)' } }, 'not in it'))))))
+      : h('div', { class: 'note' }, data ? 'None: every scan could be decided.' : ''),
+    total > list.length && h('div', { class: 'note' }, `Showing the ${fmtNum(list.length)} latest of ${fmtNum(total)}.`),
   ];
 }
 
@@ -368,7 +395,7 @@ function CsvUpload(isAdmin) {
     h('h4', { class: 'sec', style: { margin: 0 } }, 'Upload an Oracle export'),
     h('div', { class: 'note' }, 'A CSV file of the Oracle issue table, with the column names in the first line (',
       h('code', null, 'SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL, STATE, INSERT_TIME'),
-      '). INSERT_TIME is the scan time in Phoenix time; other columns (RECTIME and so on) are ignored. Only rows with STATE = EMPLOYEE GOWN ISSUE are used. Rows already in GI (same barcode and INSERT_TIME) are skipped, so uploading the same or an overlapping file again is safe. Do not open and save the file in Excel: it drops the seconds from times and changes barcodes longer than 15 digits (2399600002641084 becomes 2399600002641080). To look at an export, use a text editor.'),
+      '). INSERT_TIME is the scan time in Phoenix time; other columns (RECTIME and so on) are ignored. Empty type, color, size or level cells are allowed: they are filled from the barcode master below, and rows repeating a scan with other values are decided by it. Only rows with STATE = EMPLOYEE GOWN ISSUE are used. Rows already in GI (same barcode and INSERT_TIME) are skipped, so uploading the same or an overlapping file again is safe. Do not open and save the file in Excel: it drops the seconds from times and changes barcodes longer than 15 digits (2399600002641084 becomes 2399600002641080). To look at an export, use a text editor.'),
     isAdmin
       ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
         h('label', { class: 'btn btn-secondary', style: { position: 'relative', minHeight: 44, cursor: 'pointer' } },
@@ -386,7 +413,64 @@ function CsvUpload(isAdmin) {
         progress.phase === 'upload'
           ? `Uploading… ${Math.round(pct * 100)} %`
           : `Importing… ${fmtNum(progress.done)} of ${fmtNum(progress.total)} rows (${Math.round(pct * 100)} %)`)),
-    result && Msg({ tag: 'Imported', text: `${result.fileRows !== undefined ? fmtNum(result.fileRows) + ' rows in the file · ' : ''}${fmtNum(result.new)} new issues (${fmtNum(st.applied ?? 0)} applied, ${fmtNum(st.held_unmapped ?? 0)} held, ${fmtNum(st.before_start ?? 0)} before the starting count, ${fmtNum(st.ignored ?? 0)} ignored) · ${fmtNum(result.alreadyImported)} already in GI${result.conflicts ? ` · ${fmtNum(result.conflicts)} same scan with other values (not counted, see Data quality)` : ''}${result.otherState ? ` · ${fmtNum(result.otherState)} other STATE` : ''}` }),
+    result && Msg({ tag: 'Imported', text: `${result.fileRows !== undefined ? fmtNum(result.fileRows) + ' rows in the file · ' : ''}${fmtNum(result.new)} new issues (${fmtNum(st.applied ?? 0)} applied, ${fmtNum(st.held_unmapped ?? 0)} held, ${fmtNum(st.before_start ?? 0)} before the starting count, ${fmtNum(st.ignored ?? 0)} ignored) · ${fmtNum(result.alreadyImported)} already in GI${result.conflicts ? ` · ${fmtNum(result.conflicts)} rows repeated a scan with other values` : ''}${result.missing ? ` · ${fmtNum(result.missing)} scans with an empty value` : ''}${result.waiting ? ` · ${fmtNum(result.waiting)} wait for the barcode master (see Data quality)` : ''}${result.otherState ? ` · ${fmtNum(result.otherState)} other STATE` : ''}` }),
+    failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
+}
+
+/** Barcode master: the latest type, color and size of each barcode (latest RECTIME). Decides repeated scans and fills empty values. */
+function BarcodeMaster(isAdmin) {
+  const { data: m } = load('/barcode-master');
+  const [file, setFile] = state('master.file', null);
+  const [busy, setBusy] = state('master.busy', false);
+  const [pct, setPct] = state('master.pct', null);
+  const [result, setResult] = state('master.result', null);
+  const [failure, setFailure] = state('master.failure', null);
+  const done = (r) => {
+    setResult(r);
+    reload('/barcode-master', '/sync', '/alerts', '/stock', '/trends', '/data-quality');
+  };
+  const send = async () => {
+    setBusy(true); setResult(null); setFailure(null); setPct(0);
+    try {
+      const r = await apiUpload('/barcode-master/upload', file, { 'content-type': 'text/csv', 'X-File-Name': encodeURIComponent(file.name) }, setPct);
+      setFile(null);
+      const input = document.getElementById('masterfile');
+      if (input) input.value = '';
+      done(r);
+    } catch (e) {
+      setFailure({ message: e.message, problems: e.data?.problems ?? [] });
+    }
+    setPct(null); setBusy(false);
+  };
+  const syncNow = async () => {
+    setBusy(true); setResult(null); setFailure(null);
+    try { done(await api('/barcode-master/sync', { method: 'POST' })); } catch (e) { setFailure({ message: e.message, problems: [] }); }
+    setBusy(false);
+  };
+  const w = m?.waiting ?? { conflict: 0, missing: 0 };
+  return h('div', { style: { display: 'flex', flexDirection: 'column', gap: 10 } },
+    h('h4', { class: 'sec', style: { margin: 0 } }, 'Barcode master'),
+    h('div', { class: 'note' }, 'The type, color and size of each barcode. A barcode can have several rows; GI keeps the one with the latest RECTIME. ',
+      'When the issue table has several rows for one scan (same barcode and INSERT_TIME) with other values, the row matching the barcode master counts; an empty type, color or size is filled from it. ',
+      'Until the barcode master can decide, the scan waits and does not count. ',
+      m?.live ? `It is read from Oracle${m.table ? ` (${m.table})` : ''} every day after ${String(m.syncHour).padStart(2, '0')}:00, and asked directly when a scan needs it.` : 'Upload an export of the barcode master table whenever it changed.'),
+    m && Msg({ tag: m.barcodes ? 'OK' : 'Empty', text: `${fmtNum(m.barcodes)} barcodes${m.tied ? ` (${fmtNum(m.tied)} with two rows at the same latest RECTIME, not used)` : ''}`
+      + `${m.last ? ` · last ${m.last.kind === 'master' ? 'read from Oracle' : 'upload'} ${fmtWhen(m.last.finished_at ?? m.last.started_at)}${m.last.status === 'failed' ? ' (failed)' : ''}` : ''}`
+      + ` · ${fmtNum(w.conflict + w.missing)} scans waiting${w.conflict + w.missing ? ` (${fmtNum(w.conflict)} repeated with other values, ${fmtNum(w.missing)} with an empty value)` : ''}` }),
+    isAdmin
+      ? h('div', { style: { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' } },
+        h('label', { class: 'btn btn-secondary', style: { position: 'relative', minHeight: 44, cursor: 'pointer' } },
+          'Choose file',
+          h('input', { id: 'masterfile', type: 'file', accept: '.csv,text/csv,text/plain', onChange: (e) => { setFile(e.target.files[0] ?? null); setResult(null); setFailure(null); },
+            style: { position: 'absolute', width: 1, height: 1, opacity: 0, overflow: 'hidden', pointerEvents: 'none' } })),
+        h('span', { class: 'num', style: { flex: '1 1 160px', minWidth: 0, fontSize: 14, color: file ? 'var(--color-text)' : 'var(--color-neutral-700)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } },
+          file ? `${file.name} · ${fmtNum(Math.ceil(file.size / 1024))} KB` : 'No file chosen'),
+        h('button', { class: 'btn btn-primary', disabled: !file || busy, onClick: send, style: { minHeight: 44 } }, busy && pct !== null ? (pct < 1 ? `Uploading… ${Math.round(pct * 100)} %` : 'Saving…') : 'Upload barcode master'),
+        m?.live && h('button', { class: 'btn btn-secondary', disabled: busy, onClick: syncNow, style: { minHeight: 44 } }, busy && pct === null ? 'Reading…' : 'Read from Oracle now'))
+      : h('div', { class: 'note' }, 'Only an admin can upload the barcode master.'),
+    h('div', { class: 'note' }, 'CSV columns: ', h('code', null, 'SUIT_BARCODE, SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, RECTIME'),
+      ' (SUIT_CATEGORY optional; REC_USER and other columns are ignored). Include every row of a barcode, or at least its newest one. An older export never replaces a newer row. Times must include seconds.'),
+    result && Msg({ tag: 'Saved', text: `${fmtNum(result.rows)} rows · ${fmtNum(result.barcodes)} barcodes (${fmtNum(result.changed)} new or changed) · ${fmtNum(result.resolved)} waiting scans decided, ${fmtNum(result.applied)} now count` }),
     failure && h('div', { role: 'alert' }, Warn(failure.message, failure.problems.length ? h('ul', { style: { margin: '6px 0 0', paddingLeft: 18 } }, failure.problems.map((p) => h('li', null, p))) : null)));
 }
 
@@ -414,6 +498,7 @@ function ImportStatus(isAdmin) {
       h('button', { class: 'btn btn-secondary', disabled: busy, onClick: () => run('/sync/sweep'), style: { minHeight: 44 } }, 'Run catch-up sweep')),
     ErrorNote(errorOf('import')),
     CsvUpload(isAdmin),
+    BarcodeMaster(isAdmin),
     h('div', null,
       h('h4', { class: 'sec' }, 'Alerts'),
       (alerts.data ?? []).map((a) => h('div', { style: { display: 'flex', gap: 10, alignItems: 'center', padding: '6px 0', fontSize: 14 } },
@@ -425,7 +510,7 @@ function ImportStatus(isAdmin) {
     h('table', { class: 'table num' },
       h('thead', null, h('tr', null, h('th', null, 'Recent runs'), h('th', null, 'Kind'), h('th', { style: right }, 'New'), h('th', { style: right }, 'Applied'), h('th', { style: right }, 'Held'), h('th', null, 'Status'))),
       h('tbody', null, (runs.data ?? []).map((r) => h('tr', null, h('td', null, fmtWhen(r.started_at)), h('td', null, r.note ? `${r.kind} · ${r.note}` : r.kind), h('td', { style: right }, fmtNum(r.rows_new)),
-        h('td', { style: right }, fmtNum(r.rows_applied)), h('td', { style: right }, r.rows_held), h('td', null, r.status))))),
+        h('td', { style: right }, fmtNum(r.rows_applied)), h('td', { style: right }, fmtNum(r.rows_held + (r.rows_waiting ?? 0))), h('td', null, r.status))))),
   ];
 }
 

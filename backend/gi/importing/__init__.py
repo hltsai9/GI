@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..config import config
-from .source import IssueSource
+from .source import IssueSource, MasterSource
 
 _source: IssueSource | None = None
 
@@ -27,3 +27,12 @@ def get_issue_source() -> IssueSource:
 def set_issue_source(s: IssueSource | None) -> None:
     global _source
     _source = s
+
+
+def get_master_source() -> MasterSource | None:
+    """The live barcode master: the Oracle table (ORACLE_BARCODE_MASTER_TABLE) or the mock's. None when there
+    is none (ISSUE_SOURCE=csv, or no table configured): then only the CSV uploads fill GI's copy."""
+    if config.ISSUE_SOURCE == "csv" or (config.ISSUE_SOURCE == "oracle" and not config.ORACLE_BARCODE_MASTER_TABLE):
+        return None
+    from .importer import live_master
+    return live_master(get_issue_source())
