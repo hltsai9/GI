@@ -7,6 +7,13 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Decision: Data quality lists stay as they are
+- **Asked:** do "Barcodes with conflicting values" and "Waiting for the barcode master" repeat each other? Partly.
+  - Waiting lists the scans not counted yet.
+  - Conflicting values lists each barcode's whole history: repeated scans the barcode master already decided, and values that changed between scans.
+  - A scan still waiting appears in both.
+- **Decision:** keep both lists unchanged. The suggested split (waiting first, then only values that changed between scans) was not wanted.
+
 ### Barcode master: latest row per barcode, and rows without RECTIME
 - **Export query** (both deployment guides) now returns only the **latest row of each barcode**, so the file is much smaller. If two rows tie at the latest `RECTIME`, both are still returned, so GI can see it can't tell them apart. With an Oracle connection, GI's daily read and its lookups use the same rule.
 - **Answered:** some rows of the barcode master have no `RECTIME`.
