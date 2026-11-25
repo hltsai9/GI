@@ -7,6 +7,9 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-24
 
+### Diagram: how GI processes scan data
+- New page [SCAN_STATES.md](./SCAN_STATES.md) with two state diagrams: how Oracle rows become one scan (skipped, new version, barcode master), and the statuses a stored scan can have (held, ignored, before the starting count, applied) with what moves it from one to another. GitHub shows the diagrams as pictures.
+
 ### Barcode master: repeated scans and empty values are decided by it
 - **Answered:** the barcode master table (formerly called the "suit master") can be updated, so one barcode can have several rows; the row with the **latest `RECTIME`** is the barcode's current type, color and size. The issue table repeats a scan once per master row, which is where the "barcodes with conflicting values" came from.
 - **Decision: GI keeps only the latest version of each barcode** in its own copy (ORA-14). An older row never replaces a newer one. If two rows share the latest `RECTIME` but differ, GI can't tell which is right and doesn't use that barcode until a newer row arrives.

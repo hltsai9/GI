@@ -265,6 +265,8 @@ Only the server sets `status`; no screen edits it directly. One function, `class
 
 ### 3.3 Status changes after import
 
+Diagram: [SCAN_STATES.md](./SCAN_STATES.md).
+
 | From | To | Triggered by | Ledger |
 |---|---|---|---|
 | — (new row) | `ignored` / `held_unmapped` / `before_start` / `applied` | Import run, via `classifyIssue` | −1 entry only for `applied` |
