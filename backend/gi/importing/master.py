@@ -19,7 +19,7 @@ from sqlalchemy.engine import Connection
 
 from ..db import execute, marks, rows
 from ..timeutil import naive_str
-from .source import MasterRow, clean_barcode, clean_value
+from .source import MasterRow, clean_barcode, clean_value, same_all
 
 # A version of a scan: (SUIT_TYPE, SUIT_COLOR, SUIT_SIZE, SUIT_LEVEL); None = empty in Oracle.
 Version = tuple[str | None, str | None, str | None, str | None]
@@ -35,7 +35,7 @@ def _when(rectime: str | None) -> str:
 
 def latest_versions(master_rows: Iterable[MasterRow]) -> dict[str, dict]:
     """Per barcode, the version with the latest RECTIME (a row without RECTIME counts as the oldest). Rows with the
-    same values count once. `alts` lists the different (type, color, size) at the latest RECTIME; more than one
+    same values count once (capitals and spaces do not matter: "White" is "WHITE"). `alts` lists the different (type, color, size) at the latest RECTIME; more than one
     means `tied`: GI cannot tell which is current."""
     out: dict[str, dict] = {}
     for r in master_rows:
@@ -47,17 +47,25 @@ def latest_versions(master_rows: Iterable[MasterRow]) -> dict[str, dict]:
                       "versions": (cur["versions"] if cur else 0) + 1, "alts": [vals], "tied": False}
         else:
             cur["versions"] += 1
-            if _when(r["RECTIME"]) == _when(cur["rectime"]) and vals not in cur["alts"]:
+            if _when(r["RECTIME"]) == _when(cur["rectime"]) and not _has(cur["alts"], vals):
                 cur["alts"].append(vals)
                 cur["tied"] = True
     return out
 
 
-def _alts_of(e: dict) -> list[Attrs]:
+def _has(alts: list, vals: Attrs) -> bool:
+    return any(same_all(a) == same_all(vals) for a in alts)
+
+
+def alts_of(e: dict) -> list[Attrs]:
+    """The different versions stored for a barcode (one when not tied); same values in other capitals count once."""
     stored = (e["suit_type"], e["suit_color"], e["suit_size"])
     raw = e.get("tie_values")
-    alts = [tuple(a) for a in (json.loads(raw) if isinstance(raw, str) else raw or [])]
-    return alts or [stored]  # type: ignore[return-value]
+    out: list = []
+    for a in [tuple(a) for a in (json.loads(raw) if isinstance(raw, str) else raw or [])] or [stored]:
+        if not _has(out, a):
+            out.append(a)
+    return out
 
 
 def store(conn: Connection, latest: dict[str, dict]) -> int:
@@ -82,9 +90,9 @@ def store(conn: Connection, latest: dict[str, dict]) -> int:
                 if _when(v["rectime"]) < rt:
                     continue
                 if _when(v["rectime"]) == rt:
-                    old = _alts_of(e)
-                    merged = old + [a for a in alts if a not in old]
-                    if merged == old:
+                    old = alts_of(e)
+                    merged = old + [a for a in alts if not _has(old, a)]
+                    if len(merged) == len(old) and bool(e["tied"]) == (len(old) > 1):
                         continue  # nothing new at this RECTIME
                     attrs, alts = (e["suit_type"], e["suit_color"], e["suit_size"]), merged
             tied = len(alts) > 1
@@ -106,7 +114,7 @@ def ties(conn: Connection, limit: int | None = None) -> list[dict]:
     rs = rows(conn, f"""SELECT suit_barcode, suit_type, suit_color, suit_size, rectime, tie_values FROM barcode_master WHERE tied
                          ORDER BY rectime DESC, suit_barcode {'LIMIT ' + str(int(limit)) if limit else ''}""")
     return [{"barcode": r["suit_barcode"], "rectime": naive_str(r["rectime"]) if r["rectime"] else None,
-             "versions": [{"type": a[0] or "", "color": a[1] or "", "size": a[2] or ""} for a in _alts_of(r)]} for r in rs]
+             "versions": [{"type": a[0] or "", "color": a[1] or "", "size": a[2] or ""} for a in alts_of(r)]} for r in rs]
 
 
 def attrs_for(conn: Connection, barcodes: Iterable[str]) -> dict[str, Attrs]:
@@ -133,7 +141,7 @@ def choose(versions: list[Version], m: Attrs | None) -> tuple[int, Version, str 
     if m is not None:
         for i, v in enumerate(versions):
             f = fill(v)
-            if f[:3] == m:
+            if same_all(f[:3]) == same_all(m):
                 return i, f, "resolved"
     return 0, fill(versions[0]), "pending"
 

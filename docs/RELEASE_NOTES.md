@@ -7,6 +7,23 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ## 2026-11-25
 
+### "White" and "WHITE" are the same
+- **Answered:** the 5,093 barcodes with "rows that disagree" were mostly the same color written with other capitals (`White` / `WHITE`).
+- **Decision:** GI now treats type, color, size and level values as the same whatever their capitals or surrounding spaces. Values are still stored as Oracle wrote them; barcodes stay exact (`ABC` and `abc` remain different garments). This applies to:
+  - the barcode master's latest rows: same values in other capitals are one version, not a tie;
+  - matching a scan against the barcode master;
+  - the rows of one scan: rows differing only in capitals are one version, not a conflict;
+  - the Data quality list "Barcodes with conflicting values".
+- **Also fixed, found while checking this:** a scan spelled `White` stayed "held, value not mapped" forever when the mapped value was `WHITE`. The database already stored both spellings as one Oracle value, so it couldn't be mapped separately either. Any spelling of a mapped value now counts.
+- **Your existing data is cleaned up once, by itself, when the new version starts:**
+  - ties that only differed in capitals are dropped;
+  - scans waiting for the barcode master are decided again;
+  - rows held because of another spelling are released.
+  - The pod log shows `values re-checked without capitals: …` with the counts.
+  - The rows-that-disagree list then keeps only the real differences.
+- Database: migration `004` (no table changes; it triggers the clean-up). No drop.
+- Tested here: 75 backend tests pass (2 new). One existing test changed: it expected `white` / `WHITE` to be a conflict.
+
 ### Barcode master: rows at the same latest RECTIME
 - **Asked:** the upload reported "5,093 with two rows at the same latest RECTIME, not used". Identical rows should count as one, and different ones should be pointed out.
 - **Answer:** identical rows already counted as one (checked again here, also across split files that overlap). The 5,093 barcodes really have different type, color or size in their latest rows. Letter case counts as a difference ("White" and "WHITE").

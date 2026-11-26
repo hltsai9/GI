@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from ..db import execute, rows
 from ..stock_items import stock_item_id, unregistered_bucket
 from ..timeutil import from_db, to_db
+from .source import same, same_all
 
 _FK = {"SUIT_TYPE": "garment_type_id", "SUIT_COLOR": "color_id", "SUIT_SIZE": "size_id", "SUIT_LEVEL": "location_id"}
 
@@ -32,15 +33,16 @@ class ClassifyContext:
 
     @classmethod
     def load(cls, conn: Connection) -> "ClassifyContext":
-        mapping = {(r["oracle_column"], r["oracle_value"]): r for r in rows(conn, "SELECT * FROM oracle_value_map")}
-        patterns = {(r["suit_type"], r["suit_color"], r["suit_size"])
+        # Keys ignore capitals and spaces, like the database's unique key on oracle_value_map does.
+        mapping = {(r["oracle_column"], same(r["oracle_value"])): r for r in rows(conn, "SELECT * FROM oracle_value_map")}
+        patterns = {same_all((r["suit_type"], r["suit_color"], r["suit_size"]))
                     for r in rows(conn, "SELECT suit_type, suit_color, suit_size FROM dq_pattern WHERE active")}
         starts = {r["location_id"]: from_db(r["as_of"]) for r in rows(conn, "SELECT location_id, as_of FROM starting_count")}
         excluded = {r["suit_barcode"] for r in rows(conn, "SELECT suit_barcode FROM excluded_barcode")}
         return cls(mapping, patterns, starts, excluded)
 
     def lookup(self, column: str, value: str) -> dict | None:
-        return self.mapping.get((column, value))
+        return self.mapping.get((column, same(value)))
 
 
 def _mapped_id(m: dict | None, column: str) -> int | None:
@@ -62,7 +64,7 @@ def classify_issue(conn: Connection, ctx: ClassifyContext, suit_type: str | None
      c) no starting count yet / before it → before_start
      d) otherwise                       → applied
     Creates the stock item if it does not exist yet; never touches the ledger."""
-    incomplete = (suit_type, suit_color, suit_size) in ctx.patterns
+    incomplete = same_all((suit_type, suit_color, suit_size)) in ctx.patterns
     cols = [("SUIT_LEVEL", suit_level)] if incomplete else [
         ("SUIT_TYPE", suit_type), ("SUIT_COLOR", suit_color), ("SUIT_SIZE", suit_size), ("SUIT_LEVEL", suit_level)]
     quality = "incomplete" if incomplete else "complete"

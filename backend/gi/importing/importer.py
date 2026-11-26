@@ -19,8 +19,8 @@ from ..db import connect, execute, marks, one, rows, with_tx
 from ..ledger import Movement, apply_movements
 from ..timeutil import from_db, iso, issue_time, naive_str, now_utc, shift_naive, to_db, utc_to_local
 from .classify import ClassifyContext, classify_issue, note_values_seen
-from .master import Attrs, Version, attrs_for, choose, csv_batches, latest_versions, missing_of, newest_rectime, read_pages, store
-from .source import InsertKey, IssueSource, MasterRow, MasterSource, OracleIssueRow
+from .master import Attrs, Version, alts_of, attrs_for, choose, csv_batches, latest_versions, missing_of, newest_rectime, read_pages, store
+from .source import InsertKey, IssueSource, MasterRow, MasterSource, OracleIssueRow, same_all
 
 log = logging.getLogger("gi.import")
 
@@ -99,7 +99,12 @@ def _rechoose(conn: Connection, issues: list[dict], master: dict[str, Attrs]) ->
     changed: list[int] = []
     resolved = 0
     for e in issues:
-        mine = alts.get(e["id"], [])
+        mine: list = []
+        seen_v = {same_all(_stored(e))}
+        for alt_id, v in alts.get(e["id"], []):  # other capitals are the same version
+            if same_all(v) not in seen_v:
+                seen_v.add(same_all(v))
+                mine.append((alt_id, v))
         versions = [_stored(e)] + [v for _, v in mine]
         idx, filled, conflict = choose(versions, master.get(e["suit_barcode"]))
         if idx == 0 and filled == _stored(e) and conflict == e["conflict"]:
@@ -142,18 +147,18 @@ def _import_batch(batch: list[OracleIssueRow], run_id: int, c: _Counters, now: d
                 if r[col] is not None:  # type: ignore[literal-required]
                     seen[(col, r[col])] = seen.get((col, r[col]), 0) + 1  # type: ignore[literal-required]
             g = groups.setdefault((r["SUIT_BARCODE"], r["INSERT_TIME"]), [])
-            if _version(r) not in g:
+            if same_all(_version(r)) not in {same_all(v) for v in g}:  # other capitals are the same version
                 g.append(_version(r))
 
         # Scans already stored that came back with other values: record the new versions (once).
         # Scans still waiting for the barcode master are decided again too (a live master may know them now).
         again = [kept[k] for k, vs in groups.items() if k in kept and (
-            any(v != _stored(kept[k]) for v in vs) or kept[k]["conflict"] == "pending" or kept[k]["status"] == "held_missing")]
+            any(same_all(v) != same_all(_stored(kept[k])) for v in vs) or kept[k]["conflict"] == "pending" or kept[k]["status"] == "held_missing")]
         known = _alternatives(conn, [e["id"] for e in again])
         revisit: list[dict] = []
         for e in again:
-            have = {_stored(e)} | {v for _, v in known.get(e["id"], [])}
-            fresh = [v for v in groups[(e["suit_barcode"], naive_str(e["insert_time"]))] if v not in have]
+            have = {same_all(_stored(e))} | {same_all(v) for _, v in known.get(e["id"], [])}
+            fresh = [v for v in groups[(e["suit_barcode"], naive_str(e["insert_time"]))] if same_all(v) not in have]
             for v in fresh:
                 execute(conn, """INSERT IGNORE INTO issue_import_conflict (issue_import_id, suit_type, suit_color, suit_size, suit_level, sync_run_id)
                                  VALUES (?,?,?,?,?,?)""", [e["id"], *_alt(v), run_id])
@@ -416,6 +421,21 @@ def upload_master(master_rows: list[MasterRow], file_name: str = "") -> dict:
 def upload_master_file(data: bytes, total: int, file_name: str = "", on_started: Callable[[int], None] | None = None) -> dict:
     """A checked CSV export of the barcode master table (Settings › Import), saved 2,000 rows at a time."""
     return _master_run("master_upload", (file_name or "")[:255] or None, lambda: csv_batches(data), total, on_started)
+
+
+def recheck_values(conn: Connection) -> dict:
+    """Once, after GI started treating values the same whatever their capitals (2026-11-25): barcode master rows that
+    only differed in capitals are no longer a tie, scans whose versions only differed in capitals are decided, and
+    rows held because their value was spelled with other capitals than the mapping are classified again."""
+    unt = 0
+    for e in rows(conn, "SELECT suit_barcode, suit_type, suit_color, suit_size, tie_values FROM barcode_master WHERE tied"):
+        alts = alts_of(e)
+        if len(alts) < 2:
+            execute(conn, "UPDATE barcode_master SET tied = FALSE, tie_values = NULL WHERE suit_barcode = ?", [e["suit_barcode"]])
+            unt += 1
+    done = resolve_waiting(conn)
+    released = reclassify(conn, "status = 'held_unmapped'", [], None, "values compared without capitals")
+    return {"untied": unt, **done, "released": released}
 
 
 def reclassify(conn: Connection, where: str, params: list, user_id: int | None, reason: str, tally: dict[str, int] | None = None) -> int:

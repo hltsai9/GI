@@ -244,3 +244,37 @@ def test_same_rows_count_once_and_different_ones_are_listed():
     csv_ = TestClient(build_app()).get("/api/data-quality/master-ties.csv", headers={"x-dev-user": "dev-lead"}).text
     assert csv_.splitlines() == ['"barcode","rectime","suit_type","suit_color","suit_size"',
                                  '"G-3","2026-10-14 15:30:00","GOWN","WHITE","M"', '"G-3","2026-10-14 15:30:00","GOWN","WHITE","XL"']
+
+
+def test_values_are_the_same_whatever_their_capitals():
+    start()
+    lg = on_hand("GOWN", "White", "LG", "P1")
+    # Barcode master: White and WHITE at the same latest RECTIME are one version, not a tie.
+    master_upload(version("G-1", "L", "2026-10-14 15:30:00", color="White") + version("G-1", "L", "2026-10-14 15:30:00", color="WHITE"))
+    # A scan repeated with only other capitals is one version; a mapped value counts in any spelling.
+    r = import_csv((ISSUES + issue("G-1", "2026-11-20 09:00:00", color="White") + issue("G-1", "2026-11-20 09:00:00", color="white ")
+                    + issue("G-2", "2026-11-20 09:01:00", color="White", size="l")).encode())
+    assert (r["new"], r["conflicts"], r["waiting"]) == (2, 0, 0)
+    assert scan("G-1")["status"] == "applied" and scan("G-2")["status"] == "applied"
+    assert on_hand("GOWN", "White", "LG", "P1") == lg - 2
+    with connect() as c:
+        assert one(c, "SELECT tied FROM barcode_master WHERE suit_barcode = 'G-1'")["tied"] == 0  # type: ignore[index]
+
+
+def test_recheck_cleans_up_data_from_before():
+    from gi.importing.importer import recheck_values
+    start()
+    with connect() as c:  # as stored by the earlier version: a tie that only differs in capitals, and a held row
+        c.exec_driver_sql("""INSERT INTO barcode_master (suit_barcode, suit_type, suit_color, suit_size, rectime, tied, tie_values)
+                             VALUES ('G-1', 'GOWN', 'White', 'L', '2026-10-14 15:30:00', TRUE, '[["GOWN","White","L"],["GOWN","WHITE","L"]]')""")
+    import_csv((ISSUES + issue("G-2", "2026-11-20 09:01:00", color="White")).encode())
+    with connect() as c:
+        c.exec_driver_sql("UPDATE issue_import SET status = 'held_unmapped', stock_item_id = NULL WHERE suit_barcode = 'G-2'")
+        c.exec_driver_sql("DELETE FROM ledger_entry WHERE issue_import_id = (SELECT id FROM issue_import WHERE suit_barcode = 'G-2')")
+        c.exec_driver_sql("UPDATE stock_item si SET on_hand = (SELECT COALESCE(SUM(delta), 0) FROM ledger_entry WHERE stock_item_id = si.id)")
+    from gi.db import with_tx
+    r = with_tx(recheck_values)
+    assert (r["untied"], r["released"]) == (1, 1)
+    assert scan("G-2")["status"] == "applied"
+    with connect() as c:
+        assert invariant_violations(c) == []

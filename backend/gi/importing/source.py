@@ -57,6 +57,17 @@ def clean_value(value: object) -> str | None:
     return str(value)
 
 
+def same(value: str | None) -> str | None:
+    """A type, color, size or level value as GI compares it: capitals and surrounding spaces do not matter
+    ("White" and "WHITE" are the same color; decided 2026-11-25). The value is still stored as Oracle wrote it.
+    Barcodes are not compared this way: they stay exact."""
+    return value.strip().casefold() if value is not None else None
+
+
+def same_all(values) -> tuple:
+    return tuple(same(v) for v in values)
+
+
 def clean_barcode(value: str) -> str:
     """Trailing spaces are padding, not part of the barcode: an Oracle CHAR column, or an export that lines up
     its columns, pads every barcode to the column width. Leading and inner spaces are kept as they are.

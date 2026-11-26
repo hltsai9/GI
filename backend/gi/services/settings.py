@@ -199,10 +199,10 @@ def _conflict_candidates(conn: Connection) -> list[str]:
     """Barcodes seen with more than one type / color / size: from the issues themselves (read from the
     ix_issue_barcode_values index only) and from rows of the same scan that were recorded as conflicts."""
     found = {r["b"] for r in rows(conn, """SELECT suit_barcode AS b FROM issue_import GROUP BY suit_barcode
-                                            HAVING COUNT(DISTINCT BINARY suit_type, BINARY suit_color, BINARY suit_size) > 1""")}
+                                            HAVING COUNT(DISTINCT LOWER(TRIM(suit_type)) COLLATE utf8mb4_bin, LOWER(TRIM(suit_color)) COLLATE utf8mb4_bin, LOWER(TRIM(suit_size)) COLLATE utf8mb4_bin) > 1""")}
     found |= {r["b"] for r in rows(conn, """SELECT DISTINCT ii.suit_barcode AS b FROM issue_import_conflict k JOIN issue_import ii ON ii.id = k.issue_import_id
-                                             WHERE BINARY k.suit_type <> BINARY ii.suit_type OR BINARY k.suit_color <> BINARY ii.suit_color
-                                                OR BINARY k.suit_size <> BINARY ii.suit_size""")}
+                                             WHERE LOWER(TRIM(k.suit_type)) COLLATE utf8mb4_bin <> LOWER(TRIM(ii.suit_type)) COLLATE utf8mb4_bin OR LOWER(TRIM(k.suit_color)) COLLATE utf8mb4_bin <> LOWER(TRIM(ii.suit_color)) COLLATE utf8mb4_bin
+                                                OR LOWER(TRIM(k.suit_size)) COLLATE utf8mb4_bin <> LOWER(TRIM(ii.suit_size)) COLLATE utf8mb4_bin""")}
     return sorted(found)
 
 
@@ -212,7 +212,7 @@ def conflicting_barcodes(conn: Connection, limit: int | None = None) -> list[dic
     counted because the same barcode and INSERT_TIME was already imported with other values (same scan,
     issue_import_conflict; "notCounted"). Unregistered rows (GOWN / OTHER / OTHER) are included: a barcode
     that is sometimes unregistered and sometimes not shows a registration that came later. Values are compared
-    exactly (case and spaces). The details are read only for the candidate barcodes, so the cost stays small
+    without capitals and surrounding spaces ("White" is "WHITE"; decided 2026-11-25). The details are read only for the candidate barcodes, so the cost stays small
     however many issues there are. `limit`: only the barcodes with the most issues."""
     out: dict[str, dict] = {}
     loc = _location_names(conn)
@@ -233,7 +233,7 @@ def conflicting_barcodes(conn: Connection, limit: int | None = None) -> list[dic
                                    MIN(s.issued_at) AS first_seen, MAX(s.issued_at) AS last_seen,
                                    GROUP_CONCAT(DISTINCT s.suit_level ORDER BY s.suit_level) AS locations
                               FROM ({seen}) s
-                             GROUP BY s.suit_barcode, BINARY s.suit_type, BINARY s.suit_color, BINARY s.suit_size
+                             GROUP BY s.suit_barcode, LOWER(TRIM(s.suit_type)) COLLATE utf8mb4_bin, LOWER(TRIM(s.suit_color)) COLLATE utf8mb4_bin, LOWER(TRIM(s.suit_size)) COLLATE utf8mb4_bin
                              ORDER BY s.suit_barcode, last_insert_time, not_counted""", chunk + chunk)
         for r in rs:
             b = out.setdefault(r["barcode"], {"barcode": r["barcode"], "times": 0, "combinations": []})

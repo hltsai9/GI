@@ -1,1 +1,1 @@
-{"id":48,"on_hand":51,"min_qty":20,"garment":"Hood","color":"White","size":"LG","location":"P2","status":"plenty","issuedToday":14,"lastDelivery":{"at":"2026-11-25T13:40:00.000Z","qty":30}}
+{"id":48,"on_hand":46,"min_qty":20,"garment":"Hood","color":"White","size":"LG","location":"P2","status":"plenty","issuedToday":14,"lastDelivery":{"at":"2026-11-25T13:40:00.000Z","qty":25}}

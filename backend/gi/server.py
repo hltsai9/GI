@@ -36,6 +36,20 @@ def _short(e: BaseException) -> str:
     return f"{type(orig).__name__}: {orig}".splitlines()[0][:300]
 
 
+def _recheck_values_once() -> None:
+    """One-time clean-up after values started to be compared without capitals (migration 004), in the background
+    under the import lock so it never runs beside an import."""
+    def work() -> None:
+        from .db import with_named_lock, with_tx
+        from .importing.importer import recheck_values
+        try:
+            ran, result = with_named_lock("import", lambda: with_tx(recheck_values), wait_seconds=600)
+            log.info("values re-checked without capitals: %s", result if ran else "skipped (import lock busy)")
+        except Exception:  # noqa: BLE001
+            log.exception("re-checking values without capitals failed")
+    threading.Thread(target=work, name="gi-recheck", daemon=True).start()
+
+
 def _set_up_database(stop: threading.Event) -> bool:
     """Migrations and test-install seeds, retried until the database answers. The web server is already
     running meanwhile: liveness is OK, readiness says why it is not ready yet."""
@@ -45,6 +59,8 @@ def _set_up_database(stop: threading.Event) -> bool:
             applied = migrate()  # under a database lock, so replicas can start together
             if applied:
                 log.info("migrations applied: %s", applied)
+            if "004_values_any_case.sql" in applied:
+                _recheck_values_once()
             # Test installs: users for dev sign-in, and the mapping for the mock data's codes (both idempotent).
             apply_startup_seeds(dev_users=config.DEV_AUTH, mock_mapping=config.ISSUE_SOURCE == "mock")
             Startup.error = None

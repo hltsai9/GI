@@ -339,3 +339,4 @@ All open questions are tracked as a checklist in [`TODO.md`](./TODO.md).
 - No reversals / cancellations: issues are not made by mistake.
 - v1 garment types: gowns, hoods, boots; more may follow after the first release.
 - `INSERT_TIME` is an Oracle `DATE` column (seconds, no time zone stored).
+- Type, color, size and level values are the same whatever their capitals or surrounding spaces ("White" = "WHITE"), in the value mapping, the barcode master and when comparing the rows of a scan (decided 2026-11-25). Barcodes stay exact.

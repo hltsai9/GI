@@ -240,6 +240,8 @@ The issue table repeats a scan once per barcode master row, so a barcode whose a
 - **Waiting**: when the barcode master cannot decide (not in it, tied, no version matches, or `SUIT_LEVEL` empty), the scan is stored with `status = held_conflict` (`conflict = 'pending'`) or `held_missing` and does not count. After every barcode master read or upload, all waiting scans are decided again and re-classified (§3.3).
 - **A stored scan read again with a new version** (the look-back re-reads 24 hours) is decided again; if the kept version changes, the issue's −1 moves to the other stock item (an `issue_correction` +1 and a new −1, dated at the issue time). Versions already recorded are not reported again.
 
+- **Capitals do not matter** (2026-11-25): type, color, size and level values are compared with `same()` (trimmed, case-folded) in the value mapping lookup, the known-bad patterns, the versions of a scan, the barcode master's latest rows and its matching, and the Data quality conflict list (`LOWER(TRIM(…))` in SQL). Values are stored as Oracle wrote them; barcodes are compared exactly. Migration `004` triggers a one-time re-check of existing data (`recheck_values`).
+
 ### 3.2 Processing each row (one MariaDB transaction per batch)
 
 Only the server sets `status`; no screen edits it directly. One function, `classifyIssue(row)`, decides `status`, `quality` and `stock_item_id`, and is used by the import **and** by every action that can change the answer later (§3.3), so a row is always classified by the same rules.
