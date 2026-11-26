@@ -5,6 +5,21 @@ Requirement IDs (e.g. `ORA-03`) refer to the [URD](./URD.md); open questions are
 
 ---
 
+## 2026-11-25
+
+### Barcode master: rows at the same latest RECTIME
+- **Asked:** the upload reported "5,093 with two rows at the same latest RECTIME, not used". Identical rows should count as one, and different ones should be pointed out.
+- **Answer:** identical rows already counted as one (checked again here, also across split files that overlap). The 5,093 barcodes really have different type, color or size in their latest rows. Letter case counts as a difference ("White" and "WHITE").
+- **New: Settings › Data quality › Barcode master: rows that disagree.**
+  - Lists each such barcode with its `RECTIME` and every version, the latest 100 on the page; **Download CSV** has all of them.
+  - GI still uses none of these versions until a newer row for the barcode arrives.
+  - Settings › Import points to the list.
+- **To see the versions of the barcodes already loaded, upload the barcode master again** (the parts you split are fine). Before this change GI kept only one of the versions, so the list can't show the others until they are read again.
+- Database: migration `003` (runs by itself; no drop).
+- A new frontend check makes sure every script file parses. A typo in one file blanked the page during this work; it was caught before committing.
+- On your question about a run left "running" after a crash: nothing runs then (the import lock is freed when the pod dies). The run can be marked failed by hand, and the file uploaded again.
+- Tested here: 73 backend tests pass (1 new) and the frontend checks pass (1 new). Checked on an iPhone-sized screen. The demo data was refreshed.
+
 ## 2026-11-24
 
 ### Barcode master: large files no longer crash GI; daily read takes only new rows

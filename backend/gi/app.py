@@ -316,6 +316,19 @@ def build_app(static_dir: str | Path | None = None) -> FastAPI:
         return Response(out.getvalue(), media_type="text/csv",
                         headers={"content-disposition": 'attachment; filename="barcodes-with-conflicting-values.csv"'})
 
+    @app.get("/api/data-quality/master-ties.csv", dependencies=[user])
+    def master_ties_csv():
+        with connect() as c:
+            lst = barcode_master.ties(c)
+        out = io.StringIO()
+        w = csv.writer(out, lineterminator="\n", quoting=csv.QUOTE_ALL)
+        w.writerow(["barcode", "rectime", "suit_type", "suit_color", "suit_size"])
+        for t in lst:
+            for v in t["versions"]:
+                w.writerow([t["barcode"], t["rectime"] or "", v["type"], v["color"], v["size"]])
+        return Response(out.getvalue(), media_type="text/csv",
+                        headers={"content-disposition": 'attachment; filename="barcode-master-rows-that-disagree.csv"'})
+
     # ---- Import status and admin
     @app.get("/api/sync/status", dependencies=[user])
     def status():

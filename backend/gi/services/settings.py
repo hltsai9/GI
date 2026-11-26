@@ -9,6 +9,7 @@ from sqlalchemy.engine import Connection
 from ..auth import HttpError
 from ..db import execute, marks, one, rows, with_tx
 from ..importing.importer import reclassify
+from ..importing.master import ties as master_ties
 from ..timeutil import iso, now_utc, to_db
 
 
@@ -281,6 +282,12 @@ def waiting_scans(conn: Connection, limit: int | None = 100) -> list[dict]:
 UNREGISTERED_SHOWN = 200
 CONFLICTS_SHOWN = 100
 WAITING_SHOWN = 100
+TIES_SHOWN = 100
+
+
+def _tie_count(conn: Connection) -> int:
+    r = one(conn, "SELECT COUNT(*) AS n FROM barcode_master WHERE tied")
+    return int(r["n"]) if r else 0
 
 
 def _master_counts(conn: Connection) -> dict:
@@ -309,4 +316,5 @@ def data_quality(conn: Connection, days: int) -> dict:
             "unregisteredTotal": totals["n"], "unregisteredExcluded": totals["excluded"],
             "conflictingBarcodes": conflicts[:CONFLICTS_SHOWN], "conflictingTotal": len(conflicts),
             "waiting": waiting_scans(conn, WAITING_SHOWN), **_master_counts(conn),
+            "masterTies": master_ties(conn, TIES_SHOWN), "masterTiesTotal": _tie_count(conn),
             "patterns": rows(conn, "SELECT id, suit_type, suit_color, suit_size, active FROM dq_pattern ORDER BY id")}

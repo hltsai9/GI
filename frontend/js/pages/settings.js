@@ -327,6 +327,30 @@ function DataQuality(meta, canEdit) {
       : h('div', { class: 'note' }, data ? 'None found: every barcode always came with the same type, color and size.' : ''),
     conflictTotal > 50 && h('div', { class: 'note' }, `Showing the 50 barcodes with the most issues; Download CSV has all ${fmtNum(conflictTotal)}.`),
     WaitingForMaster(data),
+    MasterTies(data, download),
+  ];
+}
+
+/** Barcodes whose barcode master rows at the latest RECTIME disagree: GI uses none of them until a newer row comes. */
+function MasterTies(data, download) {
+  const list = data?.masterTies ?? [];
+  const total = data?.masterTiesTotal ?? list.length;
+  return [
+    h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 8, marginTop: 8 } },
+      h('h4', { style: { margin: 0 } }, 'Barcode master: rows that disagree ',
+        h('span', { style: { fontSize: 13, fontWeight: 400, color: 'var(--color-neutral-700)' } }, `· ${fmtNum(total)} barcodes`)),
+      h('button', { class: 'btn btn-secondary', disabled: !total, onClick: () => download('/data-quality/master-ties.csv', 'barcode-master-rows-that-disagree.csv'), style: { minHeight: 44 } }, 'Download CSV')),
+    Help('The barcode master has two or more rows for these barcodes at the same, latest RECTIME, with a different type, color or size, so GI cannot tell which is right and does not use them: their repeated scans wait, and their empty values are not filled. Rows that are exactly the same count once. Letter case counts as a difference (White and WHITE). A newer row for the barcode settles it.'),
+    list.length
+      ? h('table', { class: 'table num stack' },
+        h('thead', null, h('tr', null, h('th', null, 'Barcode'), h('th', null, 'RECTIME'), h('th', null, 'Type / color / size'))),
+        h('tbody', null, list.map((t) => h('tr', null,
+          h('td', { 'data-label': '', style: { whiteSpace: 'pre', fontWeight: 600 }, title: JSON.stringify(t.barcode) }, t.barcode),
+          h('td', { 'data-label': 'RECTIME' }, t.rectime ?? 'none'),
+          h('td', { 'data-label': 'Versions' }, h('div', { style: { display: 'flex', flexDirection: 'column' } }, t.versions.map((v) => h('div', { style: { whiteSpace: 'pre' } },
+            [v.type, v.color, v.size].map((x) => x || '(empty)').join(' / ')))))))))
+      : h('div', { class: 'note' }, data ? 'None: every barcode has one latest version.' : ''),
+    total > list.length && h('div', { class: 'note' }, `Showing the ${fmtNum(list.length)} latest; Download CSV has all ${fmtNum(total)}.`),
   ];
 }
 
@@ -474,7 +498,7 @@ function BarcodeMaster(isAdmin) {
       'When the issue table has several rows for one scan (same barcode and INSERT_TIME) with other values, the row matching the barcode master counts; an empty type, color or size is filled from it. ',
       'Until the barcode master can decide, the scan waits and does not count. ',
       m?.live ? `It is read from Oracle${m.table ? ` (${m.table})` : ''} every day after ${String(m.syncHour).padStart(2, '0')}:00, and asked directly when a scan needs it.` : 'Upload an export of the barcode master table whenever it changed.'),
-    m && Msg({ tag: m.barcodes ? 'OK' : 'Empty', text: `${fmtNum(m.barcodes)} barcodes${m.tied ? ` (${fmtNum(m.tied)} with two rows at the same latest RECTIME, not used)` : ''}`
+    m && Msg({ tag: m.barcodes ? 'OK' : 'Empty', text: `${fmtNum(m.barcodes)} barcodes${m.tied ? ` (${fmtNum(m.tied)} whose latest rows disagree, not used: see Data quality)` : ''}`
       + `${m.last ? ` · last ${m.last.kind === 'master' ? 'read from Oracle' : 'upload'} ${fmtWhen(m.last.finished_at ?? m.last.started_at)}${m.last.status === 'failed' ? ' (failed)' : ''}` : ''}`
       + ` · ${fmtNum(w.conflict + w.missing)} scans waiting${w.conflict + w.missing ? ` (${fmtNum(w.conflict)} repeated with other values, ${fmtNum(w.missing)} with an empty value)` : ''}` }),
     m?.newestRectime && h('div', { class: 'note' }, `Newest RECTIME in GI: ${m.newestRectime}. `,

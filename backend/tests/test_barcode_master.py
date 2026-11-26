@@ -218,3 +218,29 @@ def test_rows_without_rectime_count_as_the_oldest():
     master_upload(version("G-4", "M", ""))
     with connect() as c:
         assert settings.waiting_scans(c)[0]["master"]["size"] == "L"
+
+
+def test_same_rows_count_once_and_different_ones_are_listed():
+    # Identical rows at the latest RECTIME (also across split files that overlap) are one version.
+    same = version("G-1", "L", "2026-10-14 15:30:00") + version("G-1", "L", "2026-10-14 15:30:00")
+    master_upload(same)
+    master_upload(same)
+    # Different rows at the latest RECTIME: every version is kept and listed; one in each of two files counts too.
+    master_upload(version("G-2", "M", "2026-10-14 15:30:00") + version("G-2", "L", "2026-10-14 15:30:00"))
+    master_upload(version("G-3", "M", "2026-10-14 15:30:00"))
+    master_upload(version("G-3", "XL", "2026-10-14 15:30:00") + version("G-3", "M", "2026-10-14 15:30:00"))
+    with connect() as c:
+        tied = {r["suit_barcode"]: r["tied"] for r in rows(c, "SELECT suit_barcode, tied FROM barcode_master")}
+        dq = settings.data_quality(c, 7)
+    assert tied == {"G-1": 0, "G-2": 1, "G-3": 1}
+    assert dq["masterTiesTotal"] == 2
+    got = {t["barcode"]: sorted(v["size"] for v in t["versions"]) for t in dq["masterTies"]}
+    assert got == {"G-2": ["L", "M"], "G-3": ["M", "XL"]}
+    # A newer row settles it.
+    master_upload(version("G-2", "L", "2026-11-01 08:00:00"))
+    with connect() as c:
+        assert settings.data_quality(c, 7)["masterTiesTotal"] == 1
+    from gi.app import build_app
+    csv_ = TestClient(build_app()).get("/api/data-quality/master-ties.csv", headers={"x-dev-user": "dev-lead"}).text
+    assert csv_.splitlines() == ['"barcode","rectime","suit_type","suit_color","suit_size"',
+                                 '"G-3","2026-10-14 15:30:00","GOWN","WHITE","M"', '"G-3","2026-10-14 15:30:00","GOWN","WHITE","XL"']

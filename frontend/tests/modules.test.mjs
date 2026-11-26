@@ -14,3 +14,11 @@ test('index.html preloads every module', () => {
   const html = readFileSync(join(root, 'index.html'), 'utf8');
   for (const m of modules) assert.ok(html.includes(`<link rel="modulepreload" href="${m}" />`), `missing modulepreload for ${m}`);
 });
+
+test('every module parses as an ES module (a syntax error blanks the whole page)', async () => {
+  const { spawnSync } = await import('node:child_process');
+  for (const m of modules) {
+    const r = spawnSync(process.execPath, ['--experimental-default-type=module', '--check', join(root, m)], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `${m}: ${r.stderr.split('\n').slice(0, 4).join('\n')}`);
+  }
+});

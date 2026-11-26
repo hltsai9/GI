@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 from typing import Iterable, Iterator
 
 from sqlalchemy.engine import Connection
@@ -33,8 +34,9 @@ def _when(rectime: str | None) -> str:
 
 
 def latest_versions(master_rows: Iterable[MasterRow]) -> dict[str, dict]:
-    """Per barcode, the version with the latest RECTIME (a row without RECTIME counts as the oldest). `tied` when
-    another row has the same latest RECTIME, or also none, but other values (GI cannot tell which is current)."""
+    """Per barcode, the version with the latest RECTIME (a row without RECTIME counts as the oldest). Rows with the
+    same values count once. `alts` lists the different (type, color, size) at the latest RECTIME; more than one
+    means `tied`: GI cannot tell which is current."""
     out: dict[str, dict] = {}
     for r in master_rows:
         b = r["SUIT_BARCODE"]
@@ -42,48 +44,69 @@ def latest_versions(master_rows: Iterable[MasterRow]) -> dict[str, dict]:
         cur = out.get(b)
         if cur is None or _when(r["RECTIME"]) > _when(cur["rectime"]):
             out[b] = {"category": r.get("SUIT_CATEGORY"), "attrs": vals, "rectime": r["RECTIME"],
-                      "versions": (cur["versions"] if cur else 0) + 1, "tied": False}
+                      "versions": (cur["versions"] if cur else 0) + 1, "alts": [vals], "tied": False}
         else:
             cur["versions"] += 1
-            if _when(r["RECTIME"]) == _when(cur["rectime"]) and vals != cur["attrs"]:
+            if _when(r["RECTIME"]) == _when(cur["rectime"]) and vals not in cur["alts"]:
+                cur["alts"].append(vals)
                 cur["tied"] = True
     return out
 
 
+def _alts_of(e: dict) -> list[Attrs]:
+    stored = (e["suit_type"], e["suit_color"], e["suit_size"])
+    raw = e.get("tie_values")
+    alts = [tuple(a) for a in (json.loads(raw) if isinstance(raw, str) else raw or [])]
+    return alts or [stored]  # type: ignore[return-value]
+
+
 def store(conn: Connection, latest: dict[str, dict]) -> int:
-    """Merges latest versions into barcode_master: one replaces the stored version when its RECTIME is the same
-    or later (so uploading an older export never undoes a newer one). Returns how many barcodes changed."""
+    """Merges latest versions into barcode_master: one replaces the stored version when its RECTIME is later; at
+    the same RECTIME the different versions are combined (identical ones count once), and more than one makes the
+    barcode `tied` with every version kept in tie_values. So uploading an older export, or the same rows again
+    (split files that overlap), never undoes or doubles anything. Returns how many barcodes changed."""
     changed = 0
     items = list(latest.items())
     for i in range(0, len(items), _CHUNK):
         chunk = items[i:i + _CHUNK]
-        have = {r["suit_barcode"]: r for r in rows(conn, f"""SELECT suit_barcode, suit_type, suit_color, suit_size, rectime, tied
+        have = {r["suit_barcode"]: r for r in rows(conn, f"""SELECT suit_barcode, suit_type, suit_color, suit_size, rectime, tied, tie_values
                                                               FROM barcode_master WHERE suit_barcode IN ({marks(len(chunk))})""",
                                                     [b for b, _ in chunk])}
         values: list = []
         n = 0
         for b, v in chunk:
             e = have.get(b)
-            tied = v["tied"]
+            attrs, alts = v["attrs"], list(v["alts"])
             if e:
-                stored = (e["suit_type"], e["suit_color"], e["suit_size"])
                 rt = naive_str(e["rectime"]) if e["rectime"] else ""
                 if _when(v["rectime"]) < rt:
                     continue
                 if _when(v["rectime"]) == rt:
-                    if stored == v["attrs"] and bool(e["tied"]) == tied:
-                        continue
-                    tied = tied or stored != v["attrs"]  # same RECTIME, other values (e.g. two uploads)
-            values += [b, v["category"], *v["attrs"], v["rectime"], v["versions"], tied]
+                    old = _alts_of(e)
+                    merged = old + [a for a in alts if a not in old]
+                    if merged == old:
+                        continue  # nothing new at this RECTIME
+                    attrs, alts = (e["suit_type"], e["suit_color"], e["suit_size"]), merged
+            tied = len(alts) > 1
+            values += [b, v["category"], *attrs, v["rectime"], v["versions"], tied, json.dumps([list(a) for a in alts]) if tied else None]
             n += 1
         if n:
-            execute(conn, f"""INSERT INTO barcode_master (suit_barcode, suit_category, suit_type, suit_color, suit_size, rectime, versions, tied)
-                              VALUES {', '.join(['(?,?,?,?,?,?,?,?)'] * n)}
+            execute(conn, f"""INSERT INTO barcode_master (suit_barcode, suit_category, suit_type, suit_color, suit_size, rectime, versions, tied, tie_values)
+                              VALUES {', '.join(['(?,?,?,?,?,?,?,?,?)'] * n)}
                               ON DUPLICATE KEY UPDATE suit_category = VALUES(suit_category), suit_type = VALUES(suit_type),
                                 suit_color = VALUES(suit_color), suit_size = VALUES(suit_size), rectime = VALUES(rectime),
-                                versions = VALUES(versions), tied = VALUES(tied)""", values)
+                                versions = VALUES(versions), tied = VALUES(tied), tie_values = VALUES(tie_values)""", values)
             changed += n
     return changed
+
+
+def ties(conn: Connection, limit: int | None = None) -> list[dict]:
+    """Barcodes whose rows at the latest RECTIME disagree (type, color or size), with every version: GI does not
+    use them until a newer row settles it. For the data quality page and its CSV."""
+    rs = rows(conn, f"""SELECT suit_barcode, suit_type, suit_color, suit_size, rectime, tie_values FROM barcode_master WHERE tied
+                         ORDER BY rectime DESC, suit_barcode {'LIMIT ' + str(int(limit)) if limit else ''}""")
+    return [{"barcode": r["suit_barcode"], "rectime": naive_str(r["rectime"]) if r["rectime"] else None,
+             "versions": [{"type": a[0] or "", "color": a[1] or "", "size": a[2] or ""} for a in _alts_of(r)]} for r in rs]
 
 
 def attrs_for(conn: Connection, barcodes: Iterable[str]) -> dict[str, Attrs]:
